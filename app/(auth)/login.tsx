@@ -7,8 +7,9 @@ import { Pressable, Text, View } from 'react-native';
 
 export default function LoginScreen() {
   const { signIn, usingFixtures } = useAuth();
-  const [email, setEmail] = useState(usingFixtures ? 'amy@sitepack.test' : '');
-  const [password, setPassword] = useState(usingFixtures ? SEED_PASSWORD : '');
+  const showSeedChips = __DEV__ && usingFixtures;
+  const [email, setEmail] = useState(showSeedChips ? 'amy@sitepack.test' : '');
+  const [password, setPassword] = useState(showSeedChips ? SEED_PASSWORD : '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -35,7 +36,7 @@ export default function LoginScreen() {
       <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Your password" />
       <ErrorText>{error}</ErrorText>
       <Button label="Sign in" onPress={onSubmit} loading={loading} disabled={!email || !password} />
-      {usingFixtures ? (
+      {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
           <Muted>Local seed logins (password {SEED_PASSWORD})</Muted>
           {SEED_LOGINS.map((login) => (
