@@ -8,6 +8,8 @@ export const theme = {
   current: '#E8B84A',
   currentInk: '#1A1404',
   superseded: '#6B7380',
+  /** Cool grey for an archive folder name. Readable on the card, not the cream of a live folder. */
+  archive: '#B4BEC7',
   open: '#D96B4F',
   sent: '#6FAE8F',
   closed: '#8A93A0',

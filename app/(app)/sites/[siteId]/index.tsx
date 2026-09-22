@@ -1,14 +1,15 @@
-import { Button, Card, EmptyState, Muted, RevBadge, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { formatDate, formatWhen } from '@/lib/format';
 import { downloadCurrentPack, isPackReady, readPackMeta } from '@/lib/offline';
 import { theme } from '@/lib/theme';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
@@ -16,7 +17,6 @@ export default function SitePackScreen() {
   const router = useRouter();
   const [site, setSite] = useState<HomeSite | null>(null);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
-  const [showOld, setShowOld] = useState(false);
   const [progress, setProgress] = useState<string>('');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -30,12 +30,13 @@ export default function SitePackScreen() {
     setReady(isPackReady(siteId, currentIds));
   }, [siteId]);
 
-  useEffect(() => {
-    load().catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load pack'));
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load().catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load pack'));
+    }, [load])
+  );
 
-  const current = useMemo(() => drawings.filter((d) => d.is_current), [drawings]);
-  const superseded = useMemo(() => drawings.filter((d) => !d.is_current), [drawings]);
+  const folders = packFolders(drawings);
   const manage = person ? canManageSite(person.role) : false;
   const meta = siteId ? readPackMeta(siteId) : null;
 
@@ -81,7 +82,7 @@ export default function SitePackScreen() {
     <Screen>
       <Title>{site.name}</Title>
       <Muted>{site.address_line ?? 'Assigned site pack'}</Muted>
-      <Muted>{formatWhen(site.updated_at)} · current sheets only unless you open archive</Muted>
+      <Muted>{formatWhen(site.updated_at)}</Muted>
       {ready ? (
         <Text style={{ color: theme.sent, fontWeight: '700' }}>
           Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
@@ -101,8 +102,8 @@ export default function SitePackScreen() {
         </View>
       ) : null}
 
-      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>CURRENT</Text>
-      {current.length === 0 ? (
+      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>
+      {folders.length === 0 ? (
         <EmptyState
           title="No drawings yet"
           action={
@@ -114,38 +115,28 @@ export default function SitePackScreen() {
           }
         />
       ) : (
-        current.map((drawing) => (
-          <Card key={drawing.id} onPress={() => router.push(`/sites/${siteId}/drawing/${drawing.id}`)}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
-                {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                <Muted>{formatDate(drawing.dated)}</Muted>
-              </View>
-              <RevBadge revision={drawing.revision} current />
-            </View>
-            <Text style={{ color: theme.current, fontWeight: '700' }}>Open current</Text>
+        folders.map((folder) => (
+          <Card
+            key={folder.name}
+            onPress={() => router.push(`/sites/${siteId}/folder/${encodeURIComponent(folder.name)}`)}>
+            <Text
+              style={{
+                color: folder.archive ? theme.archive : theme.text,
+                fontSize: 18,
+                fontWeight: '700',
+              }}>
+              {folder.name}
+            </Text>
+            {folder.archive ? (
+              <Text style={{ color: theme.muted, fontWeight: '700' }}>Archive</Text>
+            ) : (
+              <Muted>
+                {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
+              </Muted>
+            )}
           </Card>
         ))
       )}
-
-      <Pressable onPress={() => setShowOld((v) => !v)} style={{ paddingVertical: 8 }}>
-        <Text style={{ color: theme.superseded, fontWeight: '700' }}>
-          {showOld ? 'Hide superseded' : `Show superseded / archive (${superseded.length})`}
-        </Text>
-        <Muted>Deliberate extra tap. These are not the default open.</Muted>
-      </Pressable>
-      {showOld
-        ? superseded.map((drawing) => (
-            <Card key={drawing.id} onPress={() => router.push(`/sites/${siteId}/drawing/${drawing.id}`)}>
-              <View style={{ opacity: 0.7, gap: 4 }}>
-                <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
-                <RevBadge revision={drawing.revision} current={false} />
-                <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
-              </View>
-            </Card>
-          ))
-        : null}
     </Screen>
   );
 }

@@ -14,6 +14,7 @@ import type {
   SiteAssignment,
   Site,
 } from '@/data/types';
+import { resolveFolder } from '@/data/folders';
 import { pdfObjectUrl } from '@/lib/pdf';
 
 type Store = {
@@ -114,6 +115,7 @@ function seed(): Store {
       sheet_number: 'A-101',
       revision: 'B',
       dated: '2026-08-02',
+      folder: 'Ground floor',
       is_current: false,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.gfRevB}.pdf`,
@@ -130,6 +132,7 @@ function seed(): Store {
       sheet_number: 'A-101',
       revision: 'C',
       dated: '2026-09-10',
+      folder: 'Ground floor',
       is_current: true,
       supersedes_id: IDS.gfRevB,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.gfRevC}.pdf`,
@@ -146,6 +149,7 @@ function seed(): Store {
       sheet_number: 'A-102',
       revision: 'A',
       dated: '2026-09-04',
+      folder: 'First floor',
       is_current: true,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.ffRevA}.pdf`,
@@ -162,6 +166,7 @@ function seed(): Store {
       sheet_number: 'Y-01',
       revision: 'A',
       dated: '2026-09-12',
+      folder: 'Other',
       is_current: true,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.warehouse}/${IDS.yard}.pdf`,
@@ -512,6 +517,7 @@ export const fixtureRepo: SitePackRepo = {
       uploaded_by: person.id,
       created_at: now(),
       updated_at: now(),
+      folder: resolveFolder(input.folder, old?.folder),
     };
     store.drawings.push(created);
     const site = store.sites.find((s) => s.id === input.siteId);

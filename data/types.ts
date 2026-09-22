@@ -44,6 +44,8 @@ export type Drawing = {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+  /** One-level pack folder. Not part of sheet identity. Blank is Other. */
+  folder: string;
 };
 
 export type DrawingRequest = {
@@ -96,6 +98,8 @@ export type ReplaceDrawingInput = {
   fileSizeBytes?: number | null;
   contentType?: string | null;
   replaceDrawingId?: string | null;
+  /** Null or omitted copies the previous current folder. Blank is stored as Other. */
+  folder?: string | null;
 };
 
 export type CreateRequestInput = {

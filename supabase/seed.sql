@@ -180,7 +180,7 @@ on conflict (site_id, person_id) do nothing;
 
 -- Superseded first, then current (unique current index)
 insert into public.drawings (
-  id, site_id, title, sheet_number, revision, dated, is_current, supersedes_id,
+  id, site_id, title, sheet_number, revision, dated, folder, is_current, supersedes_id,
   storage_path, file_size_bytes, content_type, uploaded_by, created_at
 )
 values
@@ -191,6 +191,7 @@ values
     'A-101',
     'B',
     date '2026-08-02',
+    'Ground floor',
     false,
     null,
     '11111111-1111-1111-1111-111111111111/66666666-6666-6666-6666-666666666666/99999999-9999-9999-9999-999999999991.pdf',
@@ -206,6 +207,7 @@ values
     'A-101',
     'C',
     date '2026-09-10',
+    'Ground floor',
     true,
     '99999999-9999-9999-9999-999999999991',
     '11111111-1111-1111-1111-111111111111/66666666-6666-6666-6666-666666666666/99999999-9999-9999-9999-999999999992.pdf',
@@ -221,6 +223,7 @@ values
     'A-102',
     'A',
     date '2026-09-04',
+    'First floor',
     true,
     null,
     '11111111-1111-1111-1111-111111111111/66666666-6666-6666-6666-666666666666/99999999-9999-9999-9999-999999999993.pdf',
@@ -236,6 +239,7 @@ values
     'Y-01',
     'A',
     date '2026-09-12',
+    'Other',
     true,
     null,
     '11111111-1111-1111-1111-111111111111/88888888-8888-8888-8888-888888888888/99999999-9999-9999-9999-999999999994.pdf',
