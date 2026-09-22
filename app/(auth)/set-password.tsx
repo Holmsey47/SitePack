@@ -1,10 +1,13 @@
 import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { spentInviteGuidance } from '@/lib/inviteGrant';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
 export default function SetPasswordScreen() {
   const { setPassword, signOut } = useAuth();
+  const router = useRouter();
   const [password, setValue] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -24,7 +27,13 @@ export default function SetPasswordScreen() {
     try {
       await setPassword(password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not set password.');
+      const message = err instanceof Error ? err.message : 'Could not set password.';
+      if (message.toLowerCase().includes('different from the old password')) {
+        const pageUrl = typeof window !== 'undefined' ? window.location.href : null;
+        setError(spentInviteGuidance(pageUrl));
+        return;
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -40,7 +49,13 @@ export default function SetPasswordScreen() {
       <Field label="Confirm password" value={confirm} onChangeText={setConfirm} secureTextEntry />
       <ErrorText>{error}</ErrorText>
       <Button label="Save password" onPress={onSubmit} loading={loading} />
-      <Button label="Cancel" variant="ghost" onPress={() => void signOut()} />
+      <Button
+        label="Cancel"
+        variant="ghost"
+        onPress={() => {
+          void signOut().then(() => router.replace('/login'));
+        }}
+      />
     </Screen>
   );
 }

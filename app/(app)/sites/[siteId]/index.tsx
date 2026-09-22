@@ -81,7 +81,9 @@ export default function SitePackScreen() {
   return (
     <Screen>
       <Title>{site.name}</Title>
-      <Muted>{site.address_line ?? 'Assigned site pack'}</Muted>
+      {site.address_line ? <Muted>{site.address_line}</Muted> : null}
+      {site.main_contractor ? <Muted>Main contractor · {site.main_contractor}</Muted> : null}
+      {site.what_it_is ? <Muted>{site.what_it_is}</Muted> : null}
       <Muted>{formatWhen(site.updated_at)}</Muted>
       {ready ? (
         <Text style={{ color: theme.sent, fontWeight: '700' }}>

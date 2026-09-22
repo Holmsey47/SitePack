@@ -53,6 +53,9 @@ export default function HomeScreen() {
       </View>
       {person && person.role !== 'operative' ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          {person.role === 'owner' ? (
+            <Button label="Create site" onPress={() => router.push('/create-site')} />
+          ) : null}
           <Button label="Pulse" variant="secondary" onPress={() => router.push('/sites')} />
           <Button label="Requests" variant="secondary" onPress={() => router.push('/requests')} />
           {person.role === 'owner' ? <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} /> : null}
@@ -61,7 +64,13 @@ export default function HomeScreen() {
       {usingFixtures ? <Muted>Running on local seed (no Supabase URL). Same screens as live.</Muted> : null}
       {offline ? <Muted>Showing last synced site names. {error}</Muted> : null}
       {sites.length === 0 ? (
-        <EmptyState title="You’re not on a site yet — ask your owner" />
+        <EmptyState
+          title={
+            person?.role === 'owner'
+              ? 'Nothing is assigned to you. Company sites are on Pulse.'
+              : 'You’re not on a site yet — ask your owner'
+          }
+        />
       ) : (
         sites.map((site) => (
           <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>

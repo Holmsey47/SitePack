@@ -1,4 +1,5 @@
 import { repo, useFixtures } from '@/data/index';
+import { inviteGrantFromUrl } from '@/lib/inviteGrant';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { Person } from '@/data/types';
 import * as Linking from 'expo-linking';
@@ -37,8 +38,14 @@ function writePending(value: boolean) {
 }
 
 function urlLooksLikeInvite(url: string | null): boolean {
-  if (!url) return false;
-  return url.includes('type=invite') || url.includes('type=recovery') || url.includes('set-password');
+  return inviteGrantFromUrl(url) !== null;
+}
+
+function clearInviteHash() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.hash = '';
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -51,8 +58,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function boot() {
       const initialUrl = await Linking.getInitialURL();
-      if (urlLooksLikeInvite(initialUrl) || (typeof window !== 'undefined' && urlLooksLikeInvite(window.location.href))) {
-        writePending(true);
+      const pageUrl = typeof window !== 'undefined' ? window.location.href : initialUrl;
+      const grant = inviteGrantFromUrl(pageUrl) ?? inviteGrantFromUrl(initialUrl);
+      if (grant && !useFixtures && hasSupabaseConfig) {
+        const { error } = await getSupabase().auth.setSession({
+          access_token: grant.accessToken,
+          refresh_token: grant.refreshToken,
+        });
+        if (!error) {
+          writePending(true);
+          clearInviteHash();
+        }
       }
       if (!useFixtures && hasSupabaseConfig) {
         const supabase = getSupabase();

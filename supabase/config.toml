@@ -248,9 +248,11 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-[auth.email.template.invite]
-subject = "You're invited to SitePack — set your password"
-content_path = "./templates/invite.html"
+# Custom invite HTML is refused on the free tier with Supabase's own mail.
+# The default invite email is enough for the live-company smoke.
+# [auth.email.template.invite]
+# subject = "You're invited to SitePack — set your password"
+# content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

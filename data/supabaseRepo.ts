@@ -1,3 +1,5 @@
+import { normalizeCreateSite } from '@/data/createSite';
+import { inviteFailureMessage } from '@/data/inviteError';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
 import type {
@@ -244,6 +246,25 @@ export const supabaseRepo: SitePackRepo = {
     return unwrap(data as DrawingRequest, error);
   },
 
+  async createSite(input) {
+    const supabase = getSupabase();
+    const person = await this.me();
+    if (!person || person.role !== 'owner') throw new Error('not_authorized');
+    const fields = normalizeCreateSite(input);
+    const id = crypto.randomUUID();
+    const { error } = await supabase.from('sites').insert({
+      id,
+      company_id: person.company_id,
+      name: fields.name,
+      address_line: fields.address_line,
+      main_contractor: fields.main_contractor,
+      what_it_is: fields.what_it_is,
+    });
+    if (error) throw new Error(error.message);
+    const { data, error: readError } = await supabase.from('sites').select('*').eq('id', id).single();
+    return unwrap(data as Site, readError);
+  },
+
   async companySitesPulse() {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('company_sites_pulse');
@@ -328,8 +349,20 @@ export const supabaseRepo: SitePackRepo = {
         site_id: input.siteId ?? null,
       },
     });
-    if (error) throw new Error(error.message);
-    if (data?.error) throw new Error(data.error);
+    if (error) {
+      let bodyError: string | null = null;
+      const context = (error as { context?: unknown }).context;
+      if (context instanceof Response) {
+        try {
+          const body = (await context.json()) as { error?: unknown };
+          bodyError = typeof body.error === 'string' ? body.error : null;
+        } catch {
+          bodyError = null;
+        }
+      }
+      throw new Error(inviteFailureMessage(bodyError, error.message));
+    }
+    if (data?.error) throw new Error(inviteFailureMessage(String(data.error), String(data.error)));
   },
 
   async getDrawingOpenUrl(drawing) {

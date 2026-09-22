@@ -17,6 +17,9 @@
   "exclude": [
     "supabase/functions",
     "node_modules",
-    "data/folders.test.ts"
+    "data/folders.test.ts",
+    "data/createSite.test.ts",
+    "data/inviteError.test.ts",
+    "lib/inviteGrant.test.ts"
   ]
 }

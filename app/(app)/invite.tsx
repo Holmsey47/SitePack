@@ -2,9 +2,10 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import { sitesAfterReload } from '@/data/siteList';
 import type { PulseRow, Role } from '@/data/types';
-import { Redirect } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Redirect, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { theme } from '@/lib/theme';
 
@@ -19,13 +20,26 @@ export default function InviteScreen() {
   const [sites, setSites] = useState<PulseRow[]>([]);
   const [siteId, setSiteId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [listNotice, setListNotice] = useState('');
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!person || person.role === 'operative') return;
-    repo.companySitesPulse().then(setSites).catch(() => setSites([]));
-  }, [person]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!person || person.role === 'operative') return;
+      repo
+        .companySitesPulse()
+        .then((rows) => {
+          const next = sitesAfterReload(rows, []);
+          setSites(next.sites);
+          setListNotice(next.notice);
+        })
+        .catch(() => {
+          setSites((current) => sitesAfterReload(null, current).sites);
+          setListNotice(sitesAfterReload(null, []).notice);
+        });
+    }, [person])
+  );
 
   if (person && !canManageSite(person.role)) return <Redirect href="/home" />;
 
@@ -83,6 +97,7 @@ export default function InviteScreen() {
         ))}
       </View>
       <Text style={{ color: theme.muted, fontWeight: '700' }}>Assign to site (optional)</Text>
+      {listNotice ? <Muted>{listNotice}</Muted> : null}
       {sites.map((site) => (
         <Pressable
           key={site.site_id}
