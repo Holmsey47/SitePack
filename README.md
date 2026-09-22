@@ -25,7 +25,7 @@ Product contracts live in [`docs/`](docs/):
 |---|---|
 | Invite + password auth | `app/(auth)/login.tsx`, `set-password.tsx`, `supabase/functions/invite-person` |
 | Assigned sites home | `app/(app)/home.tsx` — same list query for operative and CM |
-| Site pack current / superseded | `app/(app)/sites/[siteId]` — current default; archive is an extra tap |
+| Site pack folders | `app/(app)/sites/[siteId]` — one level of folders; archive is an extra tap inside the folder |
 | Offline current pack | `lib/offline.ts` — native files + web Cache Storage |
 | Request a drawing | `app/(app)/sites/[siteId]/request.tsx` — queue item, not chat |
 | CM upload / replace | `app/(app)/sites/[siteId]/upload.tsx` + `replace_drawing` RPC |

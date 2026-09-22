@@ -95,9 +95,10 @@ Snag + photo, markup/compare/BIM/OCR, full RFI/variation/submittal, company chat
 
 **Shows:**
 - Site name header  
-- **Current** list: title (and number if known), **big rev**, date, open/view  
-- **Superseded / archive** section: collapsed by default, visually demoted; open requires deliberate tap  
-- Pack actions: **Download for offline** (progress); show offline ready state  
+- **Folders** that contain at least one current sheet (one level: Ground floor, First floor, …). Tap a folder.  
+- Inside a folder: **current** sheets — title, sheet number, **big rev**, date. One more tap opens the PDF.  
+- **Superseded / archive** for that folder only: collapsed by default; open requires a deliberate tap  
+- Pack actions: **Download for offline** is still the whole site’s current pack, not one folder  
 - Primary secondary action: **Request a drawing**
 
 **Replace behaviour (visible to CM only on this screen or via CM feed — see Screen 5):** when a sheet is replaced, new file is current; previous moves to superseded automatically.

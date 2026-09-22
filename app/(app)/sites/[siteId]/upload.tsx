@@ -1,5 +1,6 @@
 import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { FOLDER_PRESETS, OTHER_FOLDER, displayFolder } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, SiteAssignment } from '@/data/types';
@@ -20,6 +21,7 @@ export default function UploadScreen() {
   const [sheetNumber, setSheetNumber] = useState('');
   const [revision, setRevision] = useState('');
   const [dated, setDated] = useState(new Date().toISOString().slice(0, 10));
+  const [folderName, setFolderName] = useState('');
   const [fileName, setFileName] = useState('');
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState('');
@@ -78,6 +80,7 @@ export default function UploadScreen() {
         fileSizeBytes: uploaded.fileSizeBytes,
         contentType: 'application/pdf',
         replaceDrawingId: replaceId,
+        folder: folderName,
       });
       setDoneRev(revision.trim());
     } catch (err) {
@@ -118,6 +121,7 @@ export default function UploadScreen() {
             setReplaceId(drawing.id);
             setTitle(drawing.title);
             setSheetNumber(drawing.sheet_number ?? '');
+            setFolderName(displayFolder(drawing.folder));
           }}
           style={{
             padding: 12,
@@ -129,12 +133,44 @@ export default function UploadScreen() {
           <Text style={{ color: theme.text, fontWeight: '700' }}>
             {drawing.title} · Rev {drawing.revision}
           </Text>
+          <Text style={{ color: theme.muted }}>{displayFolder(drawing.folder)}</Text>
         </Pressable>
       ))}
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="words" placeholder="Ground Floor GA" />
       <Field label="Sheet number" value={sheetNumber} onChangeText={setSheetNumber} placeholder="A-101" />
       <Field label="Revision" value={revision} onChangeText={setRevision} placeholder="D" />
       <Field label="Dated" value={dated} onChangeText={setDated} placeholder="YYYY-MM-DD" />
+      <Text style={{ color: theme.muted, fontWeight: '700' }}>Folder</Text>
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {FOLDER_PRESETS.map((preset) => {
+          const selected = folderName.trim() === preset || (preset === OTHER_FOLDER && folderName.trim() === '');
+          return (
+            <Pressable
+              key={preset}
+              accessibilityRole="button"
+              onPress={() => setFolderName(preset)}
+              style={{
+                minHeight: 44,
+                justifyContent: 'center',
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: selected ? theme.current : theme.line,
+                backgroundColor: theme.surface,
+              }}>
+              <Text style={{ color: theme.text, fontWeight: selected ? '800' : '600' }}>{preset}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Field
+        label="Folder name"
+        value={folderName}
+        onChangeText={setFolderName}
+        autoCapitalize="words"
+        placeholder="Or type a name. Blank is Other."
+      />
+      <Muted>Filed under {displayFolder(folderName)}. One level only.</Muted>
       <Button label={fileName ? `PDF: ${fileName}` : 'Pick PDF'} variant="secondary" onPress={() => void pickPdf()} />
       <ErrorText>{error}</ErrorText>
       <Button
