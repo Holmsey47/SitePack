@@ -311,6 +311,7 @@ export const supabaseRepo: SitePackRepo = {
       p_content_type: input.contentType ?? 'application/pdf',
       p_replace_drawing_id: input.replaceDrawingId ?? null,
       p_id: input.id ?? null,
+      p_folder: input.folder ?? null,
     });
     if (error) throw new Error(rpcErrorCode(error.message));
     return data as Drawing;

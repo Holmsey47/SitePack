@@ -95,8 +95,9 @@ One row per uploaded PDF revision. Exactly one **current** drawing per logical s
 | `uploaded_by` | uuid FK → people | |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
+| `folder` | text not null | default `Other`. One level only. Not part of the sheet group. |
 
-**Sheet group:** same `site_id` + same `title` (and `sheet_number` when set). Replace flow inserts new row with `is_current = true`, sets previous current’s `is_current = false`, sets new.`supersedes_id` = old id — **in one transaction** so two currents never exist (Screen 5).
+**Sheet group:** same `site_id` + same `title` (and `sheet_number` when set). Folder is a label on the row, not part of that identity. Replace flow inserts new row with `is_current = true`, sets previous current’s `is_current = false`, sets new.`supersedes_id` = old id — **in one transaction** so two currents never exist (Screen 5). Null `p_folder` copies the previous folder; a sent folder moves only the new current row.
 
 **Sheet key (required — no null footgun):**  
 Generated column `sheet_key text generated always as (coalesce(nullif(trim(sheet_number), ''), '')) stored`  

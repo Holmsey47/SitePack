@@ -28,12 +28,13 @@ Auth: invite + password (no magic link, no open signup) → session → `people.
 | `p_file_size_bytes` | bigint | no | |
 | `p_content_type` | text | no | default `application/pdf` |
 | `p_replace_drawing_id` | uuid | no | if set, must be current row for that sheet; else match by site+title+sheet_key |
+| `p_folder` | text | no | null copies the previous current row’s folder (or **Other** if there is no previous row). Blank trims to **Other**. A name is stored trimmed. Folder is not part of sheet identity. |
 
 ### Behaviour (one transaction)
 
 1. Resolve previous current for `(site_id, title, sheet_key)` (or by `p_replace_drawing_id`).
-2. Insert new `drawings` row: `is_current = true`, `supersedes_id = old.id` (null if first).
-3. Set old row `is_current = false` if any.
+2. Insert new `drawings` row: `is_current = true`, `supersedes_id = old.id` (null if first), `folder` from `p_folder` (null copies the previous current folder; blank is **Other**).
+3. Set old row `is_current = false` if any. Do not change the old row’s folder.
 4. Bump `sites.updated_at`.
 5. Insert `drawing_audit` (`action = upload` or `replace`, revision snapshot, actor = me).
 6. Return the new drawing row.
