@@ -44,18 +44,28 @@ export function compareFolderNames(a: string, b: string): number {
 export type FolderSummary = {
   name: string;
   currentCount: number;
+  supersededCount: number;
+  /** True when every sheet in the folder is superseded. Still listed, still opens. */
+  archive: boolean;
 };
 
-/** Folders that contain at least one current sheet. */
-export function foldersWithCurrentSheets(drawings: Drawing[]): FolderSummary[] {
-  const counts = new Map<string, number>();
+/** Every folder that has any sheet. Archive folders are not dropped. */
+export function packFolders(drawings: Drawing[]): FolderSummary[] {
+  const counts = new Map<string, { currentCount: number; supersededCount: number }>();
   for (const drawing of drawings) {
-    if (!drawing.is_current) continue;
     const name = displayFolder(drawing.folder);
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+    const group = counts.get(name) ?? { currentCount: 0, supersededCount: 0 };
+    if (drawing.is_current) group.currentCount += 1;
+    else group.supersededCount += 1;
+    counts.set(name, group);
   }
   return [...counts.entries()]
-    .map(([name, currentCount]) => ({ name, currentCount }))
+    .map(([name, group]) => ({
+      name,
+      currentCount: group.currentCount,
+      supersededCount: group.supersededCount,
+      archive: group.currentCount === 0,
+    }))
     .sort((a, b) => compareFolderNames(a.name, b.name));
 }
 

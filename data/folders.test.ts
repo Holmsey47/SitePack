@@ -6,7 +6,7 @@ import {
   compareFolderNames,
   displayFolder,
   drawingsInFolder,
-  foldersWithCurrentSheets,
+  packFolders,
   resolveFolder,
 } from './folders.ts';
 
@@ -42,7 +42,7 @@ test('replace copies the previous folder only when folder is omitted', () => {
   assert.equal(resolveFolder(null, null), OTHER_FOLDER);
 });
 
-test('site pack lists only folders that have a current sheet, presets then custom then Other', () => {
+test('site pack lists every folder that has a sheet, presets then custom then Other', () => {
   const rows = [
     drawing({ id: '1', title: 'Compound', is_current: true, folder: '' }),
     drawing({ id: '2', title: 'GA', is_current: true, folder: 'Ground floor' }),
@@ -50,23 +50,19 @@ test('site pack lists only folders that have a current sheet, presets then custo
     drawing({ id: '4', title: 'FF', is_current: true, folder: 'First floor' }),
     drawing({ id: '5', title: 'Roof plan', is_current: true, folder: 'Roof' }),
     drawing({ id: '6', title: 'Elev', is_current: true, folder: 'Elevations' }),
+    drawing({ id: '7', title: 'Lost', is_current: false, folder: 'Basement' }),
   ];
+  const folders = packFolders(rows);
   assert.deepEqual(
-    foldersWithCurrentSheets(rows).map((folder) => folder.name),
-    ['Ground floor', 'First floor', 'Elevations', 'Roof', 'Other']
+    folders.map((folder) => folder.name),
+    ['Ground floor', 'First floor', 'Elevations', 'Basement', 'Roof', 'Other']
   );
+  assert.equal(folders.find((folder) => folder.name === 'Basement')?.archive, true);
+  assert.equal(folders.find((folder) => folder.name === 'Roof')?.archive, false);
 });
 
-test('superseded sheets stay in their folder and do not create a folder on their own', () => {
+test('moving the new current sheet leaves the old folder as an archive', () => {
   const rows = [
-    drawing({
-      id: 'c',
-      title: 'Ground Floor GA',
-      sheet_number: 'A-101',
-      revision: 'C',
-      is_current: true,
-      folder: 'Ground floor',
-    }),
     drawing({
       id: 'b',
       title: 'Ground Floor GA',
@@ -75,22 +71,50 @@ test('superseded sheets stay in their folder and do not create a folder on their
       is_current: false,
       folder: 'Ground floor',
     }),
-    drawing({ id: 'old', title: 'Lost', is_current: false, folder: 'Basement' }),
+    drawing({
+      id: 'c',
+      title: 'Ground Floor GA',
+      sheet_number: 'A-101',
+      revision: 'C',
+      is_current: false,
+      folder: 'Ground floor',
+    }),
+    drawing({
+      id: 'd',
+      title: 'Ground Floor GA',
+      sheet_number: 'A-101',
+      revision: 'D',
+      is_current: true,
+      folder: 'First floor',
+    }),
+    drawing({
+      id: 'ff',
+      title: 'First Floor GA',
+      sheet_number: 'A-102',
+      revision: 'A',
+      is_current: true,
+      folder: 'First floor',
+    }),
   ];
+  const folders = packFolders(rows);
+  const ground = folders.find((folder) => folder.name === 'Ground floor');
+  const first = folders.find((folder) => folder.name === 'First floor');
+  assert.equal(ground?.archive, true);
+  assert.equal(ground?.currentCount, 0);
+  assert.equal(ground?.supersededCount, 2);
+  assert.equal(first?.archive, false);
+  assert.equal(first?.currentCount, 2);
+
+  const groundSheets = drawingsInFolder(rows, 'Ground floor');
+  assert.deepEqual(groundSheets.current, []);
   assert.deepEqual(
-    foldersWithCurrentSheets(rows).map((folder) => folder.name),
-    ['Ground floor']
-  );
-  const ground = drawingsInFolder(rows, 'Ground floor');
-  assert.deepEqual(
-    ground.current.map((row) => row.revision),
-    ['C']
+    groundSheets.superseded.map((row) => row.revision),
+    ['B', 'C']
   );
   assert.deepEqual(
-    ground.superseded.map((row) => row.revision),
-    ['B']
+    drawingsInFolder(rows, 'First floor').current.map((row) => row.revision),
+    ['A', 'D']
   );
-  assert.equal(drawingsInFolder(rows, 'Basement').current.length, 0);
 });
 
 test('folder order puts Other last', () => {

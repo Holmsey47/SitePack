@@ -95,9 +95,10 @@ Snag + photo, markup/compare/BIM/OCR, full RFI/variation/submittal, company chat
 
 **Shows:**
 - Site name header  
-- **Folders** that contain at least one current sheet (one level: Ground floor, First floor, …). Tap a folder.  
-- Inside a folder: **current** sheets — title, sheet number, **big rev**, date. One more tap opens the PDF.  
-- **Superseded / archive** for that folder only: collapsed by default; open requires a deliberate tap  
+- **Folders** that contain any sheet (one level: Ground floor, First floor, …). Tap a folder.  
+- A folder with only superseded sheets stays on the list, grey, labelled **Archive**, and still opens.  
+- Inside a folder that has a current sheet: **current** sheets — title, sheet number, **big rev**, date. One more tap opens the PDF. Superseded sheets for that folder stay collapsed behind an extra tap.  
+- Inside an archive folder: the superseded sheets are the list. Nothing current to hide them behind.
 - Pack actions: **Download for offline** is still the whole site’s current pack, not one folder  
 - Primary secondary action: **Request a drawing**
 

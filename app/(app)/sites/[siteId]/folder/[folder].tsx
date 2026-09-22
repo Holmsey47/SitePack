@@ -45,6 +45,7 @@ export default function FolderScreen() {
   );
 
   const { current, superseded } = drawingsInFolder(drawings, folderName);
+  const archiveOnly = current.length === 0 && superseded.length > 0;
 
   if (!loaded && !error) {
     return (
@@ -54,51 +55,74 @@ export default function FolderScreen() {
     );
   }
 
+  function openDrawing(drawingId: string) {
+    router.push(`/sites/${siteId}/drawing/${drawingId}`);
+  }
+
   return (
     <Screen>
       <Title>{folderName}</Title>
-      <Muted>Current sheets in this folder. One tap opens the PDF.</Muted>
+      <Muted>
+        {archiveOnly
+          ? 'Archive. No current sheet in this folder.'
+          : 'Current sheets in this folder. One tap opens the PDF.'}
+      </Muted>
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
-      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>CURRENT</Text>
-      {current.length === 0 ? (
-        <EmptyState title="No current sheets in this folder" />
-      ) : (
-        current.map((drawing) => (
-          <Card key={drawing.id} onPress={() => router.push(`/sites/${siteId}/drawing/${drawing.id}`)}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
-                {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                <Muted>{formatDate(drawing.dated)}</Muted>
-              </View>
-              <RevBadge revision={drawing.revision} current />
+      {archiveOnly ? (
+        superseded.map((drawing) => (
+          <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
+            <View style={{ opacity: 0.7, gap: 4 }}>
+              <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
+              {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+              <RevBadge revision={drawing.revision} current={false} />
+              <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
             </View>
-            <Text style={{ color: theme.current, fontWeight: '700' }}>Open current</Text>
           </Card>
         ))
-      )}
+      ) : (
+        <>
+          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>CURRENT</Text>
+          {current.length === 0 ? (
+            <EmptyState title="No drawings in this folder" />
+          ) : (
+            current.map((drawing) => (
+              <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
+                    {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+                    <Muted>{formatDate(drawing.dated)}</Muted>
+                  </View>
+                  <RevBadge revision={drawing.revision} current />
+                </View>
+                <Text style={{ color: theme.current, fontWeight: '700' }}>Open current</Text>
+              </Card>
+            ))
+          )}
 
-      {superseded.length > 0 ? (
-        <Pressable onPress={() => setShowOld((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: theme.superseded, fontWeight: '700' }}>
-            {showOld ? 'Hide superseded' : `Show superseded / archive (${superseded.length})`}
-          </Text>
-          <Muted>Deliberate extra tap. These are not the default open.</Muted>
-        </Pressable>
-      ) : null}
-      {showOld
-        ? superseded.map((drawing) => (
-            <Card key={drawing.id} onPress={() => router.push(`/sites/${siteId}/drawing/${drawing.id}`)}>
-              <View style={{ opacity: 0.7, gap: 4 }}>
-                <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
-                {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                <RevBadge revision={drawing.revision} current={false} />
-                <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
-              </View>
-            </Card>
-          ))
-        : null}
+          {superseded.length > 0 ? (
+            <Pressable onPress={() => setShowOld((value) => !value)} style={{ paddingVertical: 8 }}>
+              <Text style={{ color: theme.superseded, fontWeight: '700' }}>
+                {showOld ? 'Hide superseded' : `Show superseded / archive (${superseded.length})`}
+              </Text>
+              <Muted>Deliberate extra tap. These are not the default open.</Muted>
+            </Pressable>
+          ) : null}
+          {showOld
+            ? superseded.map((drawing) => (
+                <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
+                  <View style={{ opacity: 0.7, gap: 4 }}>
+                    <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
+                    {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+                    <RevBadge revision={drawing.revision} current={false} />
+                    <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
+                  </View>
+                </Card>
+              ))
+            : null}
+        </>
+      )}
     </Screen>
   );
 }

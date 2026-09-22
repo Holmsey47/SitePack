@@ -1,6 +1,6 @@
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { foldersWithCurrentSheets } from '@/data/folders';
+import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
@@ -36,7 +36,7 @@ export default function SitePackScreen() {
     }, [load])
   );
 
-  const folders = foldersWithCurrentSheets(drawings);
+  const folders = packFolders(drawings);
   const manage = person ? canManageSite(person.role) : false;
   const meta = siteId ? readPackMeta(siteId) : null;
 
@@ -82,7 +82,7 @@ export default function SitePackScreen() {
     <Screen>
       <Title>{site.name}</Title>
       <Muted>{site.address_line ?? 'Assigned site pack'}</Muted>
-      <Muted>{formatWhen(site.updated_at)} · folders with a current sheet</Muted>
+      <Muted>{formatWhen(site.updated_at)}</Muted>
       {ready ? (
         <Text style={{ color: theme.sent, fontWeight: '700' }}>
           Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
@@ -119,10 +119,21 @@ export default function SitePackScreen() {
           <Card
             key={folder.name}
             onPress={() => router.push(`/sites/${siteId}/folder/${encodeURIComponent(folder.name)}`)}>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{folder.name}</Text>
-            <Muted>
-              {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
-            </Muted>
+            <Text
+              style={{
+                color: folder.archive ? theme.superseded : theme.text,
+                fontSize: 18,
+                fontWeight: '700',
+              }}>
+              {folder.name}
+            </Text>
+            {folder.archive ? (
+              <Text style={{ color: theme.superseded, fontWeight: '700' }}>Archive</Text>
+            ) : (
+              <Muted>
+                {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
+              </Muted>
+            )}
           </Card>
         ))
       )}
