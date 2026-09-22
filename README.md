@@ -75,14 +75,9 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon from supabase status>
 
 `supabase start` applies migrations and `supabase/seed.sql`. Sample PDFs load from `supabase/seed-files/drawings` into the private `drawings` bucket.
 
-Hosted project:
+Hosted project — one live company, no fixture seed. Run [docs/live-company.md](docs/live-company.md) (`node scripts/live-company.mjs`). That creates `sitepack-live`, pushes the two migrations, creates Shaun as owner, deploys `invite-person`, and writes `.env.local`. Do not run `supabase/seed.sql`, `supabase db reset`, or `supabase db push --include-seed` on it.
 
-1. Create a Supabase project.
-2. Auth: disable public signup; keep the email provider on. Do **not** offer magic-link sign-in in the app.
-3. Add redirect URLs: `sitepack://set-password` and your web origin `/set-password`.
-4. `npx supabase db push` then run `supabase/seed.sql` in the SQL editor (skip seed in production).
-5. Deploy `invite-person` with `npx supabase functions deploy invite-person`.
-6. Set `INVITE_REDIRECT_URL` on the function.
+Local `supabase start` still loads `seed.sql`. That path is for fixture tests, not the live company.
 
 `site_pack_manifest` returns current-sheet metadata (including `storage_path`). The mobile repo adds 1-hour signed URLs with `storage.createSignedUrls` because Storage signing keys are not in Postgres.
 
