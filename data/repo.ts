@@ -1,3 +1,4 @@
+import type { CreateSiteInput } from '@/data/createSite';
 import type {
   CreateRequestInput,
   Drawing,
@@ -10,6 +11,7 @@ import type {
   ReplaceDrawingInput,
   RequestStatus,
   Role,
+  Site,
   SiteAssignment,
 } from '@/data/types';
 
@@ -38,6 +40,7 @@ export type SitePackRepo = {
     patch: { status: RequestStatus; cm_note?: string | null; fulfilled_drawing_id?: string | null }
   ): Promise<DrawingRequest>;
   companySitesPulse(): Promise<PulseRow[]>;
+  createSite(input: CreateSiteInput): Promise<Site>;
   listAssignments(siteId: string): Promise<SiteAssignment[]>;
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;

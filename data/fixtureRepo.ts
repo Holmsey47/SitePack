@@ -1,3 +1,4 @@
+import { normalizeCreateSite } from '@/data/createSite';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import type {
@@ -78,6 +79,8 @@ function seed(): Store {
       company_id: IDS.company,
       name: 'Plot 12 – Oak Estate',
       address_line: 'Oak Estate, Phase 2',
+      main_contractor: null,
+      what_it_is: null,
       created_at: '2026-09-06T09:00:00.000Z',
       updated_at: '2026-09-17T18:02:00.000Z',
     },
@@ -86,6 +89,8 @@ function seed(): Store {
       company_id: IDS.company,
       name: 'Plot 4 – Riverside',
       address_line: 'Riverside, Block B',
+      main_contractor: null,
+      what_it_is: null,
       created_at: '2026-08-29T09:00:00.000Z',
       updated_at: '2026-08-29T09:00:00.000Z',
     },
@@ -94,6 +99,8 @@ function seed(): Store {
       company_id: IDS.company,
       name: 'Warehouse – North Yard',
       address_line: 'North Yard compound',
+      main_contractor: null,
+      what_it_is: null,
       created_at: '2026-09-10T09:00:00.000Z',
       updated_at: '2026-09-12T09:00:00.000Z',
     },
@@ -415,6 +422,21 @@ export const fixtureRepo: SitePackRepo = {
     if (patch.fulfilled_drawing_id !== undefined) row.fulfilled_drawing_id = patch.fulfilled_drawing_id;
     row.updated_at = now();
     return requestView(row);
+  },
+
+  async createSite(input) {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    const fields = normalizeCreateSite(input);
+    const created: Site = {
+      id: crypto.randomUUID(),
+      company_id: person.company_id,
+      ...fields,
+      created_at: now(),
+      updated_at: now(),
+    };
+    store.sites.push(created);
+    return created;
   },
 
   async companySitesPulse(): Promise<PulseRow[]> {

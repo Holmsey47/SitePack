@@ -44,7 +44,7 @@ Home must not say “Running on local seed”.
 
 1. Sign in as Shaun with email and password. No fixture names on screen.
 2. Create one site. Invite one real email as an operative on that site.
-3. That person opens the email, sets a password once, then signs in with email and password.
+3. The invite link is one-time. This one was already opened. If the address bar still has `access_token` and `type=invite`, reload that page, set the new person’s password, and press **Save password**. They should land on their home, with only the site you assigned. If the address bar has no `access_token`, stop. The email cannot be opened again. Do not click the same invite.
 4. Upload one real PDF into a folder (Ground floor or another preset). It shows as current, with revision and date.
 5. The invited person sees that site only. A site they are not assigned to is not on their home.
 

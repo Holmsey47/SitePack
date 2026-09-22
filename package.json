@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test data/folders.test.ts scripts/live-company.test.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-alias.mjs --test data/folders.test.ts data/createSite.test.ts data/inviteError.test.ts lib/inviteGrant.test.ts scripts/live-company.test.mjs",
     "live:company": "node scripts/live-company.mjs",
     "seed:pdfs": "node ./scripts/write-sample-pdfs.mjs"
   },

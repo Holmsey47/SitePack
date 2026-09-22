@@ -12,6 +12,7 @@ export default function AppLayout() {
         contentStyle: { backgroundColor: theme.bg },
       }}>
       <Stack.Screen name="home" options={{ title: 'Your sites' }} />
+      <Stack.Screen name="create-site" options={{ title: 'Create site' }} />
       <Stack.Screen name="sites/index" options={{ title: 'Pulse' }} />
       <Stack.Screen name="sites/[siteId]/index" options={{ title: 'Site pack' }} />
       <Stack.Screen name="sites/[siteId]/folder/[folder]" options={{ title: 'Folder' }} />

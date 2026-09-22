@@ -17,6 +17,8 @@ export type Site = {
   company_id: string;
   name: string;
   address_line: string | null;
+  main_contractor: string | null;
+  what_it_is: string | null;
   created_at: string;
   updated_at: string;
 };

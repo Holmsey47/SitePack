@@ -512,7 +512,7 @@ async function main() {
   if (checking) {
     console.log(`Live company check`);
     console.log(`- project: ${input.requestedRef || `create or reuse ${LIVE_PROJECT_NAME}`} (${input.region})`);
-    console.log('- migrations: both files, seed.sql not included');
+    console.log('- migrations: files in supabase/migrations, seed.sql not included');
     console.log(`- owner: ${input.email} (${input.displayName}), one company`);
     console.log(`- invite redirect: ${input.redirect}`);
     console.log('- keys: .env.local only, not committed');

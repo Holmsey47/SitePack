@@ -28,11 +28,11 @@ function Gate() {
     const parts = [...segments] as string[];
     const inAuth = parts[0] === '(auth)';
     const screen = parts[1] ?? '';
-    if (!person && !inAuth) {
+    if (!person && screen !== 'login') {
       router.replace('/login');
       return;
     }
-    if (person && needsPassword && screen !== 'set-password') {
+    if (person && needsPassword && screen !== 'set-password' && screen !== 'login') {
       router.replace('/set-password');
       return;
     }

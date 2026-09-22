@@ -55,6 +55,9 @@ export default function PulseScreen() {
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {person?.role === 'owner' ? (
+          <Button label="Create site" onPress={() => router.push('/create-site')} />
+        ) : null}
         {person?.role === 'cm' ? <Button label="My sites" variant="secondary" onPress={() => router.push('/home')} /> : null}
         <Button label="Requests" variant="secondary" onPress={() => router.push('/requests')} />
         <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} />
