@@ -64,7 +64,7 @@ export default function FolderScreen() {
       <Title>{folderName}</Title>
       <Muted>
         {archiveOnly
-          ? 'Archive. No current sheet in this folder.'
+          ? 'Archive. No current sheet in this folder. One tap opens the PDF.'
           : 'Current sheets in this folder. One tap opens the PDF.'}
       </Muted>
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
@@ -72,12 +72,15 @@ export default function FolderScreen() {
       {archiveOnly ? (
         superseded.map((drawing) => (
           <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
-            <View style={{ opacity: 0.7, gap: 4 }}>
-              <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
-              {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-              <RevBadge revision={drawing.revision} current={false} />
-              <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
+                {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+                <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
+              </View>
+              <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '800' }}>Rev {drawing.revision}</Text>
             </View>
+            <Text style={{ color: theme.archive, fontWeight: '700' }}>Open</Text>
           </Card>
         ))
       ) : (

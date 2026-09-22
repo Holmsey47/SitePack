@@ -121,14 +121,14 @@ export default function SitePackScreen() {
             onPress={() => router.push(`/sites/${siteId}/folder/${encodeURIComponent(folder.name)}`)}>
             <Text
               style={{
-                color: folder.archive ? theme.superseded : theme.text,
+                color: folder.archive ? theme.archive : theme.text,
                 fontSize: 18,
                 fontWeight: '700',
               }}>
               {folder.name}
             </Text>
             {folder.archive ? (
-              <Text style={{ color: theme.superseded, fontWeight: '700' }}>Archive</Text>
+              <Text style={{ color: theme.muted, fontWeight: '700' }}>Archive</Text>
             ) : (
               <Muted>
                 {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
