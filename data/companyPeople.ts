@@ -1,18 +1,6 @@
 import type { CompanyPerson, Role } from '@/data/types';
 
-export function roleLabel(role: Role): string {
-  if (role === 'cm') return 'contracts manager';
-  return role;
-}
-
-export function loginLabel(hasLogin: boolean): string {
-  return hasLogin ? 'Has a login' : 'No login';
-}
-
-export function siteLabel(names: string[]): string {
-  if (names.length === 0) return 'On no site';
-  return names.join(', ');
-}
+export { occupationLine, roleLabel, siteLabel } from '@/data/walk';
 
 export function canAddNoLogin(callerRole: Role, name: string, siteIds: string[]): boolean {
   if (callerRole !== 'owner' && callerRole !== 'cm') return false;

@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 
-export function DrawingFrame({ uri }: { uri: string }) {
+export function DrawingFrame({ uri }: { uri: string; onError?: (message: string) => void }) {
   return createElement('iframe', {
     title: 'drawing',
     src: uri,

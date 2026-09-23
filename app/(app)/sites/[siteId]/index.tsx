@@ -5,6 +5,7 @@ import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { formatDate, formatWhen } from '@/lib/format';
+import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { downloadCurrentPack, isPackReady, readPackMeta } from '@/lib/offline';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -56,9 +57,9 @@ export default function SitePackScreen() {
       });
       setProgress('');
       setReady(true);
-    } catch (err) {
+    } catch {
       setProgress('');
-      setError(err instanceof Error ? err.message : 'Download failed — retry. Current pointer was not changed.');
+      setError(PACK_DOWNLOAD_ERROR);
     }
   }
 
@@ -85,13 +86,12 @@ export default function SitePackScreen() {
       {site.main_contractor ? <Muted>Main contractor · {site.main_contractor}</Muted> : null}
       {site.what_it_is ? <Muted>{site.what_it_is}</Muted> : null}
       <Muted>{formatWhen(site.updated_at)}</Muted>
+      <Muted>Download the current pack before you lose signal.</Muted>
       {ready ? (
         <Text style={{ color: theme.sent, fontWeight: '700' }}>
           Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
         </Text>
-      ) : (
-        <Muted>Download the current pack before you lose signal.</Muted>
-      )}
+      ) : null}
       {progress ? <Muted>{progress}</Muted> : null}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
@@ -99,9 +99,21 @@ export default function SitePackScreen() {
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
       {manage ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          <Button label="Upload / replace" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
+          <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
           <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
         </View>
+      ) : null}
+      {person?.role === 'owner' ? (
+        <Button
+          label={site.archived_at ? 'Return to the working list' : 'Archive site'}
+          variant="ghost"
+          onPress={() => {
+            void repo
+              .archiveSite(site.id, !site.archived_at)
+              .then(() => load())
+              .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
+          }}
+        />
       ) : null}
 
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>

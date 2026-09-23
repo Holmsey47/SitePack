@@ -1,4 +1,6 @@
 import { normalizeCreateSite } from '@/data/createSite';
+import { newId } from '@/data/newId';
+import { inviteSiteIds } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import type {
@@ -87,6 +89,7 @@ function seed(): Store {
       address_line: 'Oak Estate, Phase 2',
       main_contractor: null,
       what_it_is: null,
+      archived_at: null,
       created_at: '2026-09-06T09:00:00.000Z',
       updated_at: '2026-09-17T18:02:00.000Z',
     },
@@ -97,6 +100,7 @@ function seed(): Store {
       address_line: 'Riverside, Block B',
       main_contractor: null,
       what_it_is: null,
+      archived_at: null,
       created_at: '2026-08-29T09:00:00.000Z',
       updated_at: '2026-08-29T09:00:00.000Z',
     },
@@ -107,6 +111,7 @@ function seed(): Store {
       address_line: 'North Yard compound',
       main_contractor: null,
       what_it_is: null,
+      archived_at: null,
       created_at: '2026-09-10T09:00:00.000Z',
       updated_at: '2026-09-12T09:00:00.000Z',
     },
@@ -394,7 +399,7 @@ export const fixtureRepo: SitePackRepo = {
     const person = meOrThrow();
     if (!canAccessSite(person, input.siteId)) throw new Error('not_authorized');
     const row: DrawingRequest = {
-      id: crypto.randomUUID(),
+      id: newId(),
       site_id: input.siteId,
       requester_id: person.id,
       body: input.body,
@@ -426,7 +431,7 @@ export const fixtureRepo: SitePackRepo = {
         ? store.sites.filter((s) => s.company_id === person.company_id).map((s) => s.id)
         : assignedSiteIds(person);
     return store.requests
-      .filter((r) => ids.includes(r.site_id))
+      .filter((r) => ids.includes(r.site_id) && r.status !== 'Closed')
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .map(requestView);
   },
@@ -452,14 +457,23 @@ export const fixtureRepo: SitePackRepo = {
     return requestView(row);
   },
 
+  async deleteRequest(requestId) {
+    const person = meOrThrow();
+    if (person.role === 'operative') throw new Error('not_authorized');
+    const row = store.requests.find((r) => r.id === requestId);
+    if (!row || !canAccessSite(person, row.site_id)) throw new Error('not_authorized');
+    store.requests = store.requests.filter((r) => r.id !== requestId);
+  },
+
   async createSite(input) {
     const person = meOrThrow();
     if (person.role !== 'owner') throw new Error('not_authorized');
     const fields = normalizeCreateSite(input);
     const created: Site = {
-      id: crypto.randomUUID(),
+      id: newId(),
       company_id: person.company_id,
       ...fields,
+      archived_at: null,
       created_at: now(),
       updated_at: now(),
     };
@@ -478,9 +492,14 @@ export const fixtureRepo: SitePackRepo = {
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((s) => {
-        const names = store.assignments
+        const people = store.assignments
           .filter((a) => a.site_id === s.id)
-          .map((a) => store.people.find((p) => p.id === a.person_id)?.display_name ?? 'Unknown')
+          .map((a) => store.people.find((p) => p.id === a.person_id))
+          .filter((personOnSite): personOnSite is Person => Boolean(personOnSite));
+        const names = people.map((personOnSite) => personOnSite.display_name ?? 'Unknown').sort();
+        const managers = people
+          .filter((personOnSite) => personOnSite.role === 'cm')
+          .map((personOnSite) => personOnSite.display_name ?? 'Unknown')
           .sort();
         return {
           site_id: s.id,
@@ -488,10 +507,21 @@ export const fixtureRepo: SitePackRepo = {
           address_line: s.address_line,
           assignee_count: names.length,
           assignee_names_preview: names.slice(0, 3),
+          contracts_manager_names: managers,
+          operative_count: people.filter((personOnSite) => personOnSite.role === 'operative').length,
+          archived_at: s.archived_at,
           last_pack_update: s.updated_at,
           open_request_count: store.requests.filter((r) => r.site_id === s.id && r.status === 'Open').length,
         };
       });
+  },
+
+  async archiveSite(siteId, archived) {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
+    if (!site) throw new Error('site_not_found');
+    site.archived_at = archived ? now() : null;
   },
 
   async listAssignments(siteId) {
@@ -507,7 +537,7 @@ export const fixtureRepo: SitePackRepo = {
     if (person.role === 'operative' || !canAccessSite(person, siteId)) throw new Error('not_authorized');
     if (store.assignments.some((a) => a.site_id === siteId && a.person_id === personId)) return;
     store.assignments.push({
-      id: crypto.randomUUID(),
+      id: newId(),
       site_id: siteId,
       person_id: personId,
       created_at: now(),
@@ -554,7 +584,7 @@ export const fixtureRepo: SitePackRepo = {
       }
     }
     const created: Person = {
-      id: crypto.randomUUID(),
+      id: newId(),
       auth_user_id: null,
       company_id: caller.company_id,
       role: 'operative',
@@ -567,7 +597,7 @@ export const fixtureRepo: SitePackRepo = {
     store.people.push(created);
     for (const siteId of siteIds) {
       store.assignments.push({
-        id: crypto.randomUUID(),
+        id: newId(),
         site_id: siteId,
         person_id: created.id,
         created_at: now(),
@@ -618,7 +648,7 @@ export const fixtureRepo: SitePackRepo = {
     }
     if (old) old.is_current = false;
     const created: Drawing = {
-      id: input.id ?? crypto.randomUUID(),
+      id: input.id ?? newId(),
       site_id: input.siteId,
       title: input.title.trim(),
       sheet_number: input.sheetNumber?.trim() || null,
@@ -644,9 +674,20 @@ export const fixtureRepo: SitePackRepo = {
     const person = meOrThrow();
     if (person.role === 'operative') throw new Error('not_authorized');
     if (person.role === 'cm' && input.role !== 'operative') throw new Error('not_authorized');
+    const siteIds = inviteSiteIds(input);
+    for (const siteId of siteIds) {
+      const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
+      if (!site) throw new Error('site_not_found');
+      if (
+        person.role === 'cm' &&
+        !store.assignments.some((assignment) => assignment.site_id === siteId && assignment.person_id === person.id)
+      ) {
+        throw new Error('not_authorized');
+      }
+    }
     const invited: Person = {
-      id: crypto.randomUUID(),
-      auth_user_id: crypto.randomUUID(),
+      id: newId(),
+      auth_user_id: newId(),
       company_id: person.company_id,
       role: input.role,
       trade: input.trade ?? null,
@@ -656,8 +697,8 @@ export const fixtureRepo: SitePackRepo = {
       created_at: now(),
     };
     store.people.push(invited);
-    if (input.siteId) {
-      await this.addAssignment(input.siteId, invited.id);
+    for (const siteId of siteIds) {
+      await this.addAssignment(siteId, invited.id);
     }
   },
 
@@ -680,7 +721,7 @@ export const fixtureRepo: SitePackRepo = {
       if (!shared) throw new Error('not_authorized');
     }
     target.email = cleaned;
-    target.auth_user_id = crypto.randomUUID();
+    target.auth_user_id = newId();
   },
 
   async getDrawingOpenUrl(drawing) {

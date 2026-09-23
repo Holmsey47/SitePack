@@ -1,9 +1,10 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { FOLDER_PRESETS, OTHER_FOLDER, displayFolder } from '@/data/folders';
 import { repo } from '@/data/index';
+import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
-import type { Drawing, SiteAssignment } from '@/data/types';
+import { revisionCurrentLine } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -11,12 +12,10 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function UploadScreen() {
-  const { siteId } = useLocalSearchParams<{ siteId: string }>();
+  const { siteId, replace } = useLocalSearchParams<{ siteId: string; replace?: string }>();
+  const replaceId = typeof replace === 'string' && replace.length > 0 ? replace : null;
   const { person } = useAuth();
   const router = useRouter();
-  const [drawings, setDrawings] = useState<Drawing[]>([]);
-  const [assignees, setAssignees] = useState<SiteAssignment[]>([]);
-  const [replaceId, setReplaceId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [sheetNumber, setSheetNumber] = useState('');
   const [revision, setRevision] = useState('');
@@ -29,10 +28,15 @@ export default function UploadScreen() {
   const [doneRev, setDoneRev] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!siteId) return;
-    repo.listDrawings(siteId).then((rows) => setDrawings(rows.filter((d) => d.is_current)));
-    repo.listAssignments(siteId).then(setAssignees).catch(() => setAssignees([]));
-  }, [siteId]);
+    if (!siteId || !replaceId) return;
+    repo.listDrawings(siteId).then((rows) => {
+      const drawing = rows.find((row) => row.id === replaceId);
+      if (!drawing) return;
+      setTitle(drawing.title);
+      setSheetNumber(drawing.sheet_number ?? '');
+      setFolderName(displayFolder(drawing.folder));
+    });
+  }, [replaceId, siteId]);
 
   if (person && !canManageSite(person.role)) return <Redirect href={`/sites/${siteId}`} />;
 
@@ -59,7 +63,7 @@ export default function UploadScreen() {
     if (!siteId || !person || !bytes || !title.trim() || !revision.trim()) return;
     setLoading(true);
     setError('');
-    const drawingId = crypto.randomUUID();
+    const drawingId = newId();
     try {
       const uploaded = await repo.uploadDrawingFile({
         companyId: person.company_id,
@@ -93,11 +97,7 @@ export default function UploadScreen() {
   if (doneRev) {
     return (
       <Screen>
-        <Title>Pack updated</Title>
-        <Muted>
-          Rev {doneRev} is now current. Previous rev moved to superseded. Assigned people will see it as the default open
-          — no WhatsApp forward.
-        </Muted>
+        <Title>{revisionCurrentLine(doneRev)}</Title>
         <Button label="Back to pack" onPress={() => router.replace(`/sites/${siteId}`)} />
       </Screen>
     );
@@ -105,37 +105,7 @@ export default function UploadScreen() {
 
   return (
     <Screen>
-      <Title>Upload / replace</Title>
-      <Muted>New file becomes current. Old rev retires automatically. Target: under two minutes.</Muted>
-      <Muted>
-        Assigned now:{' '}
-        {assignees.length
-          ? assignees.map((a) => a.person?.display_name ?? a.person?.email ?? 'Unknown').join(', ')
-          : 'nobody yet'}
-      </Muted>
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Replace existing current sheet (optional)</Text>
-      {drawings.map((drawing) => (
-        <Pressable
-          key={drawing.id}
-          onPress={() => {
-            setReplaceId(drawing.id);
-            setTitle(drawing.title);
-            setSheetNumber(drawing.sheet_number ?? '');
-            setFolderName(displayFolder(drawing.folder));
-          }}
-          style={{
-            padding: 12,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: replaceId === drawing.id ? theme.current : theme.line,
-            backgroundColor: theme.surface,
-          }}>
-          <Text style={{ color: theme.text, fontWeight: '700' }}>
-            {drawing.title} · Rev {drawing.revision}
-          </Text>
-          <Text style={{ color: theme.muted }}>{displayFolder(drawing.folder)}</Text>
-        </Pressable>
-      ))}
+      <Title>Upload</Title>
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="words" placeholder="Ground Floor GA" />
       <Field label="Sheet number" value={sheetNumber} onChangeText={setSheetNumber} placeholder="A-101" />
       <Field label="Revision" value={revision} onChangeText={setRevision} placeholder="D" />
@@ -170,7 +140,6 @@ export default function UploadScreen() {
         autoCapitalize="words"
         placeholder="Or type a name. Blank is Other."
       />
-      <Muted>Filed under {displayFolder(folderName)}. One level only.</Muted>
       <Button label={fileName ? `PDF: ${fileName}` : 'Pick PDF'} variant="secondary" onPress={() => void pickPdf()} />
       <ErrorText>{error}</ErrorText>
       <Button
@@ -179,7 +148,6 @@ export default function UploadScreen() {
         loading={loading}
         disabled={!bytes || !title.trim() || !revision.trim()}
       />
-      <View />
     </Screen>
   );
 }

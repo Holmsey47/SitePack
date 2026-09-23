@@ -62,11 +62,6 @@ export default function FolderScreen() {
   return (
     <Screen>
       <Title>{folderName}</Title>
-      <Muted>
-        {archiveOnly
-          ? 'Archive. No current sheet in this folder. One tap opens the PDF.'
-          : 'Current sheets in this folder. One tap opens the PDF.'}
-      </Muted>
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       {archiveOnly ? (
@@ -78,9 +73,8 @@ export default function FolderScreen() {
                 {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
                 <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
               </View>
-              <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '800' }}>Rev {drawing.revision}</Text>
+              <RevBadge revision={drawing.revision} current={false} />
             </View>
-            <Text style={{ color: theme.archive, fontWeight: '700' }}>Open</Text>
           </Card>
         ))
       ) : (
@@ -99,7 +93,6 @@ export default function FolderScreen() {
                   </View>
                   <RevBadge revision={drawing.revision} current />
                 </View>
-                <Text style={{ color: theme.current, fontWeight: '700' }}>Open current</Text>
               </Card>
             ))
           )}
@@ -109,7 +102,6 @@ export default function FolderScreen() {
               <Text style={{ color: theme.superseded, fontWeight: '700' }}>
                 {showOld ? 'Hide superseded' : `Show superseded / archive (${superseded.length})`}
               </Text>
-              <Muted>Deliberate extra tap. These are not the default open.</Muted>
             </Pressable>
           ) : null}
           {showOld

@@ -14,6 +14,5 @@ export default function Index() {
   }
   if (!person) return <Redirect href="/login" />;
   if (needsPassword) return <Redirect href="/set-password" />;
-  if (person.role === 'owner') return <Redirect href="/sites" />;
-  return <Redirect href="/home" />;
+  return <Redirect href="/sites" />;
 }
