@@ -19,12 +19,23 @@ export default function PeopleScreen() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [nextPeople, nextSites] = await Promise.all([repo.companyPeople(), repo.companySitesPulse()]);
     setPeople(nextPeople);
     setSites(nextSites);
+    setLoaded(true);
+    setError('');
   }, []);
+
+  async function refreshAfterWrite() {
+    try {
+      await load();
+    } catch (err) {
+      setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not load people'));
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -36,6 +47,15 @@ export default function PeopleScreen() {
   );
 
   if (person?.role === 'operative') return <Redirect href="/home" />;
+
+  if (!loaded && !error) {
+    return (
+      <Screen>
+        <Title>People</Title>
+        <Muted>Loading people…</Muted>
+      </Screen>
+    );
+  }
 
   const callerRole = person?.role ?? 'operative';
 
@@ -55,22 +75,24 @@ export default function PeopleScreen() {
       setName('');
       setTrade('');
       setSiteIds([]);
-      await load();
     } catch (err) {
       setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not add that name'));
+      return;
     } finally {
       setLoading(false);
     }
+    await refreshAfterWrite();
   }
 
   async function onRemove(personId: string, siteId: string) {
     setError('');
     try {
       await repo.removeOperativeFromSite(personId, siteId);
-      await load();
     } catch (err) {
       setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not remove them from that site'));
+      return;
     }
+    await refreshAfterWrite();
   }
 
   async function onInvite(personId: string) {
@@ -80,12 +102,13 @@ export default function PeopleScreen() {
       await repo.attachLogin(personId, inviteEmail);
       setInviteFor(null);
       setInviteEmail('');
-      await load();
     } catch (err) {
       setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not send the invite'));
+      return;
     } finally {
       setLoading(false);
     }
+    await refreshAfterWrite();
   }
 
   return (
@@ -93,7 +116,7 @@ export default function PeopleScreen() {
       <Title>People</Title>
       <Muted>Everyone in the company. A name with no login is still on the list.</Muted>
       <ErrorText>{error}</ErrorText>
-      {people.length === 0 ? <EmptyState title="No one in the company yet" /> : null}
+      {loaded && !error && people.length === 0 ? <EmptyState title="No one in the company yet" /> : null}
       {people.map((row) => {
         const mine = removableSites(row, sites);
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
@@ -145,41 +168,45 @@ export default function PeopleScreen() {
           </Card>
         );
       })}
-      <Title>Add a name</Title>
-      <Muted>
-        {callerRole === 'cm'
-          ? 'Name and a site you are on. No email and no password until you invite them.'
-          : 'Name, and sites if you want. No email and no password until you invite them.'}
-      </Muted>
-      <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Lee Stone" />
-      <Field label="Trade label" value={trade} onChangeText={setTrade} placeholder="labourer" />
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
-      {callerRole === 'owner' ? <Muted>Leave every site off to add a name with no site.</Muted> : null}
-      {sites.map((site) => {
-        const on = siteIds.includes(site.site_id);
-        return (
-          <Pressable
-            key={site.site_id}
-            accessibilityRole="button"
-            onPress={() => toggleSite(site.site_id)}
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: on ? theme.current : theme.line,
-            }}>
-            <Text style={{ color: theme.text }}>{site.name}</Text>
-          </Pressable>
-        );
-      })}
-      <Button
-        label="Add name"
-        onPress={() => void onAdd()}
-        loading={loading}
-        disabled={!canAddNoLogin(callerRole, name, siteIds)}
-      />
+      {loaded ? (
+        <>
+          <Title>Add a name</Title>
+          <Muted>
+            {callerRole === 'cm'
+              ? 'Name and a site you are on. No email and no password until you invite them.'
+              : 'Name, and sites if you want. No email and no password until you invite them.'}
+          </Muted>
+          <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Lee Stone" />
+          <Field label="Trade label" value={trade} onChangeText={setTrade} placeholder="labourer" />
+          <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+          {callerRole === 'owner' ? <Muted>Leave every site off to add a name with no site.</Muted> : null}
+          {sites.map((site) => {
+            const on = siteIds.includes(site.site_id);
+            return (
+              <Pressable
+                key={site.site_id}
+                accessibilityRole="button"
+                onPress={() => toggleSite(site.site_id)}
+                style={{
+                  minHeight: 44,
+                  justifyContent: 'center',
+                  paddingHorizontal: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: on ? theme.current : theme.line,
+                }}>
+                <Text style={{ color: theme.text }}>{site.name}</Text>
+              </Pressable>
+            );
+          })}
+          <Button
+            label="Add name"
+            onPress={() => void onAdd()}
+            loading={loading}
+            disabled={!canAddNoLogin(callerRole, name, siteIds)}
+          />
+        </>
+      ) : null}
     </Screen>
   );
 }

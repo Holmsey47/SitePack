@@ -331,4 +331,45 @@ test('the company people migration keeps insert closed and the read narrow', () 
   assert.doesNotMatch(screen, /\.email/);
   assert.match(fs.readFileSync('app/(app)/home.tsx', 'utf8'), /router\.push\('\/people'\)/);
   assert.match(fs.readFileSync('app/(app)/sites/index.tsx', 'utf8'), /router\.push\('\/people'\)/);
+
+  const loadFn = screen.slice(screen.indexOf('const load = useCallback'), screen.indexOf('async function refreshAfterWrite'));
+  assert.match(loadFn, /setPeople\(nextPeople\)/);
+  assert.match(loadFn, /setLoaded\(true\)/);
+  assert.match(loadFn, /setError\(''\)/);
+
+  const focus = screen.slice(screen.indexOf('useFocusEffect('), screen.indexOf("if (person?.role === 'operative')"));
+  assert.match(focus, /Could not load people/);
+  assert.doesNotMatch(focus, /setLoaded\(true\)/);
+  assert.doesNotMatch(focus, /setPeople\(\[\]\)/);
+
+  const waiting = screen.slice(screen.indexOf('if (!loaded && !error)'), screen.indexOf('const callerRole'));
+  assert.match(waiting, /Loading people…/);
+  assert.doesNotMatch(waiting, /No one in the company yet/);
+  assert.doesNotMatch(waiting, /Add a name/);
+
+  assert.match(screen, /loaded && !error && people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
+  assert.doesNotMatch(screen, /\{people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
+  assert.match(screen, /\{loaded \? \(\s*<>\s*<Title>Add a name<\/Title>/);
+
+  const refresh = screen.slice(screen.indexOf('async function refreshAfterWrite'), screen.indexOf('useFocusEffect('));
+  assert.match(refresh, /await load\(\)/);
+  assert.match(refresh, /Could not load people/);
+  assert.doesNotMatch(refresh, /Could not remove them from that site/);
+  assert.doesNotMatch(refresh, /Could not send the invite/);
+  assert.doesNotMatch(refresh, /Could not add that name/);
+
+  const handlers: [string, string][] = [
+    ['async function onAdd', 'Could not add that name'],
+    ['async function onRemove', 'Could not remove them from that site'],
+    ['async function onInvite', 'Could not send the invite'],
+  ];
+  for (const [start, failure] of handlers) {
+    const from = screen.indexOf(start);
+    const fn = screen.slice(from, screen.indexOf('await refreshAfterWrite()', from) + 'await refreshAfterWrite()'.length);
+    const writeTry = fn.slice(fn.indexOf('try {'), fn.indexOf('} catch'));
+    assert.equal(writeTry.includes('await load()'), false);
+    assert.equal(fn.includes(failure), true);
+    assert.equal(fn.includes('return;'), true);
+    assert.equal(fn.includes('await refreshAfterWrite()'), true);
+  }
 });
