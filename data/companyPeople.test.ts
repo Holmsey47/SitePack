@@ -5,6 +5,7 @@ import {
   canAddNoLogin,
   canAttachLogin,
   peopleFailureMessage,
+  peopleLoadFailureMessage,
   removableSites,
   roleLabel,
   siteLabel,
@@ -25,6 +26,11 @@ test('people list rules', () => {
   assert.equal(canAddNoLogin('cm', 'Lee', ['oak']), true);
   assert.equal(canAddNoLogin('owner', 'Lee', []), true);
   assert.equal(peopleFailureMessage('email_in_use'), 'That email is already used in this company.');
+  assert.equal(peopleLoadFailureMessage(new Error('unknown')), 'Could not load people.');
+  assert.equal(peopleLoadFailureMessage(new Error('  unknown  ')), 'Could not load people.');
+  assert.equal(peopleLoadFailureMessage(new Error('')), 'Could not load people.');
+  assert.equal(peopleLoadFailureMessage(undefined), 'Could not load people.');
+  assert.equal(peopleLoadFailureMessage(new Error('not_authorized')), 'You can’t do that.');
 
   const noLogin = { role: 'operative' as const, has_login: false, site_names: ['Plot 4 – Riverside'] };
   const loggedIn = { role: 'operative' as const, has_login: true, site_names: ['Plot 12 – Oak Estate'] };
@@ -338,7 +344,8 @@ test('the company people migration keeps insert closed and the read narrow', () 
   assert.match(loadFn, /setError\(''\)/);
 
   const focus = screen.slice(screen.indexOf('useFocusEffect('), screen.indexOf("if (person?.role === 'operative')"));
-  assert.match(focus, /Could not load people/);
+  assert.match(focus, /peopleLoadFailureMessage\(err\)/);
+  assert.doesNotMatch(focus, /peopleFailureMessage\(err/);
   assert.doesNotMatch(focus, /setLoaded\(true\)/);
   assert.doesNotMatch(focus, /setPeople\(\[\]\)/);
 
@@ -353,7 +360,8 @@ test('the company people migration keeps insert closed and the read narrow', () 
 
   const refresh = screen.slice(screen.indexOf('async function refreshAfterWrite'), screen.indexOf('useFocusEffect('));
   assert.match(refresh, /await load\(\)/);
-  assert.match(refresh, /Could not load people/);
+  assert.match(refresh, /peopleLoadFailureMessage\(err\)/);
+  assert.match(fs.readFileSync('data/companyPeople.ts', 'utf8'), /message === 'unknown'\) return 'Could not load people\.'/);
   assert.doesNotMatch(refresh, /Could not remove them from that site/);
   assert.doesNotMatch(refresh, /Could not send the invite/);
   assert.doesNotMatch(refresh, /Could not add that name/);

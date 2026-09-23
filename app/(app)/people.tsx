@@ -1,6 +1,15 @@
 import { Button, Card, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { canAddNoLogin, canAttachLogin, loginLabel, peopleFailureMessage, removableSites, roleLabel, siteLabel } from '@/data/companyPeople';
+import {
+  canAddNoLogin,
+  canAttachLogin,
+  loginLabel,
+  peopleFailureMessage,
+  peopleLoadFailureMessage,
+  removableSites,
+  roleLabel,
+  siteLabel,
+} from '@/data/companyPeople';
 import { repo } from '@/data/index';
 import type { CompanyPerson, PulseRow } from '@/data/types';
 import { theme } from '@/lib/theme';
@@ -33,7 +42,7 @@ export default function PeopleScreen() {
     try {
       await load();
     } catch (err) {
-      setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not load people'));
+      setError(peopleLoadFailureMessage(err));
     }
   }
 
@@ -41,7 +50,7 @@ export default function PeopleScreen() {
     useCallback(() => {
       if (!person || person.role === 'operative') return;
       load().catch((err: unknown) => {
-        setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not load people'));
+        setError(peopleLoadFailureMessage(err));
       });
     }, [load, person])
   );

@@ -42,6 +42,13 @@ export function removableSites<T extends { name: string }>(
   return callerSites.filter((site) => names.has(site.name));
 }
 
+/** A failed People load. `unknown` is what an unmatched read throws. */
+export function peopleLoadFailureMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message.trim() : '';
+  if (!message || message === 'unknown') return 'Could not load people.';
+  return peopleFailureMessage(message);
+}
+
 export function peopleFailureMessage(message: string): string {
   switch (message.trim()) {
     case 'name_required':
