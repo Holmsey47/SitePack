@@ -2,6 +2,8 @@ import { normalizeCreateSite } from '@/data/createSite';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import type {
+  AddNoLoginOperativeInput,
+  CompanyPerson,
   CreateRequestInput,
   Drawing,
   DrawingRequest,
@@ -273,6 +275,28 @@ function sheetKey(sheetNumber: string | null | undefined): string {
   return (sheetNumber ?? '').trim();
 }
 
+function requireManager(): Person {
+  const person = meOrThrow();
+  if (person.role !== 'owner' && person.role !== 'cm') throw new Error('not_authorized');
+  return person;
+}
+
+function companyPersonView(person: Person): CompanyPerson {
+  const siteNames = store.assignments
+    .filter((assignment) => assignment.person_id === person.id)
+    .map((assignment) => store.sites.find((site) => site.id === assignment.site_id && site.company_id === person.company_id)?.name)
+    .filter((name): name is string => Boolean(name))
+    .sort((a, b) => a.localeCompare(b));
+  return {
+    id: person.id,
+    display_name: person.display_name,
+    role: person.role,
+    trade: person.trade,
+    has_login: person.auth_user_id != null,
+    site_names: siteNames,
+  };
+}
+
 export const fixtureRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     if (password !== SEED_PASSWORD) {
@@ -504,6 +528,71 @@ export const fixtureRepo: SitePackRepo = {
     return store.people.filter((p) => p.company_id === person.company_id);
   },
 
+  async companyPeople() {
+    const person = requireManager();
+    return store.people
+      .filter((p) => p.company_id === person.company_id)
+      .map(companyPersonView)
+      .sort((a, b) => (a.display_name ?? '').localeCompare(b.display_name ?? '') || a.id.localeCompare(b.id));
+  },
+
+  async addNoLoginOperative(input: AddNoLoginOperativeInput) {
+    const caller = requireManager();
+    const name = input.displayName.trim();
+    if (!name) throw new Error('name_required');
+    const trade = input.trade?.trim() || null;
+    const siteIds = [...new Set(input.siteIds)];
+    if (caller.role === 'cm' && siteIds.length === 0) throw new Error('not_authorized');
+    for (const siteId of siteIds) {
+      const site = store.sites.find((row) => row.id === siteId && row.company_id === caller.company_id);
+      if (!site) throw new Error('site_not_found');
+      if (
+        caller.role === 'cm' &&
+        !store.assignments.some((assignment) => assignment.site_id === siteId && assignment.person_id === caller.id)
+      ) {
+        throw new Error('not_authorized');
+      }
+    }
+    const created: Person = {
+      id: crypto.randomUUID(),
+      auth_user_id: null,
+      company_id: caller.company_id,
+      role: 'operative',
+      trade,
+      display_name: name,
+      email: null,
+      phone: null,
+      created_at: now(),
+    };
+    store.people.push(created);
+    for (const siteId of siteIds) {
+      store.assignments.push({
+        id: crypto.randomUUID(),
+        site_id: siteId,
+        person_id: created.id,
+        created_at: now(),
+      });
+    }
+    return created.id;
+  },
+
+  async removeOperativeFromSite(personId, siteId) {
+    const caller = requireManager();
+    const target = store.people.find((p) => p.id === personId && p.company_id === caller.company_id);
+    if (!target || target.role !== 'operative') throw new Error('not_authorized');
+    const site = store.sites.find((row) => row.id === siteId && row.company_id === caller.company_id);
+    if (!site) throw new Error('site_not_found');
+    if (
+      caller.role === 'cm' &&
+      !store.assignments.some((assignment) => assignment.site_id === siteId && assignment.person_id === caller.id)
+    ) {
+      throw new Error('not_authorized');
+    }
+    store.assignments = store.assignments.filter(
+      (assignment) => !(assignment.site_id === siteId && assignment.person_id === personId)
+    );
+  },
+
   async uploadDrawingFile({ companyId, siteId, drawingId, bytes, contentType }) {
     const person = meOrThrow();
     if (person.role === 'operative' || !canAccessSite(person, siteId)) throw new Error('not_authorized');
@@ -570,6 +659,28 @@ export const fixtureRepo: SitePackRepo = {
     if (input.siteId) {
       await this.addAssignment(input.siteId, invited.id);
     }
+  },
+
+  async attachLogin(personId, email) {
+    const caller = requireManager();
+    const cleaned = email.trim().toLowerCase();
+    if (!cleaned) throw new Error('email_required');
+    const target = store.people.find((p) => p.id === personId && p.company_id === caller.company_id);
+    if (!target || target.role !== 'operative') throw new Error('not_authorized');
+    if (target.auth_user_id) throw new Error('already_has_login');
+    const taken = store.people.some(
+      (p) => p.id !== target.id && p.company_id === caller.company_id && p.email?.trim().toLowerCase() === cleaned
+    );
+    if (taken) throw new Error('email_in_use');
+    if (caller.role === 'cm') {
+      const mine = new Set(
+        store.assignments.filter((assignment) => assignment.person_id === caller.id).map((assignment) => assignment.site_id)
+      );
+      const shared = store.assignments.some((assignment) => assignment.person_id === target.id && mine.has(assignment.site_id));
+      if (!shared) throw new Error('not_authorized');
+    }
+    target.email = cleaned;
+    target.auth_user_id = crypto.randomUUID();
   },
 
   async getDrawingOpenUrl(drawing) {

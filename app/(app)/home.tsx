@@ -57,6 +57,7 @@ export default function HomeScreen() {
             <Button label="Create site" onPress={() => router.push('/create-site')} />
           ) : null}
           <Button label="Pulse" variant="secondary" onPress={() => router.push('/sites')} />
+          <Button label="People" variant="secondary" onPress={() => router.push('/people')} />
           <Button label="Requests" variant="secondary" onPress={() => router.push('/requests')} />
           {person.role === 'owner' ? <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} /> : null}
         </View>

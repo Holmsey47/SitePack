@@ -23,6 +23,7 @@ export default function AppLayout() {
       <Stack.Screen name="requests/index" options={{ title: 'Drawing requests' }} />
       <Stack.Screen name="requests/[requestId]" options={{ title: 'Request' }} />
       <Stack.Screen name="invite" options={{ title: 'Invite' }} />
+      <Stack.Screen name="people" options={{ title: 'People' }} />
     </Stack>
   );
 }

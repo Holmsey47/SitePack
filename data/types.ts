@@ -3,7 +3,7 @@ export type RequestStatus = 'Open' | 'Sent' | 'Closed';
 
 export type Person = {
   id: string;
-  /** Login. Null means no login. This loop does not create a null. */
+  /** Login. Null means no login. */
   auth_user_id: string | null;
   company_id: string;
   role: Role;
@@ -119,6 +119,22 @@ export type InviteInput = {
   role: Role;
   trade?: string | null;
   siteId?: string | null;
+};
+
+/** Labour-list row. Site names are text. No email, site id, or login id. */
+export type CompanyPerson = {
+  id: string;
+  display_name: string | null;
+  role: Role;
+  trade: string | null;
+  has_login: boolean;
+  site_names: string[];
+};
+
+export type AddNoLoginOperativeInput = {
+  displayName: string;
+  trade?: string | null;
+  siteIds: string[];
 };
 
 export type HomeSite = Site & {
