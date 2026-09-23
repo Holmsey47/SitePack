@@ -3,6 +3,8 @@ export type RequestStatus = 'Open' | 'Sent' | 'Closed';
 
 export type Person = {
   id: string;
+  /** Login. Null means no login. This loop does not create a null. */
+  auth_user_id: string | null;
   company_id: string;
   role: Role;
   trade: string | null;

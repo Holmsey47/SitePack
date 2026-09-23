@@ -89,7 +89,11 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return null;
-    const { data, error } = await supabase.from('people').select('*').eq('id', userData.user.id).maybeSingle();
+    const { data, error } = await supabase
+      .from('people')
+      .select('*')
+      .eq('auth_user_id', userData.user.id)
+      .maybeSingle();
     if (error) throw new Error(error.message);
     return (data as Person | null) ?? null;
   },
