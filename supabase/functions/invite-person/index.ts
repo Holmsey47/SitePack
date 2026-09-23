@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,6 +12,13 @@ type InviteBody = {
   trade?: string | null;
   site_id?: string | null;
   phone?: string | null;
+  person_id?: string | null;
+};
+
+type Caller = {
+  id: string;
+  company_id: string;
+  role: string;
 };
 
 Deno.serve(async (req) => {
@@ -49,6 +56,12 @@ Deno.serve(async (req) => {
     }
 
     const body = (await req.json()) as InviteBody;
+    const personId = body.person_id?.trim() || '';
+    if (personId) {
+      return attachLogin(admin, me, personId, body.email);
+    }
+
+    // New person invite.
     const email = body.email?.trim().toLowerCase();
     const displayName = body.display_name?.trim();
     const role = body.role ?? 'operative';
@@ -132,6 +145,66 @@ Deno.serve(async (req) => {
     return json({ error: message }, 500);
   }
 });
+
+async function attachLogin(admin: SupabaseClient, me: Caller, personId: string, rawEmail: string | undefined) {
+  const email = rawEmail?.trim().toLowerCase() ?? '';
+  if (!email) return json({ error: 'email_required' }, 400);
+
+  const { data: existing, error: existingError } = await admin
+    .from('people')
+    .select('id, company_id, role, auth_user_id, display_name')
+    .eq('id', personId)
+    .maybeSingle();
+
+  if (existingError || !existing || existing.company_id !== me.company_id || existing.role !== 'operative') {
+    return json({ error: 'not_authorized' }, 403);
+  }
+  if (existing.auth_user_id) {
+    return json({ error: 'already_has_login' }, 400);
+  }
+
+  const { data: companyEmails, error: emailError } = await admin
+    .from('people')
+    .select('id, email')
+    .eq('company_id', me.company_id);
+  if (emailError) return json({ error: 'invite_failed' }, 400);
+
+  const taken = (companyEmails ?? []).some(
+    (row) => row.id !== existing.id && typeof row.email === 'string' && row.email.trim().toLowerCase() === email
+  );
+  if (taken) return json({ error: 'email_in_use' }, 400);
+
+  if (me.role === 'cm') {
+    const { data: theirs } = await admin.from('site_assignments').select('site_id').eq('person_id', existing.id);
+    const { data: mine } = await admin.from('site_assignments').select('site_id').eq('person_id', me.id);
+    const mineIds = new Set((mine ?? []).map((row) => row.site_id));
+    const shared = (theirs ?? []).some((row) => mineIds.has(row.site_id));
+    if (!shared) return json({ error: 'not_authorized' }, 403);
+  }
+
+  const redirectTo = Deno.env.get('INVITE_REDIRECT_URL') ?? 'http://127.0.0.1:8081/set-password';
+  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo,
+    data: { display_name: existing.display_name ?? '' },
+  });
+  if (inviteError || !invited.user) {
+    return json({ error: inviteError?.message ?? 'invite_failed' }, 400);
+  }
+
+  const { data: updated, error: updateError } = await admin
+    .from('people')
+    .update({ auth_user_id: invited.user.id, email })
+    .eq('id', existing.id)
+    .is('auth_user_id', null)
+    .select('id')
+    .maybeSingle();
+
+  if (updateError || !updated) {
+    return json({ error: updateError ? 'invite_failed' : 'already_has_login' }, 400);
+  }
+
+  return json({ ok: true, user_id: invited.user.id });
+}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {

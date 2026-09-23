@@ -3,6 +3,8 @@ import type {
   CreateRequestInput,
   Drawing,
   DrawingRequest,
+  AddNoLoginOperativeInput,
+  CompanyPerson,
   HomeSite,
   InviteInput,
   ManifestItem,
@@ -45,6 +47,9 @@ export type SitePackRepo = {
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;
   listCompanyPeople(): Promise<Person[]>;
+  companyPeople(): Promise<CompanyPerson[]>;
+  addNoLoginOperative(input: AddNoLoginOperativeInput): Promise<string>;
+  removeOperativeFromSite(personId: string, siteId: string): Promise<void>;
   uploadDrawingFile(params: {
     companyId: string;
     siteId: string;
@@ -55,6 +60,7 @@ export type SitePackRepo = {
   }): Promise<{ storagePath: string; fileSizeBytes: number }>;
   replaceDrawing(input: ReplaceDrawingInput): Promise<Drawing>;
   invitePerson(input: InviteInput): Promise<void>;
+  attachLogin(personId: string, email: string): Promise<void>;
   getDrawingOpenUrl(drawing: Drawing): Promise<string>;
 };
 
@@ -69,6 +75,10 @@ export function rpcErrorCode(message: string | undefined): string {
     'site_not_found',
     'replace_target_not_current',
     'storage_path_required',
+    'name_required',
+    'email_required',
+    'email_in_use',
+    'already_has_login',
   ]) {
     if (text.includes(code)) return code;
   }

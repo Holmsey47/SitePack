@@ -59,6 +59,7 @@ export default function PulseScreen() {
           <Button label="Create site" onPress={() => router.push('/create-site')} />
         ) : null}
         {person?.role === 'cm' ? <Button label="My sites" variant="secondary" onPress={() => router.push('/home')} /> : null}
+        <Button label="People" variant="secondary" onPress={() => router.push('/people')} />
         <Button label="Requests" variant="secondary" onPress={() => router.push('/requests')} />
         <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} />
       </View>

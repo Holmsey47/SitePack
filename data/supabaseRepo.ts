@@ -3,6 +3,8 @@ import { inviteFailureMessage } from '@/data/inviteError';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
 import type {
+  AddNoLoginOperativeInput,
+  CompanyPerson,
   CreateRequestInput,
   Drawing,
   DrawingRequest,
@@ -25,6 +27,26 @@ function unwrap<T>(data: T | null, error: { message: string } | null, fallback?:
 function maybe<T>(data: T | null, error: { message: string } | null): T | null {
   if (error) throw new Error(error.message);
   return data;
+}
+
+async function invokeInvite(body: Record<string, unknown>): Promise<void> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.functions.invoke('invite-person', { body });
+  if (error) {
+    let bodyError: string | null = null;
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = (await context.json()) as { error?: unknown };
+        bodyError = typeof payload.error === 'string' ? payload.error : null;
+      } catch {
+        bodyError = null;
+      }
+    }
+    throw new Error(inviteFailureMessage(bodyError, error.message));
+  }
+  const payload = data as { error?: unknown } | null;
+  if (payload?.error) throw new Error(inviteFailureMessage(String(payload.error), String(payload.error)));
 }
 
 async function signUrls(items: Array<ManifestItem & { storage_path?: string }>): Promise<ManifestItem[]> {
@@ -310,6 +332,33 @@ export const supabaseRepo: SitePackRepo = {
     return unwrap((data ?? []) as Person[], error);
   },
 
+  async companyPeople() {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('company_people');
+    if (error) throw new Error(rpcErrorCode(error.message));
+    return (data ?? []) as CompanyPerson[];
+  },
+
+  async addNoLoginOperative(input: AddNoLoginOperativeInput) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('add_no_login_operative', {
+      p_display_name: input.displayName,
+      p_trade: input.trade ?? null,
+      p_site_ids: input.siteIds,
+    });
+    if (error) throw new Error(rpcErrorCode(error.message));
+    return data as string;
+  },
+
+  async removeOperativeFromSite(personId, siteId) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('remove_operative_from_site', {
+      p_person_id: personId,
+      p_site_id: siteId,
+    });
+    if (error) throw new Error(rpcErrorCode(error.message));
+  },
+
   async uploadDrawingFile({ companyId, siteId, drawingId, bytes, contentType, fileName }) {
     const supabase = getSupabase();
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;
@@ -343,30 +392,17 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async invitePerson(input: InviteInput) {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.functions.invoke('invite-person', {
-      body: {
-        email: input.email,
-        display_name: input.displayName,
-        role: input.role,
-        trade: input.trade ?? null,
-        site_id: input.siteId ?? null,
-      },
+    await invokeInvite({
+      email: input.email,
+      display_name: input.displayName,
+      role: input.role,
+      trade: input.trade ?? null,
+      site_id: input.siteId ?? null,
     });
-    if (error) {
-      let bodyError: string | null = null;
-      const context = (error as { context?: unknown }).context;
-      if (context instanceof Response) {
-        try {
-          const body = (await context.json()) as { error?: unknown };
-          bodyError = typeof body.error === 'string' ? body.error : null;
-        } catch {
-          bodyError = null;
-        }
-      }
-      throw new Error(inviteFailureMessage(bodyError, error.message));
-    }
-    if (data?.error) throw new Error(inviteFailureMessage(String(data.error), String(data.error)));
+  },
+
+  async attachLogin(personId, email) {
+    await invokeInvite({ person_id: personId, email });
   },
 
   async getDrawingOpenUrl(drawing) {
