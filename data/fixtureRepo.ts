@@ -33,6 +33,7 @@ function seed(): Store {
   const people: Person[] = [
     {
       id: IDS.owner,
+      auth_user_id: IDS.owner,
       company_id: IDS.company,
       role: 'owner',
       trade: null,
@@ -43,6 +44,7 @@ function seed(): Store {
     },
     {
       id: IDS.cm,
+      auth_user_id: IDS.cm,
       company_id: IDS.company,
       role: 'cm',
       trade: 'contracts',
@@ -53,6 +55,7 @@ function seed(): Store {
     },
     {
       id: IDS.amy,
+      auth_user_id: IDS.amy,
       company_id: IDS.company,
       role: 'operative',
       trade: 'dryliner',
@@ -63,6 +66,7 @@ function seed(): Store {
     },
     {
       id: IDS.ben,
+      auth_user_id: IDS.ben,
       company_id: IDS.company,
       role: 'operative',
       trade: 'labourer',
@@ -553,11 +557,12 @@ export const fixtureRepo: SitePackRepo = {
     if (person.role === 'cm' && input.role !== 'operative') throw new Error('not_authorized');
     const invited: Person = {
       id: crypto.randomUUID(),
+      auth_user_id: crypto.randomUUID(),
       company_id: person.company_id,
       role: input.role,
       trade: input.trade ?? null,
       display_name: input.displayName,
-      email: input.email.toLowerCase(),
+      email: input.email.trim().toLowerCase(),
       phone: null,
       created_at: now(),
     };

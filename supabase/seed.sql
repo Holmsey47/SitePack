@@ -98,9 +98,10 @@ insert into public.companies (id, name)
 values ('11111111-1111-1111-1111-111111111111', 'Ashfield Finishes')
 on conflict (id) do nothing;
 
-insert into public.people (id, company_id, role, trade, display_name, email, phone)
+insert into public.people (id, auth_user_id, company_id, role, trade, display_name, email, phone)
 values
   (
+    '22222222-2222-2222-2222-222222222222',
     '22222222-2222-2222-2222-222222222222',
     '11111111-1111-1111-1111-111111111111',
     'owner',
@@ -111,6 +112,7 @@ values
   ),
   (
     '33333333-3333-3333-3333-333333333333',
+    '33333333-3333-3333-3333-333333333333',
     '11111111-1111-1111-1111-111111111111',
     'cm',
     'contracts',
@@ -120,6 +122,7 @@ values
   ),
   (
     '44444444-4444-4444-4444-444444444444',
+    '44444444-4444-4444-4444-444444444444',
     '11111111-1111-1111-1111-111111111111',
     'operative',
     'dryliner',
@@ -128,6 +131,7 @@ values
     null
   ),
   (
+    '55555555-5555-5555-5555-555555555555',
     '55555555-5555-5555-5555-555555555555',
     '11111111-1111-1111-1111-111111111111',
     'operative',

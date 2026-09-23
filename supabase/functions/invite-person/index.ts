@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     const { data: me, error: meError } = await admin
       .from('people')
       .select('id, company_id, role')
-      .eq('id', userData.user.id)
+      .eq('auth_user_id', userData.user.id)
       .maybeSingle();
 
     if (meError || !me || (me.role !== 'owner' && me.role !== 'cm')) {
@@ -98,24 +98,28 @@ Deno.serve(async (req) => {
       return json({ error: inviteError?.message ?? 'invite_failed' }, 400);
     }
 
-    const { error: personError } = await admin.from('people').insert({
-      id: invited.user.id,
-      company_id: me.company_id,
-      role,
-      trade,
-      display_name: displayName,
-      email,
-      phone,
-    });
+    const { data: created, error: personError } = await admin
+      .from('people')
+      .insert({
+        auth_user_id: invited.user.id,
+        company_id: me.company_id,
+        role,
+        trade,
+        display_name: displayName,
+        email,
+        phone,
+      })
+      .select('id')
+      .single();
 
-    if (personError) {
-      return json({ error: personError.message }, 400);
+    if (personError || !created) {
+      return json({ error: personError?.message ?? 'invite_failed' }, 400);
     }
 
     if (siteId) {
       const { error: assignError } = await admin.from('site_assignments').insert({
         site_id: siteId,
-        person_id: invited.user.id,
+        person_id: created.id,
       });
       if (assignError) {
         return json({ error: assignError.message }, 400);

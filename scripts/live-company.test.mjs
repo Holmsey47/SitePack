@@ -84,6 +84,9 @@ test('owner SQL is one company and one owner, with no fixture rows', () => {
     companyName: "Shaun's Drylining",
   });
   assert.match(sql, /'owner'/);
+  assert.match(sql, /auth_user_id/);
+  const quotedId = dollarQuote('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  assert.equal(sql.split(quotedId).length - 1, 2);
   assert.equal(sql.includes(';'), false);
   assert.doesNotMatch(sql, /sitepack\.test|Ashfield|Amy|seed\.sql|SitePack123|insert into public\.sites/i);
   assert.equal(dollarQuote("has $sp$ in it").includes('$spx$'), true);

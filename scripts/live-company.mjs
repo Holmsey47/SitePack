@@ -359,8 +359,8 @@ chosen as (
   select id, created_at from public.companies
   where not exists (select 1 from inserted)
 )
-insert into public.people (id, company_id, role, display_name, email)
-select ${dollarQuote(id)}::uuid, chosen.id, 'owner', ${dollarQuote(shown)}, ${dollarQuote(mail)}
+insert into public.people (id, auth_user_id, company_id, role, display_name, email)
+select ${dollarQuote(id)}::uuid, ${dollarQuote(id)}::uuid, chosen.id, 'owner', ${dollarQuote(shown)}, ${dollarQuote(mail)}
 from chosen
 where not exists (select 1 from public.people)
 order by chosen.created_at
