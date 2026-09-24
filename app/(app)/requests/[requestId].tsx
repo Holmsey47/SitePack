@@ -18,10 +18,18 @@ export default function RequestDetailScreen() {
 
   useEffect(() => {
     if (!requestId) return;
-    repo.getRequest(requestId).then((next) => {
-      setRow(next);
-      setNote(next?.cm_note ?? '');
-    });
+    repo
+      .getRequest(requestId)
+      .then((next) => {
+        if (!next) {
+          setError('Could not load the request.');
+          return;
+        }
+        setRow(next);
+        setNote(next.cm_note ?? '');
+        setError('');
+      })
+      .catch(() => setError('Could not load the request.'));
   }, [requestId]);
 
   async function onDone() {
@@ -53,7 +61,7 @@ export default function RequestDetailScreen() {
   if (!row) {
     return (
       <Screen>
-        <Text style={{ color: theme.muted }}>Loading request…</Text>
+        {error ? <ErrorText>{error}</ErrorText> : <Text style={{ color: theme.muted }}>Loading request…</Text>}
       </Screen>
     );
   }
@@ -73,7 +81,7 @@ export default function RequestDetailScreen() {
       {row.sheet_hint ? <Text style={{ color: theme.muted }}>Hint: {row.sheet_hint}</Text> : null}
       <Field label="Note (optional)" value={note} onChangeText={setNote} multiline autoCapitalize="sentences" />
       <ErrorText>{error}</ErrorText>
-      <Button label="Attach drawing / upload" onPress={() => router.push(`/sites/${row.site_id}/upload`)} />
+      <Button label="Attach drawing / upload" variant="secondary" onPress={() => router.push(`/sites/${row.site_id}/upload`)} />
       <Button label="Done" loading={loading} onPress={() => void onDone()} />
     </Screen>
   );

@@ -1,5 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, Field, HeaderActions, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { HomeSite, PulseRow } from '@/data/types';
@@ -21,7 +21,7 @@ export default function SitesScreen() {
   const [staleOnly, setStaleOnly] = useState(false);
   const [openOnly, setOpenOnly] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const [offline, setOffline] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
 
   useFocusEffect(
@@ -35,13 +35,12 @@ export default function SitesScreen() {
             if (!active) return;
             setMine(next);
             cacheAssignedSites(next);
-            setOffline(false);
+            setLoaded(true);
             setError('');
           })
-          .catch((err: unknown) => {
+          .catch(() => {
             if (!active) return;
-            setOffline(true);
-            setError(err instanceof Error ? err.message : 'Could not refresh sites');
+            setError('Could not load sites.');
           });
         return () => {
           active = false;
@@ -52,11 +51,12 @@ export default function SitesScreen() {
         .then((next) => {
           if (!active) return;
           setRows(next);
+          setLoaded(true);
           setError('');
         })
-        .catch((err: unknown) => {
+        .catch(() => {
           if (!active) return;
-          setError(err instanceof Error ? err.message : 'Could not load sites');
+          setError('Could not load sites.');
         });
       return () => {
         active = false;
@@ -89,8 +89,8 @@ export default function SitesScreen() {
           <Title>Sites</Title>
           <HeaderActions label="Sign out" onPress={() => void signOut()} />
         </View>
-        {offline ? <Muted>Showing last synced site names. {error}</Muted> : null}
-        {workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
+        {error ? <ErrorText>{error}</ErrorText> : null}
+        {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
         ) : (
           workingRows(mine).map((site) => (
@@ -142,8 +142,8 @@ export default function SitesScreen() {
           <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Stale pack</Text>
         </Pressable>
       </View>
-      {error ? <Muted>{error}</Muted> : null}
-      {filtered.length === 0 && (working.length > 0 || archived.length === 0) ? (
+      {error ? <ErrorText>{error}</ErrorText> : null}
+      {loaded && !error && filtered.length === 0 && (working.length > 0 || archived.length === 0) ? (
         <EmptyState title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'} />
       ) : (
         filtered.map((row) => (

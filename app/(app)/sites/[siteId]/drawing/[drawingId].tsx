@@ -22,6 +22,7 @@ export default function DrawingViewerScreen() {
   const [error, setError] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -56,10 +57,11 @@ export default function DrawingViewerScreen() {
   async function onSave() {
     if (!uri || !drawing) return;
     setSaving(true);
+    setSaveError('');
     try {
       await saveSheet(uri, `${drawing.title} Rev ${drawing.revision}.pdf`);
     } catch {
-      setError('Could not save the sheet.');
+      setSaveError('Could not save the sheet.');
     } finally {
       setSaving(false);
     }
@@ -112,6 +114,7 @@ export default function DrawingViewerScreen() {
         ) : null}
         {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
         {error ? <Button label="Retry" variant="secondary" onPress={() => setRetrying((value) => !value)} /> : null}
+        {saveError ? <Text style={{ color: theme.danger }}>{saveError}</Text> : null}
       </View>
       {uri ? <DrawingFrame uri={uri} onError={setError} /> : null}
     </View>

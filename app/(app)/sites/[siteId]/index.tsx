@@ -21,19 +21,22 @@ export default function SitePackScreen() {
   const [progress, setProgress] = useState<string>('');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     if (!siteId) return;
     const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
     setSite(nextSite);
     setDrawings(nextDrawings);
+    setLoaded(true);
+    setError('');
     const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
     setReady(isPackReady(siteId, currentIds));
   }, [siteId]);
 
   useFocusEffect(
     useCallback(() => {
-      load().catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load pack'));
+      load().catch(() => setError('Could not load the pack.'));
     }, [load])
   );
 
@@ -63,7 +66,7 @@ export default function SitePackScreen() {
     }
   }
 
-  if (!site && !error) {
+  if (!site && !loaded && !error) {
     return (
       <Screen>
         <Muted>Loading pack…</Muted>
@@ -74,7 +77,7 @@ export default function SitePackScreen() {
   if (!site) {
     return (
       <Screen>
-        <EmptyState title="This site is not assigned to you." />
+        <EmptyState title={error ? 'Could not load the pack.' : 'This site is not assigned to you.'} />
       </Screen>
     );
   }

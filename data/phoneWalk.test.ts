@@ -71,7 +71,19 @@ test('phone walk copy and ids', () => {
   assert.equal(inbox.includes('setRows([])'), false);
   assert.match(inbox, /Could not load requests\./);
   const drawing = fs.readFileSync('app/(app)/sites/[siteId]/drawing/[drawingId].tsx', 'utf8');
-  assert.match(drawing, /catch \{\s*setError\('Could not save the sheet\.'\);/);
+  assert.match(drawing, /setSaveError\('Could not save the sheet\.'\)/);
+  assert.doesNotMatch(drawing, /setError\('Could not save the sheet\.'\)/);
+  const sites = fs.readFileSync('app/(app)/sites/index.tsx', 'utf8');
+  assert.match(sites, /Could not load sites\./);
+  assert.equal(sites.includes('err.message'), false);
+  const pack = fs.readFileSync('app/(app)/sites/[siteId]/index.tsx', 'utf8');
+  assert.match(pack, /Could not load the pack\./);
+  assert.match(pack, /This site is not assigned to you\./);
+  const request = fs.readFileSync('app/(app)/requests/[requestId].tsx', 'utf8');
+  assert.match(request, /label="Attach drawing \/ upload" variant="secondary"/);
+  assert.match(request, /Could not load the request\./);
+  const people = fs.readFileSync('app/(app)/people.tsx', 'utf8');
+  assert.match(people, /Remove from \$\{site\.name\}/);
 
   for (const path of [
     'app/(app)/sites/[siteId]/upload.tsx',

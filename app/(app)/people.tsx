@@ -152,7 +152,7 @@ export default function PeopleScreen() {
               ? mine.map((site) => (
                   <Button
                     key={site.site_id}
-                    label={site.name}
+                    label={`Remove from ${site.name}`}
                     variant="ghost"
                     onPress={() => void onRemove(row.id, site.site_id)}
                   />
