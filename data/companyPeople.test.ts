@@ -16,9 +16,9 @@ import { IDS, SEED_PASSWORD } from './ids.ts';
 const migrationPath = 'supabase/migrations/20260923160000_company_people.sql';
 
 test('people list rules', () => {
-  assert.equal(roleLabel('cm'), 'contracts manager');
-  assert.equal(roleLabel('operative'), 'operative');
-  assert.equal(siteLabel([]), 'On no site');
+  assert.equal(roleLabel('cm'), 'Contracts manager');
+  assert.equal(roleLabel('operative'), 'Operative');
+  assert.equal(siteLabel([]), 'Unassigned');
   assert.equal(siteLabel(['Oak', 'Yard']), 'Oak, Yard');
   assert.equal(canAddNoLogin('operative', 'Lee', ['oak']), false);
   assert.equal(canAddNoLogin('cm', 'Lee', []), false);
@@ -335,8 +335,11 @@ test('the company people migration keeps insert closed and the read narrow', () 
   assert.doesNotMatch(screen, /\/sites\//);
   assert.doesNotMatch(screen, /price/i);
   assert.doesNotMatch(screen, /\.email/);
-  assert.match(fs.readFileSync('app/(app)/home.tsx', 'utf8'), /router\.push\('\/people'\)/);
-  assert.match(fs.readFileSync('app/(app)/sites/index.tsx', 'utf8'), /router\.push\('\/people'\)/);
+  const tabs = fs.readFileSync('components/app-tabs.tsx', 'utf8');
+  assert.match(tabs, /label: 'People'/);
+  assert.match(tabs, /role === 'operative'/);
+  assert.doesNotMatch(fs.readFileSync('app/(app)/home.tsx', 'utf8'), /router\.push\('\/people'\)/);
+  assert.doesNotMatch(fs.readFileSync('app/(app)/sites/index.tsx', 'utf8'), /router\.push\('\/people'\)/);
 
   const loadFn = screen.slice(screen.indexOf('const load = useCallback'), screen.indexOf('async function refreshAfterWrite'));
   assert.match(loadFn, /setPeople\(nextPeople\)/);
@@ -356,7 +359,7 @@ test('the company people migration keeps insert closed and the read narrow', () 
 
   assert.match(screen, /loaded && !error && people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
   assert.doesNotMatch(screen, /\{people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
-  assert.match(screen, /\{loaded \? \(\s*<>\s*<Title>Add a name<\/Title>/);
+  assert.match(screen, /\{loaded \? \(\s*<>\s*<Title>Add a person<\/Title>/);
 
   const refresh = screen.slice(screen.indexOf('async function refreshAfterWrite'), screen.indexOf('useFocusEffect('));
   assert.match(refresh, /await load\(\)/);

@@ -1,3 +1,4 @@
+import { PACK_DIRECTORY_CREATE } from '@/data/walk';
 import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
@@ -79,7 +80,7 @@ export async function downloadCurrentPack(
   }
 
   const folder = new Directory(Paths.document, 'sitepack', siteId);
-  if (!folder.exists) folder.create();
+  folder.create(PACK_DIRECTORY_CREATE);
 
   let done = 0;
   for (const item of items) {

@@ -15,22 +15,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export function Screen({
   children,
   scroll = true,
+  footer,
 }: {
   children: ReactNode;
   scroll?: boolean;
+  footer?: ReactNode;
 }) {
-  if (!scroll) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {children}
-      </SafeAreaView>
-    );
-  }
+  const edges = footer ? (['top'] as const) : (['top', 'bottom'] as const);
+  const body = scroll ? (
+    <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  ) : (
+    children
+  );
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {children}
-      </ScrollView>
+    <SafeAreaView style={styles.safe} edges={edges}>
+      {body}
+      {footer}
     </SafeAreaView>
   );
 }

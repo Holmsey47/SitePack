@@ -37,7 +37,7 @@ function Gate() {
       return;
     }
     if (person && !needsPassword && inAuth) {
-      router.replace(person.role === 'owner' ? '/sites' : '/home');
+      router.replace('/sites');
     }
   }, [ready, person, needsPassword, segments, router]);
 

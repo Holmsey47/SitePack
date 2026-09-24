@@ -1,4 +1,4 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { Redirect, useRouter } from 'expo-router';
@@ -14,7 +14,7 @@ export default function CreateSiteScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (person && person.role !== 'owner') return <Redirect href="/home" />;
+  if (person && person.role !== 'owner') return <Redirect href="/sites" />;
 
   async function onSubmit() {
     setLoading(true);
@@ -37,7 +37,6 @@ export default function CreateSiteScreen() {
   return (
     <Screen>
       <Title>Create site</Title>
-      <Muted>Name is required. The other lines can wait.</Muted>
       <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Elm Yard" />
       <Field
         label="Main contractor"
@@ -53,13 +52,7 @@ export default function CreateSiteScreen() {
         autoCapitalize="words"
         placeholder="Optional"
       />
-      <Field
-        label="What it is"
-        value={whatItIs}
-        onChangeText={setWhatItIs}
-        autoCapitalize="sentences"
-        placeholder="12 houses"
-      />
+      <Field label="Type" value={whatItIs} onChangeText={setWhatItIs} autoCapitalize="sentences" placeholder="Optional" />
       <ErrorText>{error}</ErrorText>
       <Button label="Create site" onPress={() => void onSubmit()} loading={loading} disabled={!name.trim()} />
     </Screen>

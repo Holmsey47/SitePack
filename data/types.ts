@@ -21,6 +21,8 @@ export type Site = {
   address_line: string | null;
   main_contractor: string | null;
   what_it_is: string | null;
+  /** Manual finished mark. Null means the site is on the working list. */
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -74,6 +76,11 @@ export type PulseRow = {
   address_line: string | null;
   assignee_count: number;
   assignee_names_preview: string[];
+  /** Contracts managers on the site. The owner is not included. */
+  contracts_manager_names: string[];
+  /** Operatives on the site, including a name with no login. The owner is not included. */
+  operative_count: number;
+  archived_at: string | null;
   last_pack_update: string | null;
   open_request_count: number;
 };
@@ -118,7 +125,9 @@ export type InviteInput = {
   displayName: string;
   role: Role;
   trade?: string | null;
+  /** One site. Prefer siteIds when the invite covers several. */
   siteId?: string | null;
+  siteIds?: string[];
 };
 
 /** Labour-list row. Site names are text. No email, site id, or login id. */

@@ -1,9 +1,9 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { SEED_LOGINS, SEED_PASSWORD } from '@/data/ids';
 import { theme } from '@/lib/theme';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 
 export default function LoginScreen() {
   const { signIn, usingFixtures } = useAuth();
@@ -27,10 +27,10 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      <View style={{ gap: 8, paddingTop: 24 }}>
+      <View style={{ gap: 12, paddingTop: 24, alignItems: 'flex-start' }}>
+        <Image source={require('@/assets/images/icon.png')} style={{ width: 72, height: 72, borderRadius: 16 }} />
         <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
-        <Title>Enter with your invite password</Title>
-        <Muted>No public signup. If you were invited, set a password from that email once — then use email + password here.</Muted>
+        <Title>Sign in</Title>
       </View>
       <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="you@company.test" />
       <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Your password" />
@@ -38,7 +38,6 @@ export default function LoginScreen() {
       <Button label="Sign in" onPress={onSubmit} loading={loading} disabled={!email || !password} />
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
-          <Muted>Local seed logins (password {SEED_PASSWORD})</Muted>
           {SEED_LOGINS.map((login) => (
             <Pressable
               key={login.email}

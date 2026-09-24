@@ -22,6 +22,7 @@
     "data/inviteError.test.ts",
     "data/seatShape.test.ts",
     "data/companyPeople.test.ts",
+    "data/phoneWalk.test.ts",
     "lib/inviteGrant.test.ts"
   ]
 }

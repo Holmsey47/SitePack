@@ -1,18 +1,18 @@
+import { AppTabs } from '@/components/app-tabs';
 import { Button, Card, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   canAddNoLogin,
   canAttachLogin,
-  loginLabel,
+  occupationLine,
   peopleFailureMessage,
   peopleLoadFailureMessage,
   removableSites,
-  roleLabel,
-  siteLabel,
 } from '@/data/companyPeople';
 import { repo } from '@/data/index';
 import type { CompanyPerson, PulseRow } from '@/data/types';
 import { theme } from '@/lib/theme';
+import { siteLabel } from '@/data/walk';
 import { Redirect, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -25,6 +25,7 @@ export default function PeopleScreen() {
   const [trade, setTrade] = useState('');
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [inviteFor, setInviteFor] = useState<string | null>(null);
+  const [removeFor, setRemoveFor] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,7 @@ export default function PeopleScreen() {
     }, [load, person])
   );
 
-  if (person?.role === 'operative') return <Redirect href="/home" />;
+  if (person?.role === 'operative') return <Redirect href="/sites" />;
 
   if (!loaded && !error) {
     return (
@@ -121,9 +122,8 @@ export default function PeopleScreen() {
   }
 
   return (
-    <Screen>
+    <Screen footer={person ? <AppTabs role={person.role} /> : null}>
       <Title>People</Title>
-      <Muted>Everyone in the company. A name with no login is still on the list.</Muted>
       <ErrorText>{error}</ErrorText>
       {loaded && !error && people.length === 0 ? <EmptyState title="No one in the company yet" /> : null}
       {people.map((row) => {
@@ -132,20 +132,32 @@ export default function PeopleScreen() {
         return (
           <Card key={row.id}>
             <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.display_name}</Text>
-            <Muted>
-              {roleLabel(row.role)}
-              {row.trade ? ` · ${row.trade}` : ''}
-            </Muted>
+            <Muted>{occupationLine(row.role, row.trade)}</Muted>
             <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
-            <Muted>{loginLabel(row.has_login)}</Muted>
-            {mine.map((site) => (
-              <Button
-                key={site.site_id}
-                label={`Remove from ${site.name}`}
-                variant="ghost"
-                onPress={() => void onRemove(row.id, site.site_id)}
-              />
-            ))}
+            {mine.length === 1 ? (
+              <View style={{ alignItems: 'flex-end' }}>
+                <Button label="Remove" variant="ghost" onPress={() => void onRemove(row.id, mine[0].site_id)} />
+              </View>
+            ) : null}
+            {mine.length > 1 ? (
+              <View style={{ alignItems: 'flex-end' }}>
+                <Button
+                  label="Remove"
+                  variant="ghost"
+                  onPress={() => setRemoveFor((current) => (current === row.id ? null : row.id))}
+                />
+              </View>
+            ) : null}
+            {mine.length > 1 && removeFor === row.id
+              ? mine.map((site) => (
+                  <Button
+                    key={site.site_id}
+                    label={`Remove from ${site.name}`}
+                    variant="ghost"
+                    onPress={() => void onRemove(row.id, site.site_id)}
+                  />
+                ))
+              : null}
             {invite && inviteFor !== row.id ? (
               <Button
                 label="Invite"
@@ -179,16 +191,10 @@ export default function PeopleScreen() {
       })}
       {loaded ? (
         <>
-          <Title>Add a name</Title>
-          <Muted>
-            {callerRole === 'cm'
-              ? 'Name and a site you are on. No email and no password until you invite them.'
-              : 'Name, and sites if you want. No email and no password until you invite them.'}
-          </Muted>
+          <Title>Add a person</Title>
           <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Lee Stone" />
-          <Field label="Trade label" value={trade} onChangeText={setTrade} placeholder="labourer" />
+          <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
           <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
-          {callerRole === 'owner' ? <Muted>Leave every site off to add a name with no site.</Muted> : null}
           {sites.map((site) => {
             const on = siteIds.includes(site.site_id);
             return (
@@ -209,7 +215,7 @@ export default function PeopleScreen() {
             );
           })}
           <Button
-            label="Add name"
+            label="Add person"
             onPress={() => void onAdd()}
             loading={loading}
             disabled={!canAddNoLogin(callerRole, name, siteIds)}

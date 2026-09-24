@@ -11,6 +11,7 @@ type InviteBody = {
   role?: 'operative' | 'cm' | 'owner';
   trade?: string | null;
   site_id?: string | null;
+  site_ids?: string[] | null;
   phone?: string | null;
   person_id?: string | null;
 };
@@ -66,7 +67,9 @@ Deno.serve(async (req) => {
     const displayName = body.display_name?.trim();
     const role = body.role ?? 'operative';
     const trade = body.trade?.trim() || null;
-    const siteId = body.site_id || null;
+    const siteIds = [
+      ...new Set([...(body.site_ids ?? []), body.site_id].filter((id): id is string => Boolean(id))),
+    ];
     const phone = body.phone?.trim() || null;
 
     if (!email || !displayName) {
@@ -79,7 +82,7 @@ Deno.serve(async (req) => {
       return json({ error: 'not_authorized' }, 403);
     }
 
-    if (siteId) {
+    for (const siteId of siteIds) {
       const { data: site } = await admin
         .from('sites')
         .select('id, company_id')
@@ -129,11 +132,13 @@ Deno.serve(async (req) => {
       return json({ error: personError?.message ?? 'invite_failed' }, 400);
     }
 
-    if (siteId) {
-      const { error: assignError } = await admin.from('site_assignments').insert({
-        site_id: siteId,
-        person_id: created.id,
-      });
+    if (siteIds.length > 0) {
+      const { error: assignError } = await admin.from('site_assignments').insert(
+        siteIds.map((siteId) => ({
+          site_id: siteId,
+          person_id: created.id,
+        }))
+      );
       if (assignError) {
         return json({ error: assignError.message }, 400);
       }

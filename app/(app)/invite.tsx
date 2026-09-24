@@ -1,13 +1,14 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
 import type { PulseRow, Role } from '@/data/types';
+import { roleLabel, workingRows } from '@/data/walk';
+import { theme } from '@/lib/theme';
 import { Redirect, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { theme } from '@/lib/theme';
 
 const ROLES: Role[] = ['operative', 'cm', 'owner'];
 
@@ -18,7 +19,7 @@ export default function InviteScreen() {
   const [role, setRole] = useState<Role>('operative');
   const [trade, setTrade] = useState('');
   const [sites, setSites] = useState<PulseRow[]>([]);
-  const [siteId, setSiteId] = useState<string | null>(null);
+  const [siteIds, setSiteIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState('');
   const [done, setDone] = useState(false);
@@ -31,7 +32,7 @@ export default function InviteScreen() {
         .companySitesPulse()
         .then((rows) => {
           const next = sitesAfterReload(rows, []);
-          setSites(next.sites);
+          setSites(workingRows(next.sites));
           setListNotice(next.notice);
         })
         .catch(() => {
@@ -41,9 +42,13 @@ export default function InviteScreen() {
     }, [person])
   );
 
-  if (person && !canManageSite(person.role)) return <Redirect href="/home" />;
+  if (person && !canManageSite(person.role)) return <Redirect href="/sites" />;
 
   const allowedRoles = person?.role === 'cm' ? (['operative'] as Role[]) : ROLES;
+
+  function toggleSite(siteId: string) {
+    setSiteIds((current) => (current.includes(siteId) ? current.filter((id) => id !== siteId) : [...current, siteId]));
+  }
 
   async function onSubmit() {
     setLoading(true);
@@ -54,7 +59,7 @@ export default function InviteScreen() {
         displayName,
         role,
         trade: trade.trim() || null,
-        siteId,
+        siteIds,
       });
       setDone(true);
     } catch (err) {
@@ -67,8 +72,9 @@ export default function InviteScreen() {
   if (done) {
     return (
       <Screen>
-        <Title>Invite sent</Title>
-        <Muted>They set a password from the email once, then sign in with email + password. No open signup.</Muted>
+        <Title>
+          Invite sent to {displayName.trim()}, {email.trim()}.
+        </Title>
       </Screen>
     );
   }
@@ -76,10 +82,9 @@ export default function InviteScreen() {
   return (
     <Screen>
       <Title>Invite someone</Title>
-      <Muted>Invite link + password. Trade is a label (dryliner, plasterer, labourer, …).</Muted>
       <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
       <Field label="Name" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
-      <Field label="Trade label" value={trade} onChangeText={setTrade} placeholder="labourer" />
+      <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
       <Text style={{ color: theme.muted, fontWeight: '700' }}>Role</Text>
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         {allowedRoles.map((value) => (
@@ -87,30 +92,39 @@ export default function InviteScreen() {
             key={value}
             onPress={() => setRole(value)}
             style={{
+              minHeight: 44,
+              justifyContent: 'center',
               paddingVertical: 10,
               paddingHorizontal: 14,
               borderRadius: 12,
               backgroundColor: role === value ? theme.current : theme.surface,
             }}>
-            <Text style={{ color: role === value ? theme.currentInk : theme.text, fontWeight: '700' }}>{value}</Text>
+            <Text style={{ color: role === value ? theme.currentInk : theme.text, fontWeight: '700' }}>
+              {roleLabel(value)}
+            </Text>
           </Pressable>
         ))}
       </View>
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Assign to site (optional)</Text>
-      {listNotice ? <Muted>{listNotice}</Muted> : null}
-      {sites.map((site) => (
-        <Pressable
-          key={site.site_id}
-          onPress={() => setSiteId(site.site_id === siteId ? null : site.site_id)}
-          style={{
-            padding: 12,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: siteId === site.site_id ? theme.current : theme.line,
-          }}>
-          <Text style={{ color: theme.text }}>{site.name}</Text>
-        </Pressable>
-      ))}
+      <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+      {listNotice ? <Text style={{ color: theme.muted }}>{listNotice}</Text> : null}
+      {sites.map((site) => {
+        const on = siteIds.includes(site.site_id);
+        return (
+          <Pressable
+            key={site.site_id}
+            onPress={() => toggleSite(site.site_id)}
+            style={{
+              minHeight: 44,
+              justifyContent: 'center',
+              paddingHorizontal: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: on ? theme.current : theme.line,
+            }}>
+            <Text style={{ color: theme.text }}>{site.name}</Text>
+          </Pressable>
+        );
+      })}
       <ErrorText>{error}</ErrorText>
       <Button
         label="Send invite"

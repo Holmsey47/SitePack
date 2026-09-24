@@ -1,4 +1,6 @@
 import { normalizeCreateSite } from '@/data/createSite';
+import { newId } from '@/data/newId';
+import { inviteSiteIds } from '@/data/walk';
 import { inviteFailureMessage } from '@/data/inviteError';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
@@ -234,15 +236,19 @@ export const supabaseRepo: SitePackRepo = {
     const { data, error } = await supabase
       .from('drawing_requests')
       .select('*, sites(name), people!drawing_requests_requester_id_fkey(display_name, email)')
+      .neq('status', 'Closed')
       .order('created_at', { ascending: false });
     if (error) {
       const { data: plain, error: plainError } = await supabase
         .from('drawing_requests')
         .select('*')
+        .neq('status', 'Closed')
         .order('created_at', { ascending: false });
       return unwrap((plain ?? []) as DrawingRequest[], plainError);
     }
-    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null; email: string | null } }>).map(
+    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null; email: string | null } }>)
+      .filter((row) => row.status !== 'Closed')
+      .map(
       (row) => ({
         ...row,
         site_name: row.sites?.name,
@@ -272,12 +278,18 @@ export const supabaseRepo: SitePackRepo = {
     return unwrap(data as DrawingRequest, error);
   },
 
+  async deleteRequest(requestId) {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('drawing_requests').delete().eq('id', requestId);
+    if (error) throw new Error(rpcErrorCode(error.message));
+  },
+
   async createSite(input) {
     const supabase = getSupabase();
     const person = await this.me();
     if (!person || person.role !== 'owner') throw new Error('not_authorized');
     const fields = normalizeCreateSite(input);
-    const id = crypto.randomUUID();
+    const id = newId();
     const { error } = await supabase.from('sites').insert({
       id,
       company_id: person.company_id,
@@ -291,11 +303,24 @@ export const supabaseRepo: SitePackRepo = {
     return unwrap(data as Site, readError);
   },
 
+  async archiveSite(siteId, archived) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('archive_site', { p_site_id: siteId, p_archived: archived });
+    if (error) throw new Error(rpcErrorCode(error.message));
+  },
+
   async companySitesPulse() {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('company_sites_pulse');
     if (error) throw new Error(rpcErrorCode(error.message));
     return (data ?? []) as PulseRow[];
+  },
+
+  async contractsManagerNames(siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('site_contracts_manager_names', { p_site_id: siteId });
+    if (error) throw new Error(rpcErrorCode(error.message));
+    return Array.isArray(data) ? data.filter((name): name is string => typeof name === 'string') : [];
   },
 
   async listAssignments(siteId) {
@@ -397,7 +422,7 @@ export const supabaseRepo: SitePackRepo = {
       display_name: input.displayName,
       role: input.role,
       trade: input.trade ?? null,
-      site_id: input.siteId ?? null,
+      site_ids: inviteSiteIds(input),
     });
   },
 

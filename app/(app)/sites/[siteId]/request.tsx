@@ -1,9 +1,8 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { repo } from '@/data/index';
-import { theme } from '@/lib/theme';
+import { requestSentLine } from '@/data/walk';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
 
 export default function RequestDrawingScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
@@ -12,7 +11,7 @@ export default function RequestDrawingScreen() {
   const [hint, setHint] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
+  const [sentLine, setSentLine] = useState<string | null>(null);
 
   async function onSubmit() {
     if (!siteId || !body.trim()) return;
@@ -20,7 +19,8 @@ export default function RequestDrawingScreen() {
     setError('');
     try {
       await repo.createRequest({ siteId, body: body.trim(), sheetHint: hint.trim() || null });
-      setDone(true);
+      const names = await repo.contractsManagerNames(siteId).catch(() => []);
+      setSentLine(requestSentLine(names));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send request');
     } finally {
@@ -28,11 +28,10 @@ export default function RequestDrawingScreen() {
     }
   }
 
-  if (done) {
+  if (sentLine) {
     return (
       <Screen>
-        <Title>Request is Open</Title>
-        <Muted>This is a queue item for the CM on this site — not a chat thread. You can check status from your site list.</Muted>
+        <Title>{sentLine}</Title>
         <Button label="Back to pack" onPress={() => router.back()} />
       </Screen>
     );
@@ -41,7 +40,6 @@ export default function RequestDrawingScreen() {
   return (
     <Screen>
       <Title>Request a drawing</Title>
-      <Muted>Site is attached. Say what is missing or unclear. Optional sheet/ref hint only.</Muted>
       <Field
         label="What do you need?"
         value={body}
@@ -57,10 +55,8 @@ export default function RequestDrawingScreen() {
         placeholder="A-101 soffit"
         autoCapitalize="none"
       />
-      <Text style={{ color: theme.muted }}>Photo attach is Phase B follow-up — not required to send.</Text>
       <ErrorText>{error}</ErrorText>
       <Button label="Send request" onPress={() => void onSubmit()} loading={loading} disabled={!body.trim()} />
-      <View />
     </Screen>
   );
 }
