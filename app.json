@@ -47,7 +47,8 @@
         {
           "photosPermission": "SitePack only uses a photo if you attach one to a drawing request."
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -524,6 +524,17 @@ export const fixtureRepo: SitePackRepo = {
     site.archived_at = archived ? now() : null;
   },
 
+  async contractsManagerNames(siteId) {
+    const person = meOrThrow();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return store.assignments
+      .filter((assignment) => assignment.site_id === siteId)
+      .map((assignment) => store.people.find((row) => row.id === assignment.person_id))
+      .filter((row) => row?.role === 'cm')
+      .map((row) => row?.display_name?.trim() || 'Unknown')
+      .sort();
+  },
+
   async listAssignments(siteId) {
     const person = meOrThrow();
     if (!canAccessSite(person, siteId)) throw new Error('not_authorized');

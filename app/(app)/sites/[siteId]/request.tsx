@@ -19,10 +19,7 @@ export default function RequestDrawingScreen() {
     setError('');
     try {
       await repo.createRequest({ siteId, body: body.trim(), sheetHint: hint.trim() || null });
-      const assignments = await repo.listAssignments(siteId).catch(() => []);
-      const names = assignments
-        .filter((row) => row.person?.role === 'cm')
-        .map((row) => row.person?.display_name ?? '');
+      const names = await repo.contractsManagerNames(siteId).catch(() => []);
       setSentLine(requestSentLine(names));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send request');

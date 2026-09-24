@@ -58,8 +58,8 @@ export default function DrawingViewerScreen() {
     setSaving(true);
     try {
       await saveSheet(uri, `${drawing.title} Rev ${drawing.revision}.pdf`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the sheet.');
+    } catch {
+      setError('Could not save the sheet.');
     } finally {
       setSaving(false);
     }

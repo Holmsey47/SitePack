@@ -1,35 +1,8 @@
-import { bytesToBase64 } from '@/data/base64';
-import { sheetViewHtml } from '@/lib/sheetHtml';
+import { loadSheetHtml, SHEET_OPEN_ERROR } from '@/lib/sheetDocument';
 import { theme } from '@/lib/theme';
-import { Directory, File, Paths } from 'expo-file-system';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-
-const LIBRARY_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-const WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-const OPEN_ERROR = 'Could not open the sheet.';
-
-async function cachedScript(name: string, url: string): Promise<string> {
-  const folder = new Directory(Paths.cache, 'sitepack-viewer');
-  folder.create({ intermediates: true, idempotent: true });
-  const file = new File(folder, name);
-  if (!file.exists) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(OPEN_ERROR);
-    file.create();
-    file.write(await response.text());
-  }
-  return file.base64();
-}
-
-async function pdfBase64(uri: string): Promise<string> {
-  if (!uri.startsWith('http')) return new File(uri).base64();
-  const response = await fetch(uri);
-  if (!response.ok) throw new Error(OPEN_ERROR);
-  return bytesToBase64(new Uint8Array(await response.arrayBuffer()));
-}
 
 export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message: string) => void }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -41,16 +14,12 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
     setFailed(false);
     void (async () => {
       try {
-        const [pdf, library, worker] = await Promise.all([
-          pdfBase64(uri),
-          cachedScript('pdf.min.js', LIBRARY_URL),
-          cachedScript('pdf.worker.min.js', WORKER_URL),
-        ]);
-        if (!cancelled) setHtml(sheetViewHtml(pdf, library, worker));
+        const next = await loadSheetHtml(uri);
+        if (!cancelled) setHtml(next);
       } catch {
         if (!cancelled) {
           setFailed(true);
-          onError?.(OPEN_ERROR);
+          onError?.(SHEET_OPEN_ERROR);
         }
       }
     })();

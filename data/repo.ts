@@ -46,6 +46,7 @@ export type SitePackRepo = {
   createSite(input: CreateSiteInput): Promise<Site>;
   archiveSite(siteId: string, archived: boolean): Promise<void>;
   listAssignments(siteId: string): Promise<SiteAssignment[]>;
+  contractsManagerNames(siteId: string): Promise<string[]>;
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;
   listCompanyPeople(): Promise<Person[]>;

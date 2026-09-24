@@ -1,8 +1,6 @@
-/** Embed a sheet in a page. The web view must not navigate to the PDF file, or Android saves it. */
-export function sheetViewHtml(pdfBase64: string, libraryBase64: string, workerBase64: string): string {
+/** Draw the sheet in the page. No worker, and the web view is not pointed at the file. */
+export function sheetViewHtml(pdfBase64: string, librarySource: string, workerSource: string): string {
   const pdf = JSON.stringify(pdfBase64);
-  const library = JSON.stringify(libraryBase64);
-  const worker = JSON.stringify(workerBase64);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -15,6 +13,8 @@ export function sheetViewHtml(pdfBase64: string, libraryBase64: string, workerBa
 </style>
 </head>
 <body>
+<script>${workerSource}</script>
+<script>${librarySource}</script>
 <script>
 function bytes(b64) {
   const raw = atob(b64);
@@ -22,19 +22,7 @@ function bytes(b64) {
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
 }
-function load(b64) {
-  return new Promise(function (resolve, reject) {
-    const script = document.createElement('script');
-    script.src = URL.createObjectURL(new Blob([bytes(b64)], { type: 'text/javascript' }));
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
-load(${library}).then(function () {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([bytes(${worker})], { type: 'text/javascript' }));
-  return pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise;
-}).then(async function (doc) {
+pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise.then(async function (doc) {
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
     const page = await doc.getPage(pageNumber);
     const unscaled = page.getViewport({ scale: 1 });

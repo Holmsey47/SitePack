@@ -46,10 +46,32 @@ test('phone walk copy and ids', () => {
   assert.equal(PACK_DIRECTORY_CREATE.intermediates, true);
   assert.equal(PACK_DIRECTORY_CREATE.idempotent, true);
 
-  const html = sheetViewHtml('QQ==', 'Qg==', 'Qw==');
+  const html = sheetViewHtml('QQ==', 'var pdfjsLib = {};', 'var pdfjsWorker = {};');
   assert.match(html, /getDocument/);
-  assert.doesNotMatch(html, /source:\s*\{\s*uri/);
   assert.match(html, /QQ==/);
+  assert.doesNotMatch(html, /createObjectURL|new Blob|new Worker|workerSrc|cdnjs/);
+  const frame = fs.readFileSync('components/drawing-frame.tsx', 'utf8');
+  const webFrame = fs.readFileSync('components/drawing-frame.web.tsx', 'utf8');
+  assert.equal(frame.includes('cdnjs'), false);
+  assert.equal(frame.includes('https://'), false);
+  assert.match(fs.readFileSync('assets/pdfjs/pdf.min.pdfjs', 'utf8'), /pdfjsLib/);
+  assert.match(fs.readFileSync('assets/pdfjs/pdf.worker.min.pdfjs', 'utf8'), /pdfjsWorker/);
+  assert.equal(frame.includes('createObjectURL'), false);
+  assert.match(frame, /source=\{\{ html \}\}/);
+  assert.equal(webFrame.includes('src: uri'), false);
+  assert.match(webFrame, /srcDoc: html/);
+  const namesMigration = fs.readFileSync('supabase/migrations/20260924120000_contracts_manager_names.sql', 'utf8');
+  assert.match(namesMigration, /private\.can_access_site\(p_site_id\)/);
+  assert.match(namesMigration, /p\.role = 'cm'/);
+  assert.equal(namesMigration.includes('email'), false);
+  const requestScreen = fs.readFileSync('app/(app)/sites/[siteId]/request.tsx', 'utf8');
+  assert.match(requestScreen, /contractsManagerNames/);
+  assert.equal(requestScreen.includes('listAssignments'), false);
+  const inbox = fs.readFileSync('app/(app)/requests/index.tsx', 'utf8');
+  assert.equal(inbox.includes('setRows([])'), false);
+  assert.match(inbox, /Could not load requests\./);
+  const drawing = fs.readFileSync('app/(app)/sites/[siteId]/drawing/[drawingId].tsx', 'utf8');
+  assert.match(drawing, /catch \{\s*setError\('Could not save the sheet\.'\);/);
 
   for (const path of [
     'app/(app)/sites/[siteId]/upload.tsx',
@@ -111,4 +133,9 @@ test('site card, archive, invite sites, and finished requests', async () => {
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
   await fixtureRepo.deleteRequest(IDS.openRequest);
   assert.equal(await fixtureRepo.getRequest(IDS.openRequest), null);
+  await fixtureRepo.signOut();
+
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(await fixtureRepo.contractsManagerNames(IDS.oak), ['Priya Shah']);
+  assert.deepEqual(await fixtureRepo.contractsManagerNames(IDS.riverside), []);
 });

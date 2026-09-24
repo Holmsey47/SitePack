@@ -316,6 +316,13 @@ export const supabaseRepo: SitePackRepo = {
     return (data ?? []) as PulseRow[];
   },
 
+  async contractsManagerNames(siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('site_contracts_manager_names', { p_site_id: siteId });
+    if (error) throw new Error(rpcErrorCode(error.message));
+    return Array.isArray(data) ? data.filter((name): name is string => typeof name === 'string') : [];
+  },
+
   async listAssignments(siteId) {
     const supabase = getSupabase();
     const { data, error } = await supabase
