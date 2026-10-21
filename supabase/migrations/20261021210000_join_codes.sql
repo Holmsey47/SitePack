@@ -519,7 +519,7 @@ declare
   v_subject text;
   v_count integer;
 begin
-  if p_bucket in ('ip', 'login_ip', 'reset_ip', 'username_lookup') then
+  if p_bucket in ('ip', 'login_ip', 'reset_ip') then
     v_subject := private.ip_subject(p_subject);
   else
     v_subject := left(coalesce(nullif(btrim(p_subject), ''), 'unknown'), 128);
@@ -635,6 +635,51 @@ begin
 end;
 $$;
 
+-- Stamp a delay that was already slept, without sleeping again.
+create or replace function private.attach_delay(p_delay integer, p_payload jsonb)
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when coalesce(p_delay, 0) > 0 then p_payload || jsonb_build_object('delay_ms', p_delay)
+    else p_payload
+  end;
+$$;
+
+-- Taken-username cap key. Unknown IPs are not hard-capped.
+create or replace function private.username_lookup_subject(p_code_id uuid, p_ip text)
+returns text
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_ip text := private.ip_subject(coalesce(p_ip, ''));
+begin
+  if p_code_id is null or v_ip = 'unknown' then
+    return 'unknown';
+  end if;
+  return left(p_code_id::text || '|' || v_ip, 128);
+end;
+$$;
+
+create or replace function private.username_lookup_limited(p_code_id uuid, p_ip text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.username_lookup_subject(p_code_id, p_ip) <> 'unknown'
+    and private.join_failure_count(
+      'username_lookup',
+      private.username_lookup_subject(p_code_id, p_ip),
+      interval '15 minutes'
+    ) >= 40;
+$$;
+
 -- Real service check. PostgREST 12 puts the role in request.jwt.claims.
 -- The legacy request.jwt.claim.role is used only when claims are absent.
 -- An empty claim is not service_role.
@@ -731,6 +776,9 @@ revoke all on function private.ipv4_subject(text) from public, anon, authenticat
 revoke all on function private.ip_hard_limited(text, text) from public, anon, authenticated;
 revoke all on function private.global_step_up(text) from public, anon, authenticated;
 revoke all on function private.with_global_delay(text, jsonb) from public, anon, authenticated;
+revoke all on function private.attach_delay(integer, jsonb) from public, anon, authenticated;
+revoke all on function private.username_lookup_subject(uuid, text) from public, anon, authenticated;
+revoke all on function private.username_lookup_limited(uuid, text) from public, anon, authenticated;
 revoke all on function private.reject_unless_service() from public, anon, authenticated;
 revoke all on function private.clear_auth_sessions(uuid) from public, anon, authenticated;
 revoke all on function private.ban_auth_user(uuid) from public, anon, authenticated;
@@ -951,6 +999,7 @@ declare
   v_ip text := coalesce(p_client_ip, '');
   v_person uuid;
   v_dead boolean;
+  v_delay integer := 0;
 begin
   perform private.reject_unless_service();
 
@@ -970,10 +1019,9 @@ begin
     return private.with_global_delay('global', jsonb_build_object('ok', false, 'error', 'join_rejected'));
   end if;
 
-  select * into v_code
-  from public.join_codes
-  where code_hash = v_hash
-  for update;
+  -- A miss or an already-dead code has nothing to lock. Sleep only after that,
+  -- and before FOR UPDATE, so a global burst does not pin the code row.
+  select * into v_code from public.join_codes where code_hash = v_hash;
 
   v_dead := not found
     or v_code.revoked_at is not null
@@ -987,6 +1035,24 @@ begin
   if v_dead then
     perform private.record_ip_and_global('ip', v_ip, 'global');
     return private.with_global_delay('global', jsonb_build_object('ok', false, 'error', 'join_rejected'));
+  end if;
+
+  v_delay := private.global_step_up('global');
+
+  select * into v_code from public.join_codes where id = v_code.id for update;
+
+  v_dead := not found
+    or v_code.revoked_at is not null
+    or v_code.expires_at <= now()
+    or exists (
+      select 1 from public.sites s
+      where s.id = v_code.site_id
+        and s.archived_at is not null
+    );
+
+  if v_dead then
+    perform private.record_ip_and_global('ip', v_ip, 'global');
+    return private.attach_delay(v_delay, jsonb_build_object('ok', false, 'error', 'join_rejected'));
   end if;
 
   if v_code.uses >= v_code.max_uses
@@ -1003,7 +1069,7 @@ begin
       'attempt',
       jsonb_build_object('code_id', v_code.id, 'reason', 'apply_failed')
     );
-    return private.with_global_delay('global', jsonb_build_object('ok', false, 'error', 'join_rejected'));
+    return private.attach_delay(v_delay, jsonb_build_object('ok', false, 'error', 'join_rejected'));
   end if;
 
   begin
@@ -1025,7 +1091,7 @@ begin
         'attempt',
         jsonb_build_object('code_id', v_code.id, 'reason', 'username_race')
       );
-      return private.with_global_delay('global', jsonb_build_object('ok', false, 'error', 'join_rejected'));
+      return private.attach_delay(v_delay, jsonb_build_object('ok', false, 'error', 'join_rejected'));
   end;
 
   insert into public.site_assignments (site_id, person_id)
@@ -1056,8 +1122,8 @@ begin
     )
   );
 
-  return private.with_global_delay(
-    'global',
+  return private.attach_delay(
+    v_delay,
     jsonb_build_object(
       'ok', true,
       'person_id', v_person,
@@ -1115,7 +1181,7 @@ end;
 $$;
 
 -- Username lookup only after a live code. A dead code does not say whether the name is taken.
--- Lookups are throttled per known IP. Unknown is not hard-capped.
+-- Only a taken=true answer counts, and only against that code plus that known IP.
 create or replace function public.username_is_taken(
   p_username text,
   p_code_hash text,
@@ -1131,10 +1197,11 @@ declare
   v_hash bytea;
   v_code public.join_codes;
   v_ip text := coalesce(p_client_ip, '');
+  v_taken boolean;
 begin
   perform private.reject_unless_service();
 
-  if private.ip_hard_limited('ip', v_ip) or private.ip_hard_limited('username_lookup', v_ip) then
+  if private.ip_hard_limited('ip', v_ip) then
     return jsonb_build_object('ok', false, 'taken', false, 'error', 'rate_limited');
   end if;
 
@@ -1166,16 +1233,21 @@ begin
     );
   end if;
 
-  perform private.record_join_failure('username_lookup', v_ip);
   if v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$' then
     return jsonb_build_object('ok', true, 'taken', false);
   end if;
-  return jsonb_build_object(
-    'ok',
-    true,
-    'taken',
-    exists (select 1 from public.people p where lower(p.username) = v_username)
-  );
+
+  v_taken := exists (select 1 from public.people p where lower(p.username) = v_username);
+  if not v_taken then
+    return jsonb_build_object('ok', true, 'taken', false);
+  end if;
+
+  if private.username_lookup_limited(v_code.id, v_ip) then
+    return jsonb_build_object('ok', false, 'taken', false, 'error', 'rate_limited');
+  end if;
+
+  perform private.record_join_failure('username_lookup', private.username_lookup_subject(v_code.id, v_ip));
+  return jsonb_build_object('ok', true, 'taken', true);
 end;
 $$;
 
@@ -1665,13 +1737,13 @@ comment on function public.set_join_code_cap(uuid, integer) is
   'Owner or CM changes max uses. Hard max 25. Cannot drop below uses already counted.';
 
 comment on function public.apply_join_code(text, uuid, text, text, text, text, text) is
-  'Service role only. Locks the code row, checks cap, expiry, revoke, and an active site, then inserts an operative on that code''s company and site.';
+  'Service role only. Sleeps for a global burst before locking the code row, then checks cap, expiry, revoke, and an active site, and inserts an operative on that code''s company and site.';
 
 comment on function public.preview_join_code(text, text) is
   'Service role only. Same accept or reject as apply, without creating a person and without a long lock.';
 
 comment on function public.username_is_taken(text, text, text) is
-  'Service role only. Answers after a live code. A dead code does not say if the name is taken. Throttled per known IP.';
+  'Service role only. Answers after a live code. A dead code does not say if the name is taken. Only taken=true counts, keyed on that code and known IP.';
 
 comment on function public.remove_joiner(uuid, uuid, boolean) is
   'Owner: drop every assignment, detach or delete the person, clear sessions, and ban. CM: drop only that site, and only when a CM invited them.';

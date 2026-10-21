@@ -42,4 +42,30 @@ if (hits.length > 0) {
   process.exit(1);
 }
 
+const vercelPath = path.join(root, 'vercel.json');
+if (!fs.existsSync(vercelPath)) {
+  console.error('dist/vercel.json is missing.');
+  process.exit(1);
+}
+
+const vercel = JSON.parse(fs.readFileSync(vercelPath, 'utf8'));
+const rewrites = Array.isArray(vercel.rewrites) ? vercel.rewrites : [];
+const headers = Array.isArray(vercel.headers) ? vercel.headers : [];
+const hasVendor = rewrites.some(
+  (rule) => rule.source === '/assets/node_modules/(.*)' && rule.destination === '/assets/vendor_modules/$1'
+);
+const hasSpa = rewrites.some((rule) => rule.source === '/(.*)' && rule.destination === '/index.html');
+const hasReferrer = headers.some(
+  (rule) =>
+    rule.source === '/(.*)' &&
+    Array.isArray(rule.headers) &&
+    rule.headers.some((header) => header.key === 'Referrer-Policy' && header.value === 'no-referrer')
+);
+
+if (!hasVendor || !hasSpa || !hasReferrer) {
+  console.error('dist/vercel.json needs the SPA rewrites and Referrer-Policy: no-referrer on /(*).');
+  process.exit(1);
+}
+
 console.log('Production bundle has no seed emails or seed password.');
+console.log('dist/vercel.json has the SPA rewrites and Referrer-Policy.');

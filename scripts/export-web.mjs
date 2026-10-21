@@ -1,5 +1,7 @@
 // Production web export. Fails closed when the hosted Supabase env is missing.
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const key =
@@ -22,4 +24,14 @@ const result = spawnSync('npx', ['expo', 'export', '--platform', 'web'], {
   env: process.env,
 });
 
-process.exit(result.status ?? 1);
+if ((result.status ?? 1) !== 0) {
+  process.exit(result.status ?? 1);
+}
+
+// Production deploys the prebuilt dist, not the repo root. Copy the SPA
+// rewrites and the Referrer-Policy header into that bundle.
+const source = path.resolve('vercel.json');
+const target = path.resolve('dist/vercel.json');
+fs.mkdirSync(path.dirname(target), { recursive: true });
+fs.copyFileSync(source, target);
+console.log('Wrote dist/vercel.json from vercel.json.');

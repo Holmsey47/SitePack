@@ -1,19 +1,11 @@
 {
+  "rewrites": [
+    { "source": "/assets/node_modules/(.*)", "destination": "/assets/vendor_modules/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
-      "source": "/join",
-      "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
-    },
-    {
-      "source": "/join/(.*)",
-      "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
-    },
-    {
-      "source": "/reset",
-      "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
-    },
-    {
-      "source": "/reset/(.*)",
+      "source": "/(.*)",
       "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
     }
   ]

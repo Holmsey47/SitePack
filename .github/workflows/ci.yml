@@ -40,5 +40,5 @@ jobs:
           EXPO_PUBLIC_USE_FIXTURES: ""
         run: node scripts/export-web.mjs
 
-      - name: Production bundle has no seed credentials
+      - name: Production bundle and dist/vercel.json
         run: node scripts/check-prod-bundle.mjs

@@ -874,12 +874,17 @@ insert into probe_vars (k, v) values
   ('share_old_plain', pg_temp.mint()),
   ('share_new_plain', pg_temp.mint()),
   ('rio_plain', pg_temp.mint()),
-  ('ben_plain', pg_temp.mint());
+  ('ben_plain', pg_temp.mint()),
+  ('name_b_plain', pg_temp.mint()),
+  ('crew_plain', pg_temp.mint());
 
 insert into probe_vars (k, v)
 select replace(k, '_plain', '_hash'), pg_temp.code_hash(v)
 from probe_vars
-where k in ('other_plain', 'unk_plain', 'share_old_plain', 'share_new_plain', 'rio_plain', 'ben_plain');
+where k in (
+  'other_plain', 'unk_plain', 'share_old_plain', 'share_new_plain',
+  'rio_plain', 'ben_plain', 'name_b_plain', 'crew_plain'
+);
 
 select pg_temp.as_user('22222222-2222-2222-2222-222222222222', 'authenticated');
 set local role authenticated;
@@ -926,6 +931,28 @@ values (
     2,
     24,
     (select v from probe_vars where k = 'share_new_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'name_b',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'other code',
+    2,
+    24,
+    (select v from probe_vars where k = 'name_b_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'crew_code',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'crew',
+    25,
+    24,
+    (select v from probe_vars where k = 'crew_hash')
   )::text
 );
 
@@ -1083,11 +1110,13 @@ select 'name_dead', public.username_is_taken('samreed', repeat('cd', 32), '203.0
 do $$
 declare
   v_hash text;
+  v_other text;
   v_row jsonb;
   v_taken integer := 0;
   i integer;
 begin
   select v into v_hash from probe_vars where k = 'after_ip_hash';
+  select v into v_other from probe_vars where k = 'name_b_hash';
   for i in 1..40 loop
     v_row := public.username_is_taken('samreed', v_hash, '203.0.113.80');
     if v_row->>'ok' = 'true' and v_row->>'taken' = 'true' then
@@ -1100,7 +1129,65 @@ begin
   if v_row->>'error' is distinct from 'rate_limited' or v_taken <> 40 then
     raise exception 'FAIL: username throttle % after %', v_row, v_taken;
   end if;
-  raise notice 'ok: username lookup is gated and capped per IP';
+  v_row := public.username_is_taken('samreed', v_other, '203.0.113.80');
+  if v_row->>'ok' is distinct from 'true' or v_row->>'taken' is distinct from 'true' then
+    raise exception 'FAIL: other code was throttled %', v_row;
+  end if;
+  v_row := public.username_is_taken('freshlad80', v_hash, '203.0.113.80');
+  if v_row->>'ok' is distinct from 'true' or v_row->>'taken' is distinct from 'false' then
+    raise exception 'FAIL: free name was throttled %', v_row;
+  end if;
+  raise notice 'ok: taken usernames cap per code and IP, a free name and another code do not';
+end $$;
+
+reset role;
+select pg_temp.as_user(null, '');
+
+alter table public.join_codes drop constraint join_codes_max_uses_range;
+update public.join_codes
+set max_uses = 80
+where id = (select (v::jsonb->>'id')::uuid from probe_vars where k = 'crew_code');
+
+create temp table probe_crew (n int primary key, auth_id uuid, username text);
+grant all on table probe_crew to service_role;
+insert into probe_crew (n, auth_id, username)
+select g, gen_random_uuid(), 'crew' || lpad(g::text, 2, '0')
+from generate_series(1, 60) g;
+
+insert into auth.users (instance_id, id, aud, role, email, created_at, updated_at)
+select
+  '00000000-0000-0000-0000-000000000000',
+  auth_id,
+  'authenticated',
+  'authenticated',
+  auth_id::text || '@users.sitepack.invalid',
+  now(),
+  now()
+from probe_crew;
+
+select pg_temp.as_user(null, 'service_role');
+set local role service_role;
+
+do $$
+declare
+  v_hash text;
+  v_row jsonb;
+  r record;
+begin
+  select v into v_hash from probe_vars where k = 'crew_hash';
+  for r in select * from probe_crew order by n loop
+    v_row := public.username_is_taken(r.username, v_hash, '203.0.113.120');
+    if v_row->>'ok' is distinct from 'true' or v_row->>'taken' is distinct from 'false' then
+      raise exception 'FAIL: crew lookup % %', r.n, v_row;
+    end if;
+    v_row := public.apply_join_code(
+      v_hash, r.auth_id, 'Crew ' || r.n, 'fixer', r.username, '203.0.113.120', 'probe'
+    );
+    if v_row->>'ok' is distinct from 'true' then
+      raise exception 'FAIL: crew join % %', r.n, v_row;
+    end if;
+  end loop;
+  raise notice 'ok: 60 genuine joins from one IP all succeed';
 end $$;
 
 do $$
@@ -1162,10 +1249,39 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
+  (select count(*) from public.people where username like 'crew%') = 60
+  and (select uses from public.join_codes where id = (select (v::jsonb->>'id')::uuid from probe_vars where k = 'crew_code')) = 60
+  and private.join_failure_count(
+    'username_lookup',
+    private.username_lookup_subject(
+      (select (v::jsonb->>'id')::uuid from probe_vars where k = 'crew_code'),
+      '203.0.113.120'
+    ),
+    interval '15 minutes'
+  ) = 0,
+  '60 fresh joins from one IP succeed and do not fill the taken-username cap'
+);
+
+select pg_temp.ok(
   (select v::jsonb->>'error' from probe_vars where k = 'name_dead') = 'join_rejected'
   and (select v::jsonb->>'taken' from probe_vars where k = 'name_dead') = 'false'
-  and private.join_failure_count('username_lookup', '203.0.113.80', interval '15 minutes') = 40,
-  'a dead code does not reveal a taken username and live lookups cap'
+  and private.join_failure_count(
+    'username_lookup',
+    private.username_lookup_subject(
+      (select (v::jsonb->>'id')::uuid from probe_vars where k = 'after_ip'),
+      '203.0.113.80'
+    ),
+    interval '15 minutes'
+  ) = 40
+  and private.join_failure_count(
+    'username_lookup',
+    private.username_lookup_subject(
+      (select (v::jsonb->>'id')::uuid from probe_vars where k = 'name_b'),
+      '203.0.113.80'
+    ),
+    interval '15 minutes'
+  ) = 1,
+  'a dead code does not reveal a taken username, and taken answers cap per code and IP'
 );
 
 select pg_temp.ok(
