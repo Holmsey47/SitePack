@@ -1,6 +1,7 @@
 import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
+import { inviteFailureMessage } from '@/data/inviteError';
 import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
 import type { PulseRow, Role } from '@/data/types';
@@ -63,7 +64,7 @@ export default function InviteScreen() {
       });
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invite failed');
+      setError(inviteFailureMessage(err instanceof Error ? err.message : null, 'The invite did not send. Try again.'));
     } finally {
       setLoading(false);
     }

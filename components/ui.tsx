@@ -101,6 +101,7 @@ export function Field({
   autoCapitalize = 'none',
   multiline,
   keyboardType,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -110,6 +111,7 @@ export function Field({
   autoCapitalize?: 'none' | 'sentences' | 'words';
   multiline?: boolean;
   keyboardType?: 'default' | 'email-address';
+  maxLength?: number;
 }) {
   return (
     <View style={{ gap: 8 }}>
@@ -124,6 +126,7 @@ export function Field({
         autoCorrect={false}
         multiline={multiline}
         keyboardType={keyboardType}
+        maxLength={maxLength}
         style={[styles.input, multiline && { minHeight: 120, textAlignVertical: 'top' }]}
       />
     </View>

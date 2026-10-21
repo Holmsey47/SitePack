@@ -13,6 +13,7 @@ import type {
   HomeSite,
   InviteInput,
   ManifestItem,
+  PeopleGroup,
   Person,
   PulseRow,
   ReplaceDrawingInput,
@@ -21,7 +22,17 @@ import type {
   Site,
 } from '@/data/types';
 import { resolveFolder, resolveLevel } from '@/data/folders';
+import { canAssignPeopleGroup, canEditPeopleGroup, normalizeGroupName } from '@/data/peopleGroups';
 import { pdfObjectUrl } from '@/lib/pdf';
+
+type GroupRecord = {
+  id: string;
+  company_id: string;
+  name: string;
+  created_at: string;
+  created_by: string | null;
+  memberIds: string[];
+};
 
 type Store = {
   people: Person[];
@@ -29,6 +40,7 @@ type Store = {
   assignments: SiteAssignment[];
   drawings: Drawing[];
   requests: DrawingRequest[];
+  groups: GroupRecord[];
   sessionPersonId: string | null;
 };
 
@@ -107,6 +119,28 @@ function seed(): Store {
       email: 'ben@sitepack.test',
       phone: null,
       created_at: '2026-08-01T09:00:00.000Z',
+    },
+    {
+      id: IDS.lee,
+      auth_user_id: null,
+      company_id: IDS.company,
+      role: 'operative',
+      trade: 'dryliner',
+      display_name: 'Lee Stone',
+      email: null,
+      phone: null,
+      created_at: '2026-08-02T09:00:00.000Z',
+    },
+    {
+      id: IDS.chris,
+      auth_user_id: IDS.chris,
+      company_id: IDS.company,
+      role: 'operative',
+      trade: 'dryliner',
+      display_name: 'Chris Lang',
+      email: 'chris@sitepack.test',
+      phone: null,
+      created_at: '2026-08-02T09:00:00.000Z',
     },
   ];
 
@@ -246,7 +280,18 @@ function seed(): Store {
     },
   ];
 
-  return { people, sites, assignments, drawings, requests, sessionPersonId: null };
+  const groups: GroupRecord[] = [
+    {
+      id: IDS.dryliners,
+      company_id: IDS.company,
+      name: 'Oak dryliners',
+      created_at: '2026-09-01T09:00:00.000Z',
+      created_by: IDS.owner,
+      memberIds: [IDS.amy, IDS.ben, IDS.cm, IDS.lee, IDS.chris],
+    },
+  ];
+
+  return { people, sites, assignments, drawings, requests, groups, sessionPersonId: null };
 }
 
 const SESSION_KEY = 'sitepack.fixture.session';
@@ -806,7 +851,149 @@ export const fixtureRepo: SitePackRepo = {
   async getDrawingOpenUrl(drawing) {
     return pdfObjectUrl(drawing.id, drawing.title, drawing.revision, drawing.dated ?? '');
   },
+
+  async listPeopleGroups() {
+    const person = meOrThrow();
+    if (!canAssignPeopleGroup(person.role)) throw new Error('not_authorized');
+    return store.groups
+      .filter((group) => group.company_id === person.company_id)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+      .map((group) => groupForCaller(person, group));
+  },
+
+  async createPeopleGroup(name) {
+    const person = meOrThrow();
+    if (!canEditPeopleGroup(person.role)) throw new Error('not_authorized');
+    const trimmed = normalizeGroupName(name);
+    assertGroupNameFree(person.company_id, trimmed);
+    const created: GroupRecord = {
+      id: newId(),
+      company_id: person.company_id,
+      name: trimmed,
+      created_at: now(),
+      created_by: person.id,
+      memberIds: [],
+    };
+    store.groups.push(created);
+    return created.id;
+  },
+
+  async renamePeopleGroup(groupId, name) {
+    const person = meOrThrow();
+    if (!canEditPeopleGroup(person.role)) throw new Error('not_authorized');
+    const group = findOwnGroup(person, groupId);
+    const trimmed = normalizeGroupName(name);
+    assertGroupNameFree(person.company_id, trimmed, group.id);
+    group.name = trimmed;
+  },
+
+  async deletePeopleGroup(groupId) {
+    const person = meOrThrow();
+    if (!canEditPeopleGroup(person.role)) throw new Error('not_authorized');
+    findOwnGroup(person, groupId);
+    store.groups = store.groups.filter((group) => group.id !== groupId);
+  },
+
+  async setPeopleGroupMembers(groupId, personIds) {
+    const person = meOrThrow();
+    if (!canEditPeopleGroup(person.role)) throw new Error('not_authorized');
+    const group = findOwnGroup(person, groupId);
+    if (personIds.some((id) => !id)) throw new Error('person_not_in_company');
+    const ids = [...new Set(personIds)];
+    for (const id of ids) {
+      const row = store.people.find((candidate) => candidate.id === id);
+      if (!row || row.company_id !== person.company_id) throw new Error('person_not_in_company');
+    }
+    group.memberIds = ids;
+  },
+
+  async assignGroupToSites(groupId, siteIds) {
+    const person = meOrThrow();
+    if (!canAssignPeopleGroup(person.role)) throw new Error('not_authorized');
+    const group = findOwnGroup(person, groupId);
+    for (const memberId of group.memberIds) {
+      const row = store.people.find((candidate) => candidate.id === memberId);
+      if (!row || row.company_id !== group.company_id) throw new Error('person_not_in_company');
+    }
+    const uniqueSites = [...new Set(siteIds)];
+    if (uniqueSites.length === 0) throw new Error('site_required');
+    for (const siteId of uniqueSites) {
+      const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
+      if (!site) throw new Error('site_not_found');
+      if (person.role === 'cm' && !canAccessSite(person, siteId)) throw new Error('not_authorized');
+    }
+    let added = 0;
+    for (const siteId of uniqueSites) {
+      for (const memberId of group.memberIds) {
+        if (store.assignments.some((row) => row.site_id === siteId && row.person_id === memberId)) continue;
+        store.assignments.push({
+          id: newId(),
+          site_id: siteId,
+          person_id: memberId,
+          created_at: now(),
+        });
+        added += 1;
+      }
+    }
+    return { added };
+  },
+
+  async removeGroupFromSite(groupId, siteId) {
+    const person = meOrThrow();
+    if (!canAssignPeopleGroup(person.role)) throw new Error('not_authorized');
+    const group = findOwnGroup(person, groupId);
+    const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
+    if (!site) throw new Error('site_not_found');
+    if (person.role === 'cm' && !canAccessSite(person, siteId)) throw new Error('not_authorized');
+    const members = new Set(group.memberIds);
+    let removed = 0;
+    store.assignments = store.assignments.filter((row) => {
+      if (row.site_id === siteId && members.has(row.person_id)) {
+        removed += 1;
+        return false;
+      }
+      return true;
+    });
+    return { removed };
+  },
 };
+
+function groupForCaller(caller: Person, group: GroupRecord): PeopleGroup {
+  return {
+    id: group.id,
+    company_id: group.company_id,
+    name: group.name,
+    created_at: group.created_at,
+    created_by: group.created_by,
+    members: group.memberIds.map((personId) => {
+      const row = store.people.find((candidate) => candidate.id === personId);
+      const visible = Boolean(row && canSeePerson(caller, row));
+      return {
+        person_id: personId,
+        display_name: visible && row ? row.display_name : null,
+        role: visible && row ? row.role : null,
+        trade: visible && row ? row.trade : null,
+        has_login: visible && row ? row.auth_user_id != null : null,
+      };
+    }),
+  };
+}
+
+function findOwnGroup(caller: Person, groupId: string): GroupRecord {
+  const group = store.groups.find((row) => row.id === groupId && row.company_id === caller.company_id);
+  if (!group) throw new Error('not_authorized');
+  return group;
+}
+
+function assertGroupNameFree(companyId: string, name: string, exceptId?: string) {
+  const taken = store.groups.some(
+    (group) =>
+      group.company_id === companyId &&
+      group.id !== exceptId &&
+      group.name.toLowerCase() === name.toLowerCase()
+  );
+  if (taken) throw new Error('name_in_use');
+}
 
 export function resetFixtureStore() {
   store = seed();

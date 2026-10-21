@@ -13,7 +13,7 @@ import { repo } from '@/data/index';
 import type { CompanyPerson, PulseRow } from '@/data/types';
 import { theme } from '@/lib/theme';
 import { personLabel, siteLabel } from '@/data/walk';
-import { Redirect, useFocusEffect } from 'expo-router';
+import { Link, Redirect, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -124,6 +124,11 @@ export default function PeopleScreen() {
   return (
     <Screen footer={person ? <AppTabs role={person.role} /> : null}>
       <Title>People</Title>
+      <Link href="/groups" asChild>
+        <Pressable accessibilityRole="link" style={{ minHeight: 48, justifyContent: 'center' }}>
+          <Text style={{ color: theme.current, fontSize: 18, fontWeight: '800' }}>Groups</Text>
+        </Pressable>
+      </Link>
       <ErrorText>{error}</ErrorText>
       {loaded && !error && people.length === 0 ? <EmptyState title="No one in the company yet" /> : null}
       {people.map((row) => {

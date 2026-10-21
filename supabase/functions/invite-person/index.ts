@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { mapInviteFailure, type InviteFailureKind } from '../_shared/inviteFailure.ts';
 import { resolveInviteRedirect } from '../_shared/inviteRedirect.ts';
 
 const corsHeaders = {
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
     });
 
     if (inviteError || !invited.user) {
-      return json({ error: inviteError?.message ?? 'invite_failed' }, 400);
+      return loggedFailure(inviteError ?? new Error('invite returned no user'), 'auth');
     }
 
     const { data: created, error: personError } = await admin
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (personError || !created) {
-      return json({ error: personError?.message ?? 'invite_failed' }, 400);
+      return loggedFailure(personError ?? new Error('person insert returned no row'), 'person');
     }
 
     if (siteIds.length > 0) {
@@ -142,14 +143,13 @@ Deno.serve(async (req) => {
         }))
       );
       if (assignError) {
-        return json({ error: assignError.message }, 400);
+        return loggedFailure(assignError, 'assignment');
       }
     }
 
     return json({ ok: true, user_id: invited.user.id });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'invite_failed';
-    return json({ error: message }, 500);
+    return loggedFailure(error, 'unexpected');
   }
 });
 
@@ -196,7 +196,7 @@ async function attachLogin(admin: SupabaseClient, me: Caller, personId: string, 
     data: { display_name: existing.display_name ?? '' },
   });
   if (inviteError || !invited.user) {
-    return json({ error: inviteError?.message ?? 'invite_failed' }, 400);
+    return loggedFailure(inviteError ?? new Error('invite returned no user'), 'auth');
   }
 
   const { data: updated, error: updateError } = await admin
@@ -228,4 +228,10 @@ function json(payload: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+function loggedFailure(error: unknown, kind: InviteFailureKind): Response {
+  console.error(error);
+  const mapped = mapInviteFailure(error, kind);
+  return json({ error: mapped.code }, mapped.status);
 }

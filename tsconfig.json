@@ -21,6 +21,7 @@
     "data/drawingLevel.test.ts",
     "data/createSite.test.ts",
     "data/inviteError.test.ts",
+    "data/peopleGroups.test.ts",
     "data/seatShape.test.ts",
     "data/companyPeople.test.ts",
     "data/peopleVisibility.test.ts",

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { levelFilterLabels } from './folders.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
+import { rpcErrorCode } from './repo.ts';
 
 const securityMigration = '20261021163528';
 
@@ -135,4 +136,31 @@ test('the level migration is only a nullable column and a narrower-or-same RPC',
   assert.doesNotMatch(sql, /alter table public\.people/);
   assert.doesNotMatch(sql, /pre_lad|company_people/);
   assert.doesNotMatch(sql, /uploaded_by,\s*folder,\s*level\s*\) values \([\s\S]*\(select auth\.uid\(\)\)/);
+});
+
+test('a folder check constraint says the name must be 40 characters or fewer', () => {
+  assert.equal(
+    rpcErrorCode({
+      code: '23514',
+      message: 'new row for relation "drawings" violates check constraint "drawings_folder_len"',
+    }),
+    'Folder name must be 40 characters or fewer.'
+  );
+  assert.equal(
+    rpcErrorCode('new row for relation "drawings" violates check constraint "drawings_folder_len"'),
+    'Folder name must be 40 characters or fewer.'
+  );
+});
+
+test('a level check constraint says the level must be 40 characters or fewer', () => {
+  assert.equal(
+    rpcErrorCode({
+      code: '23514',
+      message: 'new row for relation "drawings" violates check constraint',
+      details: 'Failing row contains (drawings_level_len)',
+    }),
+    'Level must be 40 characters or fewer.'
+  );
+  const upload = fs.readFileSync('app/(app)/sites/[siteId]/upload.tsx', 'utf8');
+  assert.equal(upload.split('maxLength={LABEL_LIMIT}').length - 1, 2);
 });

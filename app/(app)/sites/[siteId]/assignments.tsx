@@ -1,8 +1,9 @@
-import { Button, Card, EmptyState, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
+import { groupFailureMessage } from '@/data/peopleGroups';
 import { canManageSite } from '@/data/repo';
-import type { Person, SiteAssignment } from '@/data/types';
+import type { PeopleGroup, Person, SiteAssignment } from '@/data/types';
 import { assignmentRank, contactLine, occupationLine, personLabel } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import { Redirect, useLocalSearchParams } from 'expo-router';
@@ -14,12 +15,20 @@ export default function AssignmentsScreen() {
   const { person } = useAuth();
   const [rows, setRows] = useState<SiteAssignment[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
+  const [groups, setGroups] = useState<PeopleGroup[]>([]);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     if (!siteId) return;
-    const [nextRows, nextPeople] = await Promise.all([repo.listAssignments(siteId), repo.listCompanyPeople()]);
+    const [nextRows, nextPeople, nextGroups] = await Promise.all([
+      repo.listAssignments(siteId),
+      repo.listCompanyPeople(),
+      repo.listPeopleGroups(),
+    ]);
     setRows(nextRows);
     setPeople(nextPeople);
+    setGroups(nextGroups);
   }, [siteId]);
 
   useEffect(() => {
@@ -36,9 +45,39 @@ export default function AssignmentsScreen() {
       personLabel(left.person).localeCompare(personLabel(right.person))
   );
 
+  async function onAddGroup(groupId: string) {
+    if (!siteId) return;
+    setError('');
+    setNotice('');
+    try {
+      const result = await repo.assignGroupToSites(groupId, [siteId]);
+      setNotice(
+        result.added === 0 ? 'That group is already on this site.' : `Added ${result.added} from the group.`
+      );
+      await load();
+    } catch (err) {
+      setError(groupFailureMessage(err instanceof Error ? err.message : ''));
+    }
+  }
+
+  async function onRemoveGroup(groupId: string) {
+    if (!siteId) return;
+    setError('');
+    setNotice('');
+    try {
+      const result = await repo.removeGroupFromSite(groupId, siteId);
+      setNotice(`Removed ${result.removed} from this site.`);
+      await load();
+    } catch (err) {
+      setError(groupFailureMessage(err instanceof Error ? err.message : ''));
+    }
+  }
+
   return (
     <Screen>
       <Title>Assigned people</Title>
+      <ErrorText>{error}</ErrorText>
+      {notice ? <Text style={{ color: theme.sent, fontWeight: '700' }}>{notice}</Text> : null}
       {ordered.length === 0 ? <EmptyState title="Nobody assigned yet" /> : null}
       {ordered.map((row) => (
         <Card key={row.id}>
@@ -46,6 +85,7 @@ export default function AssignmentsScreen() {
           {contactLine(row.person) ? <Text style={{ color: theme.muted }}>{contactLine(row.person)}</Text> : null}
           <Text style={{ color: theme.muted }}>
             {row.person ? occupationLine(row.person.role, row.person.trade) : 'Operative'}
+            {row.person && !row.person.auth_user_id ? ' · No login' : ''}
           </Text>
           <View style={{ alignItems: 'flex-end' }}>
             <Button
@@ -57,6 +97,17 @@ export default function AssignmentsScreen() {
               }}
             />
           </View>
+        </Card>
+      ))}
+      {groups.length > 0 ? <Text style={{ color: theme.text, fontWeight: '800' }}>Groups</Text> : null}
+      {groups.map((group) => (
+        <Card key={group.id}>
+          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 17 }}>{group.name}</Text>
+          <Muted>
+            {group.members.length} {group.members.length === 1 ? 'person' : 'people'}
+          </Muted>
+          <Button label={`Add ${group.name}`} variant="secondary" onPress={() => void onAddGroup(group.id)} />
+          <Button label={`Remove ${group.name}`} variant="ghost" onPress={() => void onRemoveGroup(group.id)} />
         </Card>
       ))}
       <Text style={{ color: theme.text, fontWeight: '800' }}>Not on this site</Text>
