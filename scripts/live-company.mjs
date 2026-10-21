@@ -12,7 +12,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const LIVE_PROJECT_NAME = 'sitepack-live';
 export const DEFAULT_REGION = 'eu-west-2';
-export const DEFAULT_WEB_ORIGIN = 'http://127.0.0.1:8081';
+/** Hosted site. This script must not default a live invite at localhost. */
+export const DEFAULT_WEB_ORIGIN = 'https://sitepack-preview.vercel.app';
 
 /** Existing hosted project. This script must not link, push, or write its keys. */
 export const FORBIDDEN_PROJECT_REFS = new Set(['qgmybdpuewenyqhwslpr']);
@@ -110,10 +111,21 @@ export function assertRegion(region) {
   return value;
 }
 
+export function liveWebOrigin(raw) {
+  const value = String(raw ?? '').trim().replace(/\/$/, '');
+  if (!value) return DEFAULT_WEB_ORIGIN;
+  if (!/^https:\/\/[^/\s]+$/.test(value)) {
+    throw new Error(
+      'WEB_ORIGIN must be an https origin when targeting a hosted project, such as https://sitepack-preview.vercel.app.',
+    );
+  }
+  return value;
+}
+
 export function inviteRedirect(origin) {
   const base = String(origin ?? DEFAULT_WEB_ORIGIN).trim().replace(/\/$/, '');
   if (!/^https?:\/\/[^/\s]+$/.test(base)) {
-    throw new Error('WEB_ORIGIN must be an origin, such as http://127.0.0.1:8081.');
+    throw new Error('WEB_ORIGIN must be an origin, such as https://sitepack-preview.vercel.app.');
   }
   return `${base}/set-password`;
 }
@@ -394,7 +406,7 @@ function readInput() {
   const dbPassword = assertDbPassword(process.env.SUPABASE_DB_PASSWORD);
   const region = assertRegion(process.env.SITEPACK_REGION);
   const toml = fs.readFileSync(path.join(root, 'supabase/config.toml'), 'utf8');
-  const redirect = assertInviteRedirect(inviteRedirect(process.env.WEB_ORIGIN), toml);
+  const redirect = assertInviteRedirect(inviteRedirect(liveWebOrigin(process.env.WEB_ORIGIN)), toml);
   const requestedRef = process.env.SITEPACK_PROJECT_REF?.trim() || '';
   if (requestedRef) assertLiveProjectRef(requestedRef);
   return {

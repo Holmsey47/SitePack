@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { resolveInviteRedirect } from '../_shared/inviteRedirect.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,7 +105,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    const redirectTo = Deno.env.get('INVITE_REDIRECT_URL') ?? 'http://127.0.0.1:8081/set-password';
+    const redirectTo = inviteRedirectOrError();
+    if (redirectTo instanceof Response) return redirectTo;
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
       data: { display_name: displayName },
@@ -187,7 +189,8 @@ async function attachLogin(admin: SupabaseClient, me: Caller, personId: string, 
     if (!shared) return json({ error: 'not_authorized' }, 403);
   }
 
-  const redirectTo = Deno.env.get('INVITE_REDIRECT_URL') ?? 'http://127.0.0.1:8081/set-password';
+  const redirectTo = inviteRedirectOrError();
+  if (redirectTo instanceof Response) return redirectTo;
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo,
     data: { display_name: existing.display_name ?? '' },
@@ -209,6 +212,15 @@ async function attachLogin(admin: SupabaseClient, me: Caller, personId: string, 
   }
 
   return json({ ok: true, user_id: invited.user.id });
+}
+
+function inviteRedirectOrError(): string | Response {
+  const decision = resolveInviteRedirect(Deno.env.get('INVITE_REDIRECT_URL'));
+  if (!decision.ok) {
+    console.error(JSON.stringify({ error: decision.error }));
+    return json({ error: decision.error }, 500);
+  }
+  return decision.redirectTo;
 }
 
 function json(payload: unknown, status = 200) {

@@ -155,7 +155,11 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:8081"
+# `supabase config push` copies site_url onto the hosted project. Keep the live origin here.
+# Local Expo and the app scheme stay on additional_redirect_urls, which is allow-listed with site_url.
+# env(SITEPACK_SITE_URL) is not used: the CLI documents env(NAME) with no default, and an unset
+# variable is pushed as the literal env(...) string.
+site_url = "https://sitepack-preview.vercel.app"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
@@ -164,6 +168,8 @@ additional_redirect_urls = [
   "http://localhost:8081",
   "http://127.0.0.1:8081/set-password",
   "http://localhost:8081/set-password",
+  "https://sitepack-preview.vercel.app",
+  "https://sitepack-preview.vercel.app/set-password",
   "sitepack://set-password",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
