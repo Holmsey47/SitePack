@@ -1,7 +1,9 @@
-import { fixtureRepo } from '@/data/fixtureRepo';
 import type { SitePackRepo } from '@/data/repo';
-import { supabaseRepo } from '@/data/supabaseRepo';
 import { useFixtures } from '@/lib/supabase';
 
-export const repo: SitePackRepo = useFixtures ? fixtureRepo : supabaseRepo;
+// require() so a production bundle can drop the fixture module when the flag is off.
+export const repo: SitePackRepo = useFixtures
+  ? (require('@/data/fixtureRepo') as typeof import('@/data/fixtureRepo')).fixtureRepo
+  : (require('@/data/supabaseRepo') as typeof import('@/data/supabaseRepo')).supabaseRepo;
+
 export { useFixtures };

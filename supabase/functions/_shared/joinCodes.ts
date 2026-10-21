@@ -6,15 +6,15 @@ export const JOIN_DEFAULT_MAX_USES = 10;
 export const JOIN_HARD_MAX_USES = 25;
 export const JOIN_DEFAULT_HOURS = 24;
 export const JOIN_MAX_HOURS = 24 * 7;
-/** Generous secondary cap. It alerts. It does not reject a request. */
+/** Hard cap on join and reset failures from one known IP. Unknown is not capped. */
 export const JOIN_IP_FAILURE_LIMIT = 40;
 export const JOIN_IP_WINDOW_MINUTES = 15;
-/** Alert only. A full global counter never rejects a request. */
+/** Alert plus a short delay. A full global counter never rejects a request. */
 export const JOIN_GLOBAL_FAILURE_LIMIT = 100;
 export const JOIN_GLOBAL_WINDOW_MINUTES = 10;
 /** Primary login limit: one username, not the whole crew. */
 export const JOIN_USERNAME_FAILURE_LIMIT = 10;
-/** Primary reset limit: one code hash or one person. */
+/** Hard reset limit for one person. Guessed code hashes are not a key. */
 export const JOIN_RESET_FAILURE_LIMIT = 10;
 export const RESET_CODE_MINUTES = 30;
 export const JOIN_WEB_ORIGIN = 'https://sitepack-preview.vercel.app';
@@ -71,14 +71,14 @@ export function joinShareText(input: {
   const compact = normalizeJoinCode(input.code);
   const origin = (input.origin ?? JOIN_WEB_ORIGIN).replace(/\/$/, '');
   const link = `${origin}/join/${compact}`;
-  return `Join ${input.company} on SitePack for ${input.site}: ${link}  Code: ${formatJoinCode(compact)}`;
+  return `Join ${input.company} on SitePack for ${input.site}: ${link} Code: ${formatJoinCode(compact)}`;
 }
 
 export function resetShareText(name: string, code: string, origin?: string): string {
   const compact = normalizeJoinCode(code);
   const originClean = (origin ?? JOIN_WEB_ORIGIN).replace(/\/$/, '');
   const link = `${originClean}/reset/${compact}`;
-  return `SitePack password reset for ${name}: ${link}  Code: ${formatJoinCode(compact)}. It lasts 30 minutes and works once.`;
+  return `SitePack password reset for ${name}: ${link} Code: ${formatJoinCode(compact)}. It lasts 30 minutes and works once.`;
 }
 
 /** Snap a stored window back to the 24h / 3 day / 7 day choice. */
@@ -151,17 +151,49 @@ export function platformClientIp(headers: HeaderSource, mode?: string | null): s
   return xffFromRight(headers, 1) ?? 'unknown';
 }
 
+function ipv4Subject(value: string): string | null {
+  const parts = value.split('.');
+  if (parts.length !== 4) return null;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part) || Number(part) > 255) return null;
+  }
+  return parts.join('.');
+}
+
 /**
- * Rate-limit subject. IPv4 stays as written. IPv6 collapses to the /64
- * (the first four hextets). Anything else is "unknown".
+ * The sb_secret_ key Supabase injects as SUPABASE_SECRET_KEYS JSON.
+ * There is no fallback. A missing or invalid value fails closed.
+ */
+export function loadSecretKey(
+  raw: string | null | undefined
+): { ok: true; key: string } | { ok: false; error: 'secret_key_missing' } {
+  if (!raw || !raw.trim()) return { ok: false, error: 'secret_key_missing' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: 'secret_key_missing' };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'secret_key_missing' };
+  }
+  const value = (parsed as Record<string, unknown>).default;
+  if (typeof value !== 'string' || !value.startsWith('sb_secret_')) {
+    return { ok: false, error: 'secret_key_missing' };
+  }
+  return { ok: true, key: value };
+}
+
+/**
+ * Rate-limit subject. IPv4 stays as written. IPv4-mapped IPv6 (::ffff:a.b.c.d)
+ * becomes that IPv4. Other IPv6 collapses to the /64. Anything else is "unknown".
  */
 export function ipRateSubject(ip: string | null | undefined): string {
   const raw = (ip ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '').split('%')[0]?.split('/')[0] ?? '';
   if (!raw || raw === 'unknown') return 'unknown';
-  if (!raw.includes(':')) {
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(raw)) return raw.slice(0, 64);
-    return 'unknown';
-  }
+  const mapped = raw.match(/^(?:::|(?:[0-9a-f]{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return ipv4Subject(mapped[1]) ?? 'unknown';
+  if (!raw.includes(':')) return ipv4Subject(raw) ?? 'unknown';
   if ((raw.match(/::/g) ?? []).length > 1) return 'unknown';
   let groups: string[];
   if (raw.includes('::')) {

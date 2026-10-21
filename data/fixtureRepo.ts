@@ -1107,9 +1107,6 @@ export const fixtureRepo: SitePackRepo = {
     if (!displayName || displayName.length > 80 || trade.length > 80 || !isUsernameShape(username)) {
       throw new Error('invalid_input');
     }
-    if (store.people.some((person) => person.username === username)) {
-      throw new Error('username_taken');
-    }
     const normalized = normalizeJoinCode(input.code);
     const code = isJoinCodeShape(normalized)
       ? store.joinCodes.find((row) => row.code === normalized)
@@ -1125,6 +1122,9 @@ export const fixtureRepo: SitePackRepo = {
       noteFailure('ip', 'fixture');
       noteFailure('global', 'all');
       throw new Error(JOIN_REJECTED);
+    }
+    if (store.people.some((person) => person.username === username)) {
+      throw new Error('username_taken');
     }
     const person: Person = {
       id: newId(),

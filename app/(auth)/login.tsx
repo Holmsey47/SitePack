@@ -1,19 +1,23 @@
 import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { SEED_LOGINS, SEED_PASSWORD } from '@/data/ids';
 import { theme } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 export default function LoginScreen() {
-  const { signIn, signInWithUsername, usingFixtures } = useAuth();
+  const { signIn, signInWithUsername } = useAuth();
   const router = useRouter();
-  const showSeedChips = __DEV__ && usingFixtures;
+  const showSeedChips = process.env.EXPO_PUBLIC_USE_FIXTURES === '1';
+  // Metro resolves this to an empty stub unless the fixture flag is on.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const seeds = showSeedChips ? (require('@/data/ids') as typeof import('@/data/ids')) : null;
   const [mode, setMode] = useState<'email' | 'username'>('email');
-  const [email, setEmail] = useState(showSeedChips ? 'amy@sitepack.test' : '');
+  const [email, setEmail] = useState(
+    seeds?.SEED_LOGINS.find((row) => row.role === 'operative')?.email ?? ''
+  );
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState(showSeedChips ? SEED_PASSWORD : '');
+  const [password, setPassword] = useState(seeds?.SEED_PASSWORD ?? '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -68,12 +72,12 @@ export default function LoginScreen() {
       </Pressable>
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
-          {SEED_LOGINS.map((login) => (
+          {seeds?.SEED_LOGINS.map((login) => (
             <Pressable
               key={login.email}
               onPress={() => {
                 setEmail(login.email);
-                setPassword(SEED_PASSWORD);
+                setPassword(seeds.SEED_PASSWORD);
               }}
               style={{ paddingVertical: 8 }}>
               <Text style={{ color: theme.text, fontWeight: '600' }}>

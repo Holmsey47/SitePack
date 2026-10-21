@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
 
   const ip = clientIp(req);
   const admin = serviceClient(ip);
+  if (!admin) return json({ error: 'reset_rejected' }, 500);
   const codeHash = await hashCode(body.code ?? '', pepper);
 
   const redeemed = await admin.rpc('redeem_password_reset', {
@@ -35,6 +36,7 @@ Deno.serve(async (req) => {
     p_client_ip: ip,
   });
   const row = readResult(redeemed.data);
+  if (row.error === 'rate_limited') return json({ error: 'rate_limited' }, 429);
   if (redeemed.error || !row.ok || !row.auth_user_id || !row.reset_id) {
     return json({ error: 'reset_rejected' }, 400);
   }

@@ -11,8 +11,7 @@ const supabaseKey =
 
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseKey);
 
-export const useFixtures =
-  process.env.EXPO_PUBLIC_USE_FIXTURES === '1' || !hasSupabaseConfig;
+export const useFixtures = process.env.EXPO_PUBLIC_USE_FIXTURES === '1';
 
 let client: SupabaseClient | null = null;
 

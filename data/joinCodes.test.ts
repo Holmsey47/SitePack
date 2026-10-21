@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
+import { spawnSync } from 'node:child_process';
 import {
   JOIN_ALPHABET,
   JOIN_WEB_ORIGIN,
@@ -11,6 +12,7 @@ import {
   isJoinCodeShape,
   joinFailureMessage,
   joinShareText,
+  loadSecretKey,
   normalizeJoinCode,
   passwordHasLettersAndDigits,
   ipRateSubject,
@@ -32,16 +34,22 @@ test('codes are normalised, formatted, and shared without a pepper in the client
   assert.equal(passwordHasLettersAndDigits('lettersonly'), false);
   assert.equal(passwordHasLettersAndDigits('12345678'), false);
   assert.equal(passwordHasLettersAndDigits('short1'), false);
+  const shared = joinShareText({ company: 'HolmesCP', site: 'Morpeth', code: 'K7QM-4XPR' });
+  const resetShared = resetShareText('Sam Reed', 'K7QM-4XPR');
   assert.equal(
-    joinShareText({ company: 'HolmesCP', site: 'Morpeth', code: 'K7QM-4XPR' }),
-    `Join HolmesCP on SitePack for Morpeth: ${JOIN_WEB_ORIGIN}/join/K7QM4XPR  Code: K7QM-4XPR`
+    shared,
+    `Join HolmesCP on SitePack for Morpeth: ${JOIN_WEB_ORIGIN}/join/K7QM4XPR Code: K7QM-4XPR`
   );
+  assert.equal(
+    resetShared,
+    `SitePack password reset for Sam Reed: ${JOIN_WEB_ORIGIN}/reset/K7QM4XPR Code: K7QM-4XPR. It lasts 30 minutes and works once.`
+  );
+  assert.equal(shared.includes('  '), false);
+  assert.equal(resetShared.includes('  '), false);
   assert.equal(publicCodePath('/join/K7QM4XPR'), '/join');
   assert.equal(publicCodePath('/reset/K7QM4XPR'), '/reset');
   assert.equal(publicCodePath('/join'), null);
   assert.equal(joinFailureMessage('join_rejected'), joinFailureMessage('nope'));
-  assert.match(resetShareText('Sam', 'K7QM-4XPR'), /\/reset\/K7QM4XPR/);
-  assert.match(resetShareText('Sam', 'K7QM-4XPR'), /Code: K7QM-4XPR/);
 });
 
 test('client IP uses CF-Connecting-IP or a from-right X-Forwarded-For hop', () => {
@@ -70,7 +78,25 @@ test('client IP uses CF-Connecting-IP or a from-right X-Forwarded-For hop', () =
   assert.equal(ipRateSubject('2001:db8:1:2::1'), ipRateSubject('2001:0db8:0001:0002::99'));
   assert.notEqual(ipRateSubject('2001:db8:1:2::1'), ipRateSubject('2001:db8:1:3::1'));
   assert.equal(ipRateSubject('203.0.113.9'), '203.0.113.9');
+  assert.equal(ipRateSubject('::ffff:203.0.113.9'), '203.0.113.9');
+  assert.equal(ipRateSubject('0:0:0:0:0:ffff:198.51.100.8'), '198.51.100.8');
+  assert.equal(ipRateSubject('::ffff:999.1.1.1'), 'unknown');
   assert.equal(ipRateSubject('not-an-ip'), 'unknown');
+});
+
+test('the secret key loader fails closed and does not read another key', () => {
+  assert.deepEqual(loadSecretKey(undefined), { ok: false, error: 'secret_key_missing' });
+  assert.deepEqual(loadSecretKey('not-json'), { ok: false, error: 'secret_key_missing' });
+  assert.deepEqual(loadSecretKey('{"default":"service_role_key"}'), { ok: false, error: 'secret_key_missing' });
+  assert.deepEqual(loadSecretKey('{"other":"sb_secret_abc"}'), { ok: false, error: 'secret_key_missing' });
+  assert.deepEqual(loadSecretKey('{"default":"sb_secret_test_value"}'), {
+    ok: true,
+    key: 'sb_secret_test_value',
+  });
+  const http = fs.readFileSync(new URL('../supabase/functions/_shared/joinHttp.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(http, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(http, /SUPABASE_SECRET_KEYS/);
+  assert.match(http, /secret_key_missing/);
 });
 
 test('web crypto hmac matches the probe vector', async () => {
@@ -107,7 +133,39 @@ test('the migration locks the code, hides the hash, and does not commit a pepper
   assert.doesNotMatch(join, /company_name|site_name/);
   assert.match(joined, /Also revoke this code/);
   assert.match(joined, /can’t pull them back/);
+  assert.match(joined, /Remove \$\{pending\.display_name \|\| 'them'\} from the company\?/);
+  assert.match(joined, /Remove \$\{pending\.display_name \|\| 'them'\} from this site\?/);
   assert.match(html, /no-referrer/);
+  assert.match(migration, /reset_release/);
+  assert.match(migration, /rate_limited/);
+  assert.match(migration, /username_is_taken\(text, text, text\)/);
+  assert.match(migration, /drop function if exists public\.username_is_taken\(text\)/);
+  assert.doesNotMatch(migration, /grant execute on function public\.username_is_taken\(text\) /);
+  assert.doesNotMatch(migration, /'reset_code'/);
+  const invite = fs.readFileSync(
+    new URL('../app/(app)/sites/[siteId]/invite-code.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(invite, /createJoinCode[\s\S]*revokeJoinCode\(row\.id\)/);
+  const vercel = fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8');
+  assert.match(vercel, /\/join/);
+  assert.match(vercel, /\/reset/);
+  assert.match(vercel, /no-referrer/);
+  const supabaseLib = fs.readFileSync(new URL('../lib/supabase.ts', import.meta.url), 'utf8');
+  assert.match(supabaseLib, /export const useFixtures = process\.env\.EXPO_PUBLIC_USE_FIXTURES === '1';/);
+  const login = fs.readFileSync(new URL('../app/(auth)/login.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(login, /from '@\/data\/ids'/);
+  assert.doesNotMatch(login, /amy@sitepack\.test/);
+});
+
+test('a production web export refuses to start without Supabase env', () => {
+  const result = spawnSync(process.execPath, ['scripts/export-web.mjs'], {
+    cwd: new URL('..', import.meta.url),
+    env: { PATH: process.env.PATH ?? '' },
+    encoding: 'utf8',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr ?? '', /EXPO_PUBLIC_SUPABASE_URL/);
 });
 
 test('a code joins only its site, the cap holds, and bad codes look the same', async () => {
@@ -200,6 +258,48 @@ test('a code joins only its site, the cap holds, and bad codes look the same', a
   assert.equal(stillThere, false);
 
   await fixtureRepo.signOut();
+  await fixtureRepo.signInWithUsername(joined[0].person.username ?? '', 'newer123');
+  assert.equal((await fixtureRepo.me())?.id, joined[0].person.id);
+  await fixtureRepo.signOut();
+  await assert.rejects(
+    () => fixtureRepo.signInWithUsername(joined[0].person.username ?? '', 'fixer123'),
+    /sign_in_failed/
+  );
+
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const firstCode = await fixtureRepo.createJoinCode({
+    siteId: IDS.riverside,
+    label: 'Riverside again',
+    maxUses: 4,
+    hours: 24,
+  });
+  const replacement = await fixtureRepo.createJoinCode({
+    siteId: IDS.riverside,
+    label: 'Riverside again',
+    maxUses: 4,
+    hours: 24,
+  });
+  await fixtureRepo.revokeJoinCode(firstCode.id);
+  const active = (await fixtureRepo.listJoinCodes(IDS.riverside)).filter(
+    (row) => row.label === 'Riverside again' && row.revoked_at == null
+  );
+  assert.equal(active.length, 1);
+  assert.equal(active[0]?.id, replacement.id);
+
+  await fixtureRepo.signOut();
   await fixtureRepo.signInWithUsername('bentorres', SEED_PASSWORD);
   assert.equal((await fixtureRepo.me())?.id, IDS.ben);
+});
+
+test('owner reset lets the username sign in with the new password only once', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const issued = await fixtureRepo.issuePasswordReset(IDS.ben);
+  await fixtureRepo.signOut();
+  await fixtureRepo.redeemPasswordReset(issued.code, 'newer123');
+  const signedIn = await fixtureRepo.signInWithUsername('bentorres', 'newer123');
+  assert.equal(signedIn.person.id, IDS.ben);
+  await fixtureRepo.signOut();
+  await assert.rejects(() => fixtureRepo.signInWithUsername('bentorres', SEED_PASSWORD), /sign_in_failed/);
+  await assert.rejects(() => fixtureRepo.redeemPasswordReset(issued.code, 'newer456'), /reset_rejected/);
 });

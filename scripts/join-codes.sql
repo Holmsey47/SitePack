@@ -7,6 +7,8 @@
 \set ON_ERROR_STOP on
 \ir :migration
 
+do $$ begin raise notice 'ok: migration re-applied'; end $$;
+
 create or replace function pg_temp.ok(cond boolean, message text)
 returns void
 language plpgsql
@@ -74,8 +76,11 @@ select pg_temp.ok(
   and private.ip_subject('2001:db8:1:2::1') = '2001:0db8:0001:0002'
   and private.ip_subject('2001:db8:1:2::1') <> private.ip_subject('2001:db8:1:3::1')
   and private.ip_subject('203.0.113.9') = '203.0.113.9'
+  and private.ip_subject('::ffff:203.0.113.9') = '203.0.113.9'
+  and private.ip_subject('0:0:0:0:0:ffff:198.51.100.8') = '198.51.100.8'
+  and private.ip_subject('::ffff:999.1.1.1') = 'unknown'
   and private.ip_subject('not-an-ip') = 'unknown',
-  'ipv6 addresses group by /64'
+  'ipv6 /64 and ipv4-mapped addresses'
 );
 
 select pg_temp.ok(
@@ -97,8 +102,16 @@ select pg_temp.ok(
   and not has_function_privilege('anon', 'public.preview_join_code(text, text)', 'execute')
   and not has_function_privilege('authenticated', 'public.preview_join_code(text, text)', 'execute')
   and has_function_privilege('service_role', 'public.preview_join_code(text, text)', 'execute')
-  and not has_function_privilege('authenticated', 'public.username_is_taken(text)', 'execute')
-  and has_function_privilege('service_role', 'public.username_is_taken(text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.username_is_taken(text, text, text)', 'execute')
+  and has_function_privilege('service_role', 'public.username_is_taken(text, text, text)', 'execute')
+  and not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'username_is_taken'
+      and pg_get_function_identity_arguments(p.oid) = 'text'
+  )
   and has_function_privilege('authenticated', 'public.create_join_code(uuid, text, integer, integer, text)', 'execute')
   and not has_function_privilege('anon', 'public.create_join_code(uuid, text, integer, integer, text)', 'execute')
   and not has_function_privilege('anon', 'public.reset_password_code(uuid, text)', 'execute')
@@ -330,6 +343,8 @@ from generate_series(1, 40) g;
 
 insert into probe_vars (k, v)
 select 'locked_valid', public.apply_join_code((select v from probe_vars where k = 'open_hash'), 'e1111111-1111-4111-8111-111111111111', 'Still Open', 'fixer', 'openlad', '198.51.100.10', 'probe')::text;
+insert into probe_vars (k, v)
+select 'other_ip', public.apply_join_code((select v from probe_vars where k = 'open_hash'), 'e1111111-1111-4111-8111-111111111111', 'Still Open', 'fixer', 'openlad', '198.51.100.11', 'probe')::text;
 
 insert into probe_vars (k, v)
 select 'v6lock' || g, public.apply_join_code(pg_temp.code_hash('VVVVVVVV'), 'a4444444-4444-4444-8444-444444444444', 'Nope', 'fixer', 'nopeuser', '2001:db8:1:2::' || g, 'probe')::text
@@ -369,6 +384,8 @@ set local role service_role;
 
 insert into probe_vars (k, v)
 select 'v6join', public.apply_join_code((select v from probe_vars where k = 'v6_hash'), 'c1111111-1111-4111-8111-111111111111', 'V6 Lad', 'fixer', 'v6lad', '2001:0db8:0001:0002::99', 'probe')::text;
+insert into probe_vars (k, v)
+select 'v6other', public.apply_join_code((select v from probe_vars where k = 'v6_hash'), 'c1111111-1111-4111-8111-111111111111', 'V6 Lad', 'fixer', 'v6lad', '2001:db8:9:9::1', 'probe')::text;
 
 reset role;
 select pg_temp.as_user(null, '');
@@ -389,22 +406,25 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  (select v::jsonb->>'ok' from probe_vars where k = 'locked_valid') = 'true'
+  (select v::jsonb->>'error' from probe_vars where k = 'locked_valid') = 'rate_limited'
+  and (select v::jsonb->>'ok' from probe_vars where k = 'other_ip') = 'true'
   and exists (
     select 1 from public.join_rate_limits
     where bucket = 'ip' and subject = '198.51.100.10' and kind = 'alert'
   )
   and (select count(*) from public.people where username = 'openlad') = 1,
-  'a hot IP alerts and still lets a valid code through'
+  'a hot IP hard-limits that address and another IP still joins'
 );
 
 select pg_temp.ok(
-  (select v::jsonb->>'ok' from probe_vars where k = 'v6join') = 'true'
+  (select v::jsonb->>'error' from probe_vars where k = 'v6join') = 'rate_limited'
+  and (select v::jsonb->>'ok' from probe_vars where k = 'v6other') = 'true'
   and exists (
     select 1 from public.join_rate_limits
     where bucket = 'ip' and subject = '2001:0db8:0001:0002' and kind = 'alert'
-  ),
-  'ipv6 /64 alerts and does not reject the join'
+  )
+  and (select count(*) from public.people where username = 'v6lad') = 1,
+  'ipv6 /64 hard-limits that prefix and another prefix still joins'
 );
 
 select pg_temp.ok(
@@ -473,6 +493,7 @@ select pg_temp.as_user(null, '');
 
 select pg_temp.ok(
   (select v::jsonb->>'error' from probe_vars where k = 'burst') = 'join_rejected'
+  and coalesce((select v::jsonb->>'delay_ms' from probe_vars where k = 'burst')::int, 0) > 0
   and private.join_failure_count('global', 'all', interval '10 minutes') >= 100
   and exists (select 1 from public.join_rate_limits where bucket = 'global' and subject = 'all' and kind = 'alert')
   and (select v::jsonb->>'ok' from probe_vars where k = 'after_global_join') = 'true'
@@ -512,7 +533,11 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 set local role service_role;
 
 insert into probe_vars (k, v)
-select 'claims_win', public.username_is_taken('samreed')::text;
+select 'claims_win', public.username_is_taken(
+  'samreed',
+  (select v from probe_vars where k = 'after_ip_hash'),
+  '203.0.113.50'
+)::text;
 
 reset role;
 select pg_temp.as_user(null, '');
@@ -838,6 +863,373 @@ select pg_temp.ok(
   and exists (select 1 from public.join_audit where action = 'join')
   and exists (select 1 from public.join_audit where action = 'remove'),
   'audit covers attempt, join, and remove'
+);
+
+-- Round 2: hard IP cap, mapped addresses, unknown bucket, username gating, reset once.
+set local statement_timeout = 0;
+
+insert into probe_vars (k, v) values
+  ('other_plain', pg_temp.mint()),
+  ('unk_plain', pg_temp.mint()),
+  ('share_old_plain', pg_temp.mint()),
+  ('share_new_plain', pg_temp.mint()),
+  ('rio_plain', pg_temp.mint()),
+  ('ben_plain', pg_temp.mint());
+
+insert into probe_vars (k, v)
+select replace(k, '_plain', '_hash'), pg_temp.code_hash(v)
+from probe_vars
+where k in ('other_plain', 'unk_plain', 'share_old_plain', 'share_new_plain', 'rio_plain', 'ben_plain');
+
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222', 'authenticated');
+set local role authenticated;
+
+insert into probe_vars (k, v)
+values (
+  'other_code',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'other ip',
+    2,
+    24,
+    (select v from probe_vars where k = 'other_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'unk_code',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'unknown ip',
+    2,
+    24,
+    (select v from probe_vars where k = 'unk_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'share_old',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'share again',
+    2,
+    24,
+    (select v from probe_vars where k = 'share_old_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'share_new',
+  public.create_join_code(
+    '66666666-6666-6666-6666-666666666666',
+    'share again',
+    2,
+    24,
+    (select v from probe_vars where k = 'share_new_hash')
+  )::text
+);
+
+select public.revoke_join_code((select (v::jsonb->>'id')::uuid from probe_vars where k = 'share_old'));
+
+insert into probe_vars (k, v)
+values (
+  'rio_issue',
+  public.reset_password_code(
+    'd10d10d1-0d10-4d10-8d10-d10d10d10d10',
+    (select v from probe_vars where k = 'rio_hash')
+  )::text
+);
+insert into probe_vars (k, v)
+values (
+  'ben_issue',
+  public.reset_password_code(
+    '55555555-5555-5555-5555-555555555555',
+    (select v from probe_vars where k = 'ben_hash')
+  )::text
+);
+
+reset role;
+select pg_temp.as_user(null, 'service_role');
+set local role service_role;
+
+do $$
+declare
+  v_row jsonb;
+  i integer;
+begin
+  for i in 1..40 loop
+    v_row := public.apply_join_code(
+      repeat('aa', 32),
+      'a4444444-4444-4444-8444-444444444444',
+      'Nope',
+      'fixer',
+      'nopeuser',
+      '203.0.113.60',
+      'probe'
+    );
+    if v_row->>'error' is distinct from 'join_rejected' then
+      raise exception 'FAIL: mapped warmup % %', i, v_row;
+    end if;
+  end loop;
+end $$;
+
+insert into probe_vars (k, v)
+select 'mapped_block', public.apply_join_code(
+  repeat('aa', 32),
+  'a4444444-4444-4444-8444-444444444444',
+  'Nope',
+  'fixer',
+  'nopeuser',
+  '::ffff:203.0.113.60',
+  'probe'
+)::text;
+insert into probe_vars (k, v)
+select 'mapped_long', public.apply_join_code(
+  repeat('aa', 32),
+  'a4444444-4444-4444-8444-444444444444',
+  'Nope',
+  'fixer',
+  'nopeuser',
+  '0:0:0:0:0:ffff:203.0.113.60',
+  'probe'
+)::text;
+
+do $$
+declare
+  v_row jsonb;
+  v_rejected integer := 0;
+  v_limited integer := 0;
+  v_other integer := 0;
+  i integer;
+begin
+  for i in 1..2000 loop
+    v_row := public.apply_join_code(
+      repeat('ab', 32),
+      'a4444444-4444-4444-8444-444444444444',
+      'Nope',
+      'fixer',
+      'nopeuser',
+      '203.0.113.90',
+      'probe'
+    );
+    if v_row->>'error' = 'join_rejected' then
+      v_rejected := v_rejected + 1;
+    elsif v_row->>'error' = 'rate_limited' then
+      v_limited := v_limited + 1;
+    else
+      v_other := v_other + 1;
+    end if;
+  end loop;
+  if v_rejected <> 40 or v_limited <> 1960 or v_other <> 0 then
+    raise exception 'FAIL: 2000 guesses rejected % limited % other %', v_rejected, v_limited, v_other;
+  end if;
+  raise notice 'ok: 2000 wrong guesses from one IP cap at 40';
+end $$;
+
+insert into probe_vars (k, v)
+select 'other_join', public.apply_join_code(
+  (select v from probe_vars where k = 'other_hash'),
+  'e3333333-3333-4333-8333-333333333333',
+  'Other Lad',
+  'fixer',
+  'otherlad',
+  '203.0.113.91',
+  'probe'
+)::text;
+
+do $$
+declare
+  v_row jsonb;
+  v_rejected integer := 0;
+  v_limited integer := 0;
+  i integer;
+begin
+  for i in 1..45 loop
+    v_row := public.apply_join_code(
+      repeat('ac', 32),
+      'a4444444-4444-4444-8444-444444444444',
+      'Nope',
+      'fixer',
+      'nopeuser',
+      'not-an-ip',
+      'probe'
+    );
+    if v_row->>'error' = 'join_rejected' then
+      v_rejected := v_rejected + 1;
+    elsif v_row->>'error' = 'rate_limited' then
+      v_limited := v_limited + 1;
+    end if;
+  end loop;
+  if v_rejected <> 45 or v_limited <> 0 then
+    raise exception 'FAIL: unknown bucket rejected % limited %', v_rejected, v_limited;
+  end if;
+  raise notice 'ok: unknown IP bucket is not hard-capped';
+end $$;
+
+insert into probe_vars (k, v)
+select 'unk_join', public.apply_join_code(
+  (select v from probe_vars where k = 'unk_hash'),
+  'a4444444-4444-4444-8444-444444444444',
+  'Unknown Lad',
+  'fixer',
+  'unklad',
+  'not-an-ip',
+  'probe'
+)::text;
+
+insert into probe_vars (k, v)
+select 'name_dead', public.username_is_taken('samreed', repeat('cd', 32), '203.0.113.81')::text;
+
+do $$
+declare
+  v_hash text;
+  v_row jsonb;
+  v_taken integer := 0;
+  i integer;
+begin
+  select v into v_hash from probe_vars where k = 'after_ip_hash';
+  for i in 1..40 loop
+    v_row := public.username_is_taken('samreed', v_hash, '203.0.113.80');
+    if v_row->>'ok' = 'true' and v_row->>'taken' = 'true' then
+      v_taken := v_taken + 1;
+    else
+      raise exception 'FAIL: username lookup % %', i, v_row;
+    end if;
+  end loop;
+  v_row := public.username_is_taken('samreed', v_hash, '203.0.113.80');
+  if v_row->>'error' is distinct from 'rate_limited' or v_taken <> 40 then
+    raise exception 'FAIL: username throttle % after %', v_row, v_taken;
+  end if;
+  raise notice 'ok: username lookup is gated and capped per IP';
+end $$;
+
+do $$
+declare
+  v_row jsonb;
+  v_rejected integer := 0;
+  v_limited integer := 0;
+  v_other integer := 0;
+  i integer;
+begin
+  for i in 1..500 loop
+    v_row := public.redeem_password_reset(repeat('ef', 32), '198.51.100.250');
+    if v_row->>'error' = 'reset_rejected' then
+      v_rejected := v_rejected + 1;
+    elsif v_row->>'error' = 'rate_limited' then
+      v_limited := v_limited + 1;
+    else
+      v_other := v_other + 1;
+    end if;
+  end loop;
+  if v_rejected <> 40 or v_limited <> 460 or v_other <> 0 then
+    raise exception 'FAIL: reset guesses rejected % limited % other %', v_rejected, v_limited, v_other;
+  end if;
+  raise notice 'ok: reset guesses cap on the IP and ignore the code hash';
+end $$;
+
+insert into probe_vars (k, v)
+select 'rio_ok', public.redeem_password_reset((select v from probe_vars where k = 'rio_hash'), '198.51.100.60')::text;
+insert into probe_vars (k, v)
+select 'rio_again', public.redeem_password_reset((select v from probe_vars where k = 'rio_hash'), '198.51.100.61')::text;
+
+insert into probe_vars (k, v)
+select 'ben_ok', public.redeem_password_reset((select v from probe_vars where k = 'ben_hash'), '198.51.100.62')::text;
+
+select public.release_password_reset((select (v::jsonb->>'reset_id')::uuid from probe_vars where k = 'ben_issue'));
+
+reset role;
+select pg_temp.as_user(null, '');
+
+select pg_temp.ok(
+  (select v::jsonb->>'error' from probe_vars where k = 'mapped_block') = 'rate_limited'
+  and (select v::jsonb->>'error' from probe_vars where k = 'mapped_long') = 'rate_limited'
+  and private.join_failure_count('ip', '203.0.113.60', interval '15 minutes') = 40,
+  'ipv4-mapped addresses share the IPv4 failure cap'
+);
+
+select pg_temp.ok(
+  private.join_failure_count('ip', '203.0.113.90', interval '15 minutes') = 40
+  and (select v::jsonb->>'ok' from probe_vars where k = 'other_join') = 'true'
+  and (select count(*) from public.people where username = 'otherlad') = 1,
+  '2000 wrong guesses cap at 40 and another IP still joins'
+);
+
+select pg_temp.ok(
+  (select v::jsonb->>'ok' from probe_vars where k = 'unk_join') = 'true'
+  and (select count(*) from public.people where username = 'unklad') = 1
+  and private.join_failure_count('ip', 'unknown', interval '15 minutes') >= 45,
+  'unknown IP is not hard-capped and a valid code still joins'
+);
+
+select pg_temp.ok(
+  (select v::jsonb->>'error' from probe_vars where k = 'name_dead') = 'join_rejected'
+  and (select v::jsonb->>'taken' from probe_vars where k = 'name_dead') = 'false'
+  and private.join_failure_count('username_lookup', '203.0.113.80', interval '15 minutes') = 40,
+  'a dead code does not reveal a taken username and live lookups cap'
+);
+
+select pg_temp.ok(
+  private.join_failure_count('reset_ip', '198.51.100.250', interval '15 minutes') = 40
+  and (select count(*) from public.join_rate_limits where bucket = 'reset_code') = 0,
+  'reset limit is the IP, never the guessed code hash'
+);
+
+select pg_temp.ok(
+  (select v::jsonb->>'ok' from probe_vars where k = 'rio_ok') = 'true'
+  and (select v::jsonb->>'error' from probe_vars where k = 'rio_again') = 'reset_rejected'
+  and (
+    select used_at is not null
+    from public.password_reset_codes
+    where code_hash = decode((select v from probe_vars where k = 'rio_hash'), 'hex')
+  ),
+  'reset code redeems once'
+);
+
+select pg_temp.ok(
+  (select v::jsonb->>'ok' from probe_vars where k = 'ben_ok') = 'true'
+  and (
+    select used_at is null
+    from public.password_reset_codes
+    where id = (select (v::jsonb->>'reset_id')::uuid from probe_vars where k = 'ben_issue')
+  )
+  and (
+    select count(*)
+    from public.join_audit
+    where action = 'reset_redeem'
+      and detail->>'reset_id' = (select v::jsonb->>'reset_id' from probe_vars where k = 'ben_issue')
+  ) = 1
+  and exists (
+    select 1
+    from public.join_audit
+    where action = 'reset_release'
+      and detail->>'reset_id' = (select v::jsonb->>'reset_id' from probe_vars where k = 'ben_issue')
+  ),
+  'releasing a reset appends reset_release and keeps the redeem audit'
+);
+
+select pg_temp.ok(
+  (
+    select revoked_at is not null
+    from public.join_codes
+    where id = (select (v::jsonb->>'id')::uuid from probe_vars where k = 'share_old')
+  )
+  and (
+    select revoked_at is null
+    from public.join_codes
+    where id = (select (v::jsonb->>'id')::uuid from probe_vars where k = 'share_new')
+  )
+  and (
+    select count(*)
+    from public.join_codes
+    where label = 'share again' and revoked_at is null
+  ) = 1
+  and exists (
+    select 1
+    from public.join_audit
+    where action = 'code_revoke'
+      and detail->>'code_id' = (select v::jsonb->>'id' from probe_vars where k = 'share_old')
+  ),
+  'share again revokes the old code and audits code_revoke'
 );
 
 rollback;

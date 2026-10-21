@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
 
   const ip = clientIp(req);
   const admin = serviceClient(ip);
+  if (!admin) return json({ error: 'sign_in_failed' }, 500);
 
   const looked = await admin.rpc('lookup_username_login', {
     p_username: username,

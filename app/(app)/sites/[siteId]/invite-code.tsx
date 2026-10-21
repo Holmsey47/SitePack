@@ -116,6 +116,7 @@ export default function InviteCodeScreen() {
         maxUses: row.max_uses,
         hours: expiryChoiceHours(row.created_at, row.expires_at),
       });
+      await repo.revokeJoinCode(row.id);
       setShare(created);
       load();
     } catch (err) {

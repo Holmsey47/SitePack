@@ -117,7 +117,9 @@ export default function WhoJoinedScreen() {
       {pending ? (
         <Card>
           <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
-            {owner ? 'Remove from company' : 'Remove from this site'} {pending.display_name}?
+            {owner
+              ? `Remove ${pending.display_name || 'them'} from the company?`
+              : `Remove ${pending.display_name || 'them'} from this site?`}
           </Text>
           {owner ? (
             <>

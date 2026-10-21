@@ -22,6 +22,7 @@ export {
   generateJoinCode,
   hmacSha256Hex,
   ipRateSubject,
+  loadSecretKey,
   isJoinCodeShape,
   isUsernameShape,
   joinFailureMessage,

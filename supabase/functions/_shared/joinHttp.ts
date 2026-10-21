@@ -7,6 +7,7 @@ import {
   normalizeUsername,
   passwordHasLettersAndDigits,
   placeholderEmail,
+  loadSecretKey,
   platformClientIp,
 } from './joinCodes.ts';
 
@@ -50,18 +51,20 @@ export function userAgent(req: Request): string {
   return (req.headers.get('user-agent') ?? '').slice(0, 200);
 }
 
-function secretKey(): string {
-  return Deno.env.get('SUPABASE_SECRET_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-}
-
 /**
- * Auth and service calls. Sb-Forwarded-For is the full client IP so Auth can
- * rate-limit once IP Address Forwarding is on. The key must be an sb_secret_ key
- * for that header to be honored. This function does not change that setting.
+ * Auth and service calls. The key is SUPABASE_SECRET_KEYS['default'], an
+ * sb_secret_ value. Sb-Forwarded-For carries the full client IP. Auth honours
+ * that header only after IP Address Forwarding is turned on at ship.
+ * A missing or invalid key refuses the request. There is no other key.
  */
-export function serviceClient(ip: string): SupabaseClient {
+export function serviceClient(ip: string): SupabaseClient | null {
   const url = Deno.env.get('SUPABASE_URL') ?? '';
-  return createClient(url, secretKey(), {
+  const loaded = loadSecretKey(Deno.env.get('SUPABASE_SECRET_KEYS'));
+  if (!loaded.ok) {
+    console.error(JSON.stringify({ error: 'secret_key_missing' }));
+    return null;
+  }
+  return createClient(url, loaded.key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { 'Sb-Forwarded-For': ip } },
   });

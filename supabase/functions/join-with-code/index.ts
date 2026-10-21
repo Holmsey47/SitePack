@@ -15,7 +15,8 @@ const DUMMY_EMAIL = '00000000-0000-4000-8000-000000000000@users.sitepack.invalid
 
 /**
  * Public join. verify_jwt is false. The code is the credential.
- * Name, trade, password, and username are checked before the code is.
+ * Name, trade, and password are checked before the code.
+ * A username is looked up only after that code previews as valid.
  * The code is checked before an auth user is created.
  * Placeholder emails are random UUIDs at users.sitepack.invalid.
  */
@@ -53,24 +54,29 @@ Deno.serve(async (req) => {
 
   const ip = clientIp(req);
   const admin = serviceClient(ip);
-
-  const taken = await admin.rpc('username_is_taken', { p_username: username });
-  if (taken.error) {
-    console.error(JSON.stringify({ error: 'username_check_failed' }));
-    return json({ error: 'join_rejected' }, 400);
-  }
-  if (readResult(taken.data).taken) {
-    return json({ error: 'username_taken' }, 400);
-  }
+  if (!admin) return json({ error: 'join_rejected' }, 500);
 
   const codeHash = await hashCode(body.code ?? '', pepper);
   const preview = await admin.rpc('preview_join_code', {
     p_code_hash: codeHash ?? '00',
     p_client_ip: ip,
   });
-  if (preview.error || !readResult(preview.data).ok) {
+  const previewRow = readResult(preview.data);
+  if (previewRow.error === 'rate_limited') return json({ error: 'rate_limited' }, 429);
+  if (preview.error || !previewRow.ok) return json({ error: 'join_rejected' }, 400);
+
+  const taken = await admin.rpc('username_is_taken', {
+    p_username: username,
+    p_code_hash: codeHash,
+    p_client_ip: ip,
+  });
+  const takenRow = readResult(taken.data);
+  if (takenRow.error === 'rate_limited') return json({ error: 'rate_limited' }, 429);
+  if (taken.error || takenRow.ok === false) {
+    console.error(JSON.stringify({ error: 'username_check_failed' }));
     return json({ error: 'join_rejected' }, 400);
   }
+  if (takenRow.taken) return json({ error: 'username_taken' }, 400);
 
   const email = placeholderEmail(crypto.randomUUID());
   let userId: string | null = null;
