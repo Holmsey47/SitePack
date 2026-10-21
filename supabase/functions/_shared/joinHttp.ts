@@ -1,3 +1,4 @@
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import {
   hmacSha256Hex,
   isJoinCodeShape,
@@ -7,7 +8,7 @@ import {
   passwordHasLettersAndDigits,
   placeholderEmail,
   platformClientIp,
-} from '../../../data/joinCodes.ts';
+} from './joinCodes.ts';
 
 export { hmacSha256Hex, platformClientIp, placeholderEmail, passwordHasLettersAndDigits };
 
@@ -31,12 +32,7 @@ export function preflight(req: Request): Response | null {
   return null;
 }
 
-/**
- * JOIN_CODE_PEPPER is an edge function secret. Do not commit a value.
- * It must match the database setting app.join_code_pepper, which
- * create_join_code and reset_password_code use to hash. Set both at deploy.
- * Never put the pepper in the repo, the client, or a migration.
- */
+/** JOIN_CODE_PEPPER is an edge function secret. SQL never sees it. */
 export function pepperOrNull(): string | null {
   const pepper = Deno.env.get('JOIN_CODE_PEPPER') ?? '';
   if (!pepper) {
@@ -47,11 +43,39 @@ export function pepperOrNull(): string | null {
 }
 
 export function clientIp(req: Request): string {
-  return platformClientIp(req.headers);
+  return platformClientIp(req.headers, Deno.env.get('JOIN_IP_HEADER'));
 }
 
 export function userAgent(req: Request): string {
   return (req.headers.get('user-agent') ?? '').slice(0, 200);
+}
+
+function secretKey(): string {
+  return Deno.env.get('SUPABASE_SECRET_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+}
+
+/**
+ * Auth and service calls. Sb-Forwarded-For is the full client IP so Auth can
+ * rate-limit once IP Address Forwarding is on. The key must be an sb_secret_ key
+ * for that header to be honored. This function does not change that setting.
+ */
+export function serviceClient(ip: string): SupabaseClient {
+  const url = Deno.env.get('SUPABASE_URL') ?? '';
+  return createClient(url, secretKey(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'Sb-Forwarded-For': ip } },
+  });
+}
+
+/** Calls RPCs as the signed-in person. verify_jwt on the function checks the bearer token. */
+export function userClient(req: Request): SupabaseClient {
+  const url = Deno.env.get('SUPABASE_URL') ?? '';
+  const anon = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const authorization = req.headers.get('Authorization') ?? '';
+  return createClient(url, anon, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: authorization } },
+  });
 }
 
 type ErrorLike = { message?: string; details?: string; hint?: string };
@@ -62,12 +86,24 @@ export function errorText(error: unknown): string {
   return [row.message, row.details, row.hint].filter((part) => typeof part === 'string').join('\n');
 }
 
-export function joinClientCode(error: unknown): string {
+const KNOWN = [
+  'username_taken',
+  'invalid_input',
+  'weak_password',
+  'not_authorized',
+  'cap_out_of_range',
+  'expiry_out_of_range',
+  'label_too_long',
+  'code_in_use',
+  'rate_limited',
+  'join_rejected',
+  'reset_rejected',
+  'sign_in_failed',
+] as const;
+
+export function knownCode(error: unknown, fallback: string): string {
   const text = errorText(error);
-  if (text.includes('username_taken')) return 'username_taken';
-  if (text.includes('invalid_input')) return 'invalid_input';
-  if (/password/i.test(text)) return 'weak_password';
-  return 'join_rejected';
+  return KNOWN.find((code) => text.includes(code)) ?? fallback;
 }
 
 export async function hashCode(raw: string, pepper: string): Promise<string | null> {
@@ -82,9 +118,43 @@ export function usernameOrNull(raw: string): string | null {
   return username;
 }
 
-type AdminResult = { ok?: boolean; error?: string; site_id?: string; auth_user_id?: string; reset_id?: string };
+type AdminResult = {
+  ok?: boolean;
+  error?: string;
+  site_id?: string;
+  auth_user_id?: string;
+  reset_id?: string;
+  taken?: boolean;
+  code?: string;
+  id?: string;
+};
 
 export function readResult(data: unknown): AdminResult {
   if (!data || typeof data !== 'object') return {};
   return data as AdminResult;
+}
+
+/** Roughly the cost of a password check, so a username miss is not obviously faster. */
+export async function padLoginMiss(password: string): Promise<void> {
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+    await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: new TextEncoder().encode('sitepack-login'),
+        iterations: 120000,
+        hash: 'SHA-256',
+      },
+      key,
+      256
+    );
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
 }

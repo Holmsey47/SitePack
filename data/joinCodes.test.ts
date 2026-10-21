@@ -13,8 +13,10 @@ import {
   joinShareText,
   normalizeJoinCode,
   passwordHasLettersAndDigits,
+  ipRateSubject,
   platformClientIp,
   publicCodePath,
+  resetShareText,
 } from './joinCodes.ts';
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/20261021210000_join_codes.sql', import.meta.url), 'utf8');
@@ -38,14 +40,37 @@ test('codes are normalised, formatted, and shared without a pepper in the client
   assert.equal(publicCodePath('/reset/K7QM4XPR'), '/reset');
   assert.equal(publicCodePath('/join'), null);
   assert.equal(joinFailureMessage('join_rejected'), joinFailureMessage('nope'));
+  assert.match(resetShareText('Sam', 'K7QM-4XPR'), /\/reset\/K7QM4XPR/);
+  assert.match(resetShareText('Sam', 'K7QM-4XPR'), /Code: K7QM-4XPR/);
+});
+
+test('client IP uses CF-Connecting-IP or a from-right X-Forwarded-For hop', () => {
   const headers = {
+    get(name: string) {
+      if (name === 'x-forwarded-for') return '1.1.1.1, 198.51.100.8, 203.0.113.9';
+      if (name === 'x-real-ip') return '9.9.9.9';
+      if (name === 'cf-connecting-ip') return '203.0.113.50';
+      return null;
+    },
+  };
+  assert.equal(platformClientIp(headers), '203.0.113.50');
+  assert.equal(platformClientIp(headers, 'cf-connecting-ip'), '203.0.113.50');
+  assert.equal(platformClientIp(headers, 'x-forwarded-for:from-right:1'), '203.0.113.9');
+  assert.equal(platformClientIp(headers, 'x-forwarded-for:from-right:2'), '198.51.100.8');
+  assert.notEqual(platformClientIp(headers, 'x-forwarded-for:from-right:1'), '1.1.1.1');
+  const noCf = {
     get(name: string) {
       if (name === 'x-forwarded-for') return '1.1.1.1, 203.0.113.9';
       if (name === 'x-real-ip') return '9.9.9.9';
       return null;
     },
   };
-  assert.equal(platformClientIp(headers), '203.0.113.9');
+  assert.equal(platformClientIp(noCf), '203.0.113.9');
+  assert.equal(platformClientIp({ get: () => null }), 'unknown');
+  assert.equal(ipRateSubject('2001:db8:1:2::1'), ipRateSubject('2001:0db8:0001:0002::99'));
+  assert.notEqual(ipRateSubject('2001:db8:1:2::1'), ipRateSubject('2001:db8:1:3::1'));
+  assert.equal(ipRateSubject('203.0.113.9'), '203.0.113.9');
+  assert.equal(ipRateSubject('not-an-ip'), 'unknown');
 });
 
 test('web crypto hmac matches the probe vector', async () => {
@@ -55,17 +80,24 @@ test('web crypto hmac matches the probe vector', async () => {
 
 test('the migration locks the code, hides the hash, and does not commit a pepper', () => {
   assert.match(migration, /for update/);
-  assert.match(migration, /extensions\.hmac/);
+  assert.doesNotMatch(migration, /extensions\.hmac/);
+  assert.doesNotMatch(migration, /app\.join_code_pepper/);
+  assert.doesNotMatch(migration, /JOIN_CODE_PEPPER/);
+  assert.doesNotMatch(migration, /pepper_not_configured/);
   assert.match(migration, /revoke all on function public\.apply_join_code\(text, uuid, text, text, text, text, text\) from public, anon, authenticated/);
   assert.match(migration, /grant execute on function public\.apply_join_code\(text, uuid, text, text, text, text, text\) to service_role/);
+  assert.match(migration, /request\.jwt\.claims/);
+  assert.match(migration, /'service_role'/);
   assert.match(migration, /'operative'/);
-  assert.match(migration, /interval '15 minutes'\) >= 10/);
-  assert.match(migration, /interval '10 minutes'\) >= 100/);
+  assert.match(migration, /interval '15 minutes', 10/);
+  assert.match(migration, /v_count = 100/);
+  assert.match(migration, /v_count = 40/);
   assert.match(migration, /interval '30 minutes'/);
   assert.match(migration, /email_change_blocked/);
   assert.match(migration, /@users\.sitepack\.invalid/);
-  assert.match(migration, /pepper_not_configured/);
+  assert.match(migration, /archived_at is not null/);
   assert.equal(/grant select \([^)]*code_hash/.test(migration), false);
+  assert.equal(/grant select \(username\)/.test(migration), false);
   assert.equal(migration.includes('probe-pepper'), false);
   const join = fs.readFileSync(new URL('../components/join-screen.tsx', import.meta.url), 'utf8');
   const joined = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/joined.tsx', import.meta.url), 'utf8');

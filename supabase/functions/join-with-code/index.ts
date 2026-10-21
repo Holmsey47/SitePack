@@ -1,23 +1,23 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
-import { passwordHasLettersAndDigits, placeholderEmail } from '../../../data/joinCodes.ts';
+import { passwordHasLettersAndDigits, placeholderEmail } from '../_shared/joinCodes.ts';
 import {
   clientIp,
   hashCode,
-  joinClientCode,
   json,
   pepperOrNull,
   preflight,
   readResult,
+  serviceClient,
   userAgent,
   usernameOrNull,
 } from '../_shared/joinHttp.ts';
 
+const DUMMY_EMAIL = '00000000-0000-4000-8000-000000000000@users.sitepack.invalid';
+
 /**
  * Public join. verify_jwt is false. The code is the credential.
- * Placeholder emails are random UUIDs at users.sitepack.invalid, created
- * only here, with email_confirm true. They are never mailed.
- * If the database step fails, the auth user is deleted.
- * GET is not this function. The web page does not validate on load.
+ * Name, trade, password, and username are checked before the code is.
+ * The code is checked before an auth user is created.
+ * Placeholder emails are random UUIDs at users.sitepack.invalid.
  */
 Deno.serve(async (req) => {
   const early = preflight(req);
@@ -46,18 +46,32 @@ Deno.serve(async (req) => {
 
   const username = usernameOrNull(body.username ?? '');
   const displayName = (body.display_name ?? '').trim();
-  if (!username || !displayName) {
+  const trade = (body.trade ?? '').trim();
+  if (!username || !displayName || displayName.length > 80 || trade.length > 80) {
     return json({ error: 'invalid_input' }, 400);
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const admin = createClient(supabaseUrl, serviceKey);
-  const anon = createClient(supabaseUrl, anonKey);
+  const ip = clientIp(req);
+  const admin = serviceClient(ip);
+
+  const taken = await admin.rpc('username_is_taken', { p_username: username });
+  if (taken.error) {
+    console.error(JSON.stringify({ error: 'username_check_failed' }));
+    return json({ error: 'join_rejected' }, 400);
+  }
+  if (readResult(taken.data).taken) {
+    return json({ error: 'username_taken' }, 400);
+  }
 
   const codeHash = await hashCode(body.code ?? '', pepper);
-  const ip = clientIp(req);
+  const preview = await admin.rpc('preview_join_code', {
+    p_code_hash: codeHash ?? '00',
+    p_client_ip: ip,
+  });
+  if (preview.error || !readResult(preview.data).ok) {
+    return json({ error: 'join_rejected' }, 400);
+  }
+
   const email = placeholderEmail(crypto.randomUUID());
   let userId: string | null = null;
 
@@ -68,32 +82,32 @@ Deno.serve(async (req) => {
       email_confirm: true,
     });
     if (created.error || !created.data.user) {
-      console.error(JSON.stringify({ error: 'create_user_failed', code: joinClientCode(created.error) }));
-      return json({ error: joinClientCode(created.error) }, 400);
+      console.error(JSON.stringify({ error: 'create_user_failed' }));
+      return json({ error: 'join_rejected' }, 400);
     }
     userId = created.data.user.id;
 
     const applied = await admin.rpc('apply_join_code', {
-      p_code_hash: codeHash ?? '00',
+      p_code_hash: codeHash,
       p_auth_user_id: userId,
       p_display_name: displayName,
-      p_trade: body.trade ?? null,
+      p_trade: trade || null,
       p_username: username,
       p_client_ip: ip,
       p_user_agent: userAgent(req),
     });
 
     if (applied.error || !readResult(applied.data).ok) {
-      await admin.auth.admin.deleteUser(userId);
+      const removed = await admin.auth.admin.deleteUser(userId);
+      if (removed.error) console.error(JSON.stringify({ error: 'delete_user_failed' }));
       userId = null;
-      const code = applied.error ? joinClientCode(applied.error) : (readResult(applied.data).error ?? 'join_rejected');
-      const safe = code === 'username_taken' || code === 'invalid_input' || code === 'weak_password' ? code : 'join_rejected';
-      return json({ error: safe }, 400);
+      return json({ error: 'join_rejected' }, 400);
     }
 
-    const signed = await anon.auth.signInWithPassword({ email, password });
+    const signed = await admin.auth.signInWithPassword({ email, password });
     if (signed.error || !signed.data.session) {
-      await admin.auth.admin.deleteUser(userId);
+      const removed = await admin.auth.admin.deleteUser(userId);
+      if (removed.error) console.error(JSON.stringify({ error: 'delete_user_failed' }));
       console.error(JSON.stringify({ error: 'join_sign_in_failed' }));
       return json({ error: 'join_rejected' }, 400);
     }
@@ -106,7 +120,8 @@ Deno.serve(async (req) => {
     });
   } catch {
     if (userId) {
-      await admin.auth.admin.deleteUser(userId);
+      const removed = await admin.auth.admin.deleteUser(userId);
+      if (removed.error) console.error(JSON.stringify({ error: 'delete_user_failed' }));
     }
     console.error(JSON.stringify({ error: 'join_failed' }));
     return json({ error: 'join_rejected' }, 400);

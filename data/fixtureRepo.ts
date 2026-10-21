@@ -27,12 +27,10 @@ import {
   JOIN_ALPHABET,
   JOIN_DEFAULT_HOURS,
   JOIN_DEFAULT_MAX_USES,
-  JOIN_GLOBAL_FAILURE_LIMIT,
-  JOIN_GLOBAL_WINDOW_MINUTES,
   JOIN_HARD_MAX_USES,
-  JOIN_IP_FAILURE_LIMIT,
   JOIN_IP_WINDOW_MINUTES,
   JOIN_MAX_HOURS,
+  JOIN_USERNAME_FAILURE_LIMIT,
   JOIN_REJECTED,
   RESET_CODE_MINUTES,
   isJoinCodeShape,
@@ -430,11 +428,8 @@ function noteFailure(bucket: string, subject: string) {
   store.failures.push({ bucket, subject, at: Date.now() });
 }
 
-function limited(ipBucket: string, ip: string, globalBucket: string): boolean {
-  return (
-    recentFailures(ipBucket, ip, JOIN_IP_WINDOW_MINUTES) >= JOIN_IP_FAILURE_LIMIT ||
-    recentFailures(globalBucket, 'all', JOIN_GLOBAL_WINDOW_MINUTES) >= JOIN_GLOBAL_FAILURE_LIMIT
-  );
+function usernameLimited(username: string): boolean {
+  return recentFailures('login_user', username, JOIN_IP_WINDOW_MINUTES) >= JOIN_USERNAME_FAILURE_LIMIT;
 }
 
 function meOrThrow(): Person {
@@ -464,8 +459,13 @@ function canSeePerson(caller: Person, target: Person): boolean {
 }
 
 function personForCaller(caller: Person, target: Person): Person {
-  if (caller.role === 'owner') return target;
-  return { ...target, email: null, phone: null };
+  const own = caller.id === target.id;
+  return {
+    ...target,
+    email: caller.role === 'owner' ? target.email : null,
+    phone: caller.role === 'owner' ? target.phone : null,
+    username: own ? target.username : null,
+  };
 }
 
 function assignedSiteIds(person: Person): string[] {
@@ -516,6 +516,7 @@ function companyPersonView(person: Person): CompanyPerson {
     role: person.role,
     trade: person.trade,
     has_login: person.auth_user_id != null,
+    username: person.username ?? null,
     site_names: siteNames,
   };
 }
@@ -981,20 +982,26 @@ export const fixtureRepo: SitePackRepo = {
 
   async signInWithUsername(username, password): Promise<SignInResult> {
     const name = normalizeUsername(username);
-    const fail = (): never => {
+    const subject = name || 'bad';
+    const noteMiss = () => {
+      noteFailure('login_user', subject);
       noteFailure('login_ip', 'fixture');
       noteFailure('login_global', 'all');
-      throw new Error('sign_in_failed');
     };
-    if (limited('login_ip', 'fixture', 'login_global')) throw new Error('sign_in_failed');
+    if (usernameLimited(subject)) {
+      noteMiss();
+      throw new Error('sign_in_failed');
+    }
     const person = store.people.find((row) => row.username === name && row.auth_user_id);
-    if (!person?.auth_user_id || store.banned.includes(person.auth_user_id)) {
-      noteFailure('login_ip', 'fixture');
-      noteFailure('login_global', 'all');
+    if (!person || !person.auth_user_id || store.banned.includes(person.auth_user_id)) {
+      noteMiss();
       throw new Error('sign_in_failed');
     }
     const expected = store.passwords[person.id] ?? SEED_PASSWORD;
-    if (!passwordHasLettersAndDigits(password) || password !== expected) fail();
+    if (!passwordHasLettersAndDigits(password) || password !== expected) {
+      noteMiss();
+      throw new Error('sign_in_failed');
+    }
     store.sessionPersonId = person.id;
     saveSessionId(person.id);
     return { person, needsPassword: false };
@@ -1007,7 +1014,7 @@ export const fixtureRepo: SitePackRepo = {
   async createJoinCode(input): Promise<JoinCodeCreated> {
     const actor = requireManager();
     const site = store.sites.find((row) => row.id === input.siteId && row.company_id === actor.company_id);
-    if (!site || !canAccessSite(actor, site.id)) throw new Error('not_authorized');
+    if (!site || site.archived_at || !canAccessSite(actor, site.id)) throw new Error('not_authorized');
     const label = input.label?.trim() || null;
     if (label && label.length > 40) throw new Error('label_too_long');
     const maxUses = input.maxUses ?? JOIN_DEFAULT_MAX_USES;
@@ -1049,7 +1056,9 @@ export const fixtureRepo: SitePackRepo = {
 
   async listJoinCodes(siteId): Promise<JoinCodeRow[]> {
     const actor = requireManager();
-    if (!canAccessSite(actor, siteId)) throw new Error('not_authorized');
+    const site = store.sites.find((row) => row.id === siteId && row.company_id === actor.company_id);
+    if (!site || !canAccessSite(actor, siteId)) throw new Error('not_authorized');
+    if (site.archived_at) return [];
     return store.joinCodes
       .filter((row) => row.site_id === siteId && row.company_id === actor.company_id)
       .map((row) => ({
@@ -1094,30 +1103,35 @@ export const fixtureRepo: SitePackRepo = {
     if (!passwordHasLettersAndDigits(input.password)) throw new Error('weak_password');
     const displayName = input.displayName.trim();
     const username = normalizeUsername(input.username);
-    if (!displayName || !isUsernameShape(username)) throw new Error('invalid_input');
-    if (limited('ip', 'fixture', 'global')) throw new Error(JOIN_REJECTED);
+    const trade = input.trade.trim();
+    if (!displayName || displayName.length > 80 || trade.length > 80 || !isUsernameShape(username)) {
+      throw new Error('invalid_input');
+    }
+    if (store.people.some((person) => person.username === username)) {
+      throw new Error('username_taken');
+    }
     const normalized = normalizeJoinCode(input.code);
     const code = isJoinCodeShape(normalized)
       ? store.joinCodes.find((row) => row.code === normalized)
       : undefined;
+    const site = code ? store.sites.find((row) => row.id === code.site_id) : undefined;
     const rejected =
-      !code || code.revoked_at != null || new Date(code.expires_at).getTime() <= Date.now() || code.uses >= code.max_uses;
+      !code ||
+      code.revoked_at != null ||
+      new Date(code.expires_at).getTime() <= Date.now() ||
+      code.uses >= code.max_uses ||
+      site?.archived_at != null;
     if (rejected || !code) {
       noteFailure('ip', 'fixture');
       noteFailure('global', 'all');
       throw new Error(JOIN_REJECTED);
-    }
-    if (store.people.some((person) => person.username === username)) {
-      noteFailure('ip', 'fixture');
-      noteFailure('global', 'all');
-      throw new Error('username_taken');
     }
     const person: Person = {
       id: newId(),
       auth_user_id: newId(),
       company_id: code.company_id,
       role: 'operative',
-      trade: input.trade.trim() || null,
+      trade: trade || null,
       display_name: displayName,
       email: null,
       phone: null,
@@ -1159,6 +1173,23 @@ export const fixtureRepo: SitePackRepo = {
     }
     if (!canAccessSite(actor, siteId)) throw new Error('not_authorized');
     const events = store.joinEvents.filter((event) => event.person_id === personId && event.site_id === siteId);
+    if (actor.role === 'cm') {
+      const live = events.find((event) => !event.removed_at);
+      const code = live ? store.joinCodes.find((row) => row.id === live.code_id) : undefined;
+      const creator = store.people.find((row) => row.id === code?.created_by);
+      if (!live || creator?.role !== 'cm') throw new Error('not_authorized');
+      live.removed_at = now();
+      live.removed_by = actor.id;
+      if (revokeCode && code) code.revoked_at = code.revoked_at ?? now();
+      const dropped = store.assignments.filter(
+        (assignment) => assignment.person_id === personId && assignment.site_id === siteId
+      );
+      for (const assignment of dropped) forgetAssignment(assignment.id);
+      store.assignments = store.assignments.filter(
+        (assignment) => !(assignment.person_id === personId && assignment.site_id === siteId)
+      );
+      return;
+    }
     if (
       events.length === 0 &&
       !store.assignments.some((assignment) => assignment.person_id === personId && assignment.site_id === siteId)
@@ -1225,7 +1256,6 @@ export const fixtureRepo: SitePackRepo = {
 
   async redeemPasswordReset(code, password) {
     if (!passwordHasLettersAndDigits(password)) throw new Error('weak_password');
-    if (limited('reset_ip', 'fixture', 'reset_global')) throw new Error('reset_rejected');
     const normalized = normalizeJoinCode(code);
     const row = isJoinCodeShape(normalized) ? store.resetCodes.find((item) => item.code === normalized) : undefined;
     const rejected =

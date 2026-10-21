@@ -1,11 +1,20 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
-import { passwordHasLettersAndDigits } from '../../../data/joinCodes.ts';
-import { clientIp, json, preflight, readResult, usernameOrNull } from '../_shared/joinHttp.ts';
+import { passwordHasLettersAndDigits } from '../_shared/joinCodes.ts';
+import {
+  clientIp,
+  json,
+  padLoginMiss,
+  preflight,
+  readResult,
+  serviceClient,
+  usernameOrNull,
+} from '../_shared/joinHttp.ts';
+
+const DUMMY_EMAIL = '00000000-0000-4000-8000-000000000000@users.sitepack.invalid';
 
 /**
  * Username sign-in. verify_jwt is false.
+ * A miss does a dummy password check so it is not obviously faster than a hit.
  * The placeholder email is resolved here and is not returned.
- * Wrong username and wrong password share one error.
  */
 Deno.serve(async (req) => {
   const early = preflight(req);
@@ -25,12 +34,8 @@ Deno.serve(async (req) => {
     return json({ error: 'sign_in_failed' }, 400);
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const admin = createClient(supabaseUrl, serviceKey);
-  const anon = createClient(supabaseUrl, anonKey);
   const ip = clientIp(req);
+  const admin = serviceClient(ip);
 
   const looked = await admin.rpc('lookup_username_login', {
     p_username: username,
@@ -38,19 +43,23 @@ Deno.serve(async (req) => {
   });
   const found = readResult(looked.data);
   if (looked.error || !found.ok || !found.auth_user_id) {
+    await admin.auth.signInWithPassword({ email: DUMMY_EMAIL, password }).catch(() => undefined);
+    await padLoginMiss(password);
     return json({ error: 'sign_in_failed' }, 400);
   }
 
   const user = await admin.auth.admin.getUserById(found.auth_user_id);
   const email = user.data.user?.email;
   if (!email) {
-    await admin.rpc('note_login_failure', { p_client_ip: ip });
+    await admin.rpc('note_login_failure', { p_username: username, p_client_ip: ip });
+    await padLoginMiss(password);
     return json({ error: 'sign_in_failed' }, 400);
   }
 
-  const signed = await anon.auth.signInWithPassword({ email, password });
+  const signed = await admin.auth.signInWithPassword({ email, password });
   if (signed.error || !signed.data.session) {
-    await admin.rpc('note_login_failure', { p_client_ip: ip });
+    await admin.rpc('note_login_failure', { p_username: username, p_client_ip: ip });
+    await padLoginMiss(password);
     return json({ error: 'sign_in_failed' }, 400);
   }
 

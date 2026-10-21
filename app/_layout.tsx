@@ -72,6 +72,8 @@ function Gate() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(app)" options={{ headerShown: false }} />
+      <Stack.Screen name="join" options={{ title: 'Join a site' }} />
+      <Stack.Screen name="reset" options={{ title: 'New password' }} />
     </Stack>
   );
 }

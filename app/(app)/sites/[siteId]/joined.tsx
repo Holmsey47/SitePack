@@ -2,7 +2,7 @@ import { Button, Card, ErrorText, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
-import { joinFailureMessage, resetFailureMessage, resetShareText } from '@/data/joinCodes';
+import { JOIN_WEB_ORIGIN, joinFailureMessage, resetFailureMessage, resetShareText } from '@/data/joinCodes';
 import type { JoinerRow, PasswordResetIssued } from '@/data/types';
 import { timeAgo } from '@/lib/format';
 import { theme } from '@/lib/theme';
@@ -45,6 +45,8 @@ export default function WhoJoinedScreen() {
       await repo.removeJoiner(pending.person_id, siteId, revokeCode);
       setPending(null);
       setRevokeCode(false);
+      setResetFor(null);
+      setResetName('');
       load();
     } catch (err) {
       setError(joinFailureMessage(err instanceof Error ? err.message : 'not_authorized'));
@@ -66,12 +68,17 @@ export default function WhoJoinedScreen() {
     }
   }
 
-  const resetMessage = resetFor ? resetShareText(resetName, resetFor.code) : '';
+  const resetMessage = resetFor ? resetShareText(resetName, resetFor.code, JOIN_WEB_ORIGIN) : '';
+  const owner = person?.role === 'owner';
 
   return (
     <Screen>
       <Title>Who joined</Title>
-      <Muted>Name, trade, and which code. Remove cuts their sign-in.</Muted>
+      <Muted>
+        {owner
+          ? 'Name, trade, and which code. Remove takes them off the company.'
+          : 'Name, trade, and which code. Remove takes them off this site.'}
+      </Muted>
       <ErrorText>{error}</ErrorText>
       {rows.length === 0 ? <Muted>Nobody has joined with a code yet.</Muted> : null}
       {rows.map((row) => (
@@ -109,9 +116,17 @@ export default function WhoJoinedScreen() {
 
       {pending ? (
         <Card>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>Remove {pending.display_name}?</Text>
-          <Muted>They lose this site and can’t sign in.</Muted>
-          <Muted>Downloaded drawings stay on their phone. SitePack can’t pull them back.</Muted>
+          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+            {owner ? 'Remove from company' : 'Remove from this site'} {pending.display_name}?
+          </Text>
+          {owner ? (
+            <>
+              <Muted>They lose this site and can’t sign in.</Muted>
+              <Muted>Downloaded drawings stay on their phone. SitePack can’t pull them back.</Muted>
+            </>
+          ) : (
+            <Muted>They lose this site. They can still sign in on any other site.</Muted>
+          )}
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ checked: revokeCode }}

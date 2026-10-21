@@ -1,6 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
-import { passwordHasLettersAndDigits } from '../../../data/joinCodes.ts';
-import { clientIp, hashCode, json, pepperOrNull, preflight, readResult } from '../_shared/joinHttp.ts';
+import { passwordHasLettersAndDigits } from '../_shared/joinCodes.ts';
+import { clientIp, hashCode, json, pepperOrNull, preflight, readResult, serviceClient } from '../_shared/joinHttp.ts';
 
 /**
  * The person sets the new password. verify_jwt is false.
@@ -27,11 +26,9 @@ Deno.serve(async (req) => {
     return json({ error: 'weak_password' }, 400);
   }
 
-  const codeHash = await hashCode(body.code ?? '', pepper);
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const admin = createClient(supabaseUrl, serviceKey);
   const ip = clientIp(req);
+  const admin = serviceClient(ip);
+  const codeHash = await hashCode(body.code ?? '', pepper);
 
   const redeemed = await admin.rpc('redeem_password_reset', {
     p_code_hash: codeHash ?? '00',
@@ -46,7 +43,7 @@ Deno.serve(async (req) => {
   if (updated.error) {
     await admin.rpc('release_password_reset', { p_reset_id: row.reset_id });
     console.error(JSON.stringify({ error: 'reset_password_failed' }));
-    return json({ error: /password/i.test(updated.error.message) ? 'weak_password' : 'reset_rejected' }, 400);
+    return json({ error: 'reset_rejected' }, 400);
   }
 
   return json({ ok: true });

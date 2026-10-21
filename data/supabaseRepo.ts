@@ -659,19 +659,24 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async createJoinCode(input) {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.rpc('create_join_code', {
-      p_site_id: input.siteId,
-      p_label: input.label ?? null,
-      p_max_uses: input.maxUses ?? 10,
-      p_hours: input.hours ?? 24,
-    });
-    if (error) throw new Error(rpcErrorCode(error));
-    return data as JoinCodeCreated;
+    const data = (await invokePublicFunction('issue-join-code', {
+      site_id: input.siteId,
+      label: input.label ?? null,
+      max_uses: input.maxUses ?? 10,
+      hours: input.hours ?? 24,
+    })) as JoinCodeCreated;
+    return data;
   },
 
   async listJoinCodes(siteId) {
     const supabase = getSupabase();
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('archived_at')
+      .eq('id', siteId)
+      .maybeSingle();
+    if (siteError) throw new Error(rpcErrorCode(siteError));
+    if (site?.archived_at) return [];
     const { data, error } = await supabase
       .from('join_codes')
       .select('id, site_id, label, expires_at, max_uses, uses, revoked_at, created_at')
@@ -741,9 +746,8 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async issuePasswordReset(personId) {
-    const { data, error } = await getSupabase().rpc('reset_password_code', { p_person_id: personId });
-    if (error) throw new Error(rpcErrorCode(error));
-    return data as PasswordResetIssued;
+    const data = (await invokePublicFunction('issue-reset-code', { person_id: personId })) as PasswordResetIssued;
+    return data;
   },
 
   async redeemPasswordReset(code, password) {

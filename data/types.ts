@@ -155,6 +155,8 @@ export type CompanyPerson = {
   role: Role;
   trade: string | null;
   has_login: boolean;
+  /** Sign-in name. Managers only. The people directory does not include it. */
+  username?: string | null;
   site_names: string[];
 };
 

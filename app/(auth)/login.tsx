@@ -2,11 +2,13 @@ import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/component
 import { useAuth } from '@/context/AuthContext';
 import { SEED_LOGINS, SEED_PASSWORD } from '@/data/ids';
 import { theme } from '@/lib/theme';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 export default function LoginScreen() {
   const { signIn, signInWithUsername, usingFixtures } = useAuth();
+  const router = useRouter();
   const showSeedChips = __DEV__ && usingFixtures;
   const [mode, setMode] = useState<'email' | 'username'>('email');
   const [email, setEmail] = useState(showSeedChips ? 'amy@sitepack.test' : '');
@@ -57,6 +59,13 @@ export default function LoginScreen() {
         loading={loading}
         disabled={mode === 'username' ? !username.trim() || !password : !email || !password}
       />
+      <Button label="Join with a code" variant="secondary" onPress={() => router.push('/join')} />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/reset')}
+        style={{ minHeight: 48, justifyContent: 'center' }}>
+        <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>Got a reset code?</Text>
+      </Pressable>
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
           {SEED_LOGINS.map((login) => (

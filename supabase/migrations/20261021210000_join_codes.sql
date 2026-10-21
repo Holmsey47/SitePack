@@ -5,10 +5,9 @@
 -- shipped in 20261021163528_pre_lad_security.sql. This migration does not
 -- repeat them.
 --
--- Pepper: never committed. create_join_code and reset_password_code read
--- app.join_code_pepper (database setting). join-with-code, login-with-username,
--- and redeem-reset-code read the edge secret JOIN_CODE_PEPPER. The two values
--- must be the same string. See the function headers.
+-- The plaintext code is generated in a logged-in edge function. That function
+-- HMACs it with the edge secret and passes only the hash to SQL. SQL never
+-- reads a pepper and never returns the plaintext.
 --
 -- Re-runnable: tables use if not exists, policies are dropped first, functions
 -- are create or replace.
@@ -61,7 +60,8 @@ begin
 end;
 $$;
 
--- Directory gains username. Email and phone stay off the view.
+-- Directory stays free of email, phone, and username. A person reads their own
+-- username from my_person(). Managers read usernames from company_people().
 create or replace view public.people_directory
 with (security_invoker = true, security_barrier = true)
 as
@@ -72,17 +72,16 @@ select
   role,
   trade,
   display_name,
-  created_at,
-  username
+  created_at
 from public.people;
 
 comment on view public.people_directory is
-  'People the caller may list. No email or phone. Includes username. Row visibility follows people_select_visible.';
+  'People the caller may list. No email, phone, or username. Row visibility follows people_select_visible.';
 
 do $acl$
 begin
   if to_regclass('public.people') is not null then
-    grant select (username) on table public.people to authenticated;
+    revoke select (username) on table public.people from public, anon, authenticated;
   end if;
   if to_regclass('public.people_directory') is not null then
     revoke all on table public.people_directory from public, anon, authenticated;
@@ -216,7 +215,10 @@ create index if not exists join_rate_limits_lookup_idx
   on public.join_rate_limits (bucket, subject, kind, created_at desc);
 
 comment on table public.join_rate_limits is
-  'Service-only counters. About 10 failures per client IP per 15 minutes, plus a global failure cap. No policies.';
+  'Service-only counters. Per-username and per-reset-target limits reject. IP and global counters only alert. No policies.';
+
+create index if not exists join_rate_limits_created_idx
+  on public.join_rate_limits (created_at);
 
 create table if not exists public.join_audit (
   id uuid primary key default gen_random_uuid(),
@@ -232,6 +234,7 @@ create table if not exists public.join_audit (
       'code_revoke',
       'cap_change',
       'join',
+      'attempt',
       'remove',
       'reset_issue',
       'reset_redeem'
@@ -336,8 +339,30 @@ create policy join_audit_select
     )
   );
 
+-- Re-running this file drops the old signatures.
+drop function if exists private.join_rate_limited(text, text, text);
+drop function if exists public.create_join_code(uuid, text, integer, integer);
+drop function if exists public.reset_password_code(uuid);
+drop function if exists public.note_login_failure(text);
+
+-- A table created by an earlier draft of this file needs the attempt action.
+alter table public.join_audit drop constraint if exists join_audit_action;
+alter table public.join_audit
+  add constraint join_audit_action check (
+    action in (
+      'code_create',
+      'code_revoke',
+      'cap_change',
+      'join',
+      'attempt',
+      'remove',
+      'reset_issue',
+      'reset_redeem'
+    )
+  );
+
 -- ---------------------------------------------------------------------------
--- Code helpers. Pepper is a database setting, not a committed literal.
+-- Code helpers. Hashing happens in the edge function. SQL only stores hashes.
 -- ---------------------------------------------------------------------------
 
 create or replace function private.normalize_join_code(p_code text)
@@ -349,56 +374,74 @@ as $$
   select upper(regexp_replace(coalesce(p_code, ''), '[[:space:]-]', '', 'g'));
 $$;
 
-create or replace function private.join_code_pepper()
+create or replace function private.ip_subject(p_ip text)
 returns text
 language plpgsql
-stable
-security definer
+immutable
 set search_path = ''
 as $$
 declare
-  v_pepper text := nullif(current_setting('app.join_code_pepper', true), '');
+  v text := lower(btrim(coalesce(p_ip, '')));
+  head text;
+  tail text;
+  left_groups text[];
+  right_groups text[];
+  groups text[] := array[]::text[];
+  missing integer;
+  i integer;
+  piece text;
 begin
-  if v_pepper is null then
-    raise exception 'pepper_not_configured';
+  if v = '' or v = 'unknown' then
+    return 'unknown';
   end if;
-  return v_pepper;
-end;
-$$;
-
-create or replace function private.hmac_join_code(p_normalized text)
-returns bytea
-language plpgsql
-stable
-security definer
-set search_path = ''
-as $$
-begin
-  if p_normalized is null or p_normalized !~ '^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$' then
-    raise exception 'invalid_input';
-  end if;
-  return extensions.hmac(p_normalized, private.join_code_pepper(), 'sha256');
-end;
-$$;
-
-create or replace function private.generate_join_code()
-returns text
-language plpgsql
-volatile
-set search_path = ''
-as $$
-declare
-  alphabet constant text := '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-  out text := '';
-  raw bytea;
-begin
-  while char_length(out) < 8 loop
-    raw := extensions.gen_random_bytes(1);
-    if get_byte(raw, 0) < 248 then
-      out := out || substr(alphabet, (get_byte(raw, 0) % 31) + 1, 1);
+  v := regexp_replace(v, '[\[\]]', '', 'g');
+  v := split_part(v, '%', 1);
+  v := split_part(v, '/', 1);
+  if position(':' in v) = 0 then
+    if v ~ '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' then
+      return left(v, 64);
     end if;
+    return 'unknown';
+  end if;
+  if (length(v) - length(replace(v, '::', ''))) / 2 > 1 then
+    return 'unknown';
+  end if;
+  if position('::' in v) > 0 then
+    head := split_part(v, '::', 1);
+    tail := split_part(v, '::', 2);
+    if head = '' then
+      left_groups := array[]::text[];
+    else
+      left_groups := string_to_array(head, ':');
+    end if;
+    if tail = '' then
+      right_groups := array[]::text[];
+    else
+      right_groups := string_to_array(tail, ':');
+    end if;
+    missing := 8 - coalesce(array_length(left_groups, 1), 0) - coalesce(array_length(right_groups, 1), 0);
+    if missing < 0 then
+      return 'unknown';
+    end if;
+    groups := left_groups;
+    if missing > 0 then
+      groups := groups || array_fill('0'::text, array[missing]);
+    end if;
+    groups := groups || right_groups;
+  else
+    groups := string_to_array(v, ':');
+  end if;
+  if coalesce(array_length(groups, 1), 0) <> 8 then
+    return 'unknown';
+  end if;
+  for i in 1..4 loop
+    piece := groups[i];
+    if piece is null or piece !~ '^[0-9a-f]{1,4}$' then
+      return 'unknown';
+    end if;
+    groups[i] := lpad(piece, 4, '0');
   end loop;
-  return out;
+  return groups[1] || ':' || groups[2] || ':' || groups[3] || ':' || groups[4];
 end;
 $$;
 
@@ -440,9 +483,15 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_subject text := left(coalesce(nullif(btrim(p_subject), ''), 'unknown'), 128);
+  v_subject text;
   v_count integer;
 begin
+  if p_bucket in ('ip', 'login_ip', 'reset_ip') then
+    v_subject := private.ip_subject(p_subject);
+  else
+    v_subject := left(coalesce(nullif(btrim(p_subject), ''), 'unknown'), 128);
+  end if;
+
   insert into public.join_rate_limits (bucket, subject, kind)
   values (p_bucket, v_subject, 'failure');
 
@@ -450,28 +499,56 @@ begin
   where created_at < now() - interval '1 day'
     and kind = 'failure';
 
-  if p_bucket = 'global' then
-    v_count := private.join_failure_count('global', 'all', interval '10 minutes');
+  if p_bucket in ('global', 'login_global', 'reset_global') then
+    v_count := private.join_failure_count(p_bucket, 'all', interval '10 minutes');
     if v_count = 100 then
       insert into public.join_rate_limits (bucket, subject, kind)
-      values ('global', 'all', 'alert');
+      values (p_bucket, 'all', 'alert');
       raise warning 'join_failure_burst';
+    end if;
+  end if;
+
+  if p_bucket in ('ip', 'login_ip', 'reset_ip') then
+    v_count := private.join_failure_count(p_bucket, v_subject, interval '15 minutes');
+    if v_count = 40 then
+      insert into public.join_rate_limits (bucket, subject, kind)
+      values (p_bucket, v_subject, 'alert');
+      raise warning 'join_ip_hot';
     end if;
   end if;
 end;
 $$;
 
-create or replace function private.join_rate_limited(p_ip_bucket text, p_ip text, p_global_bucket text)
+create or replace function private.subject_limited(
+  p_bucket text,
+  p_subject text,
+  p_window interval,
+  p_limit integer
+)
 returns boolean
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select private.join_failure_count(p_ip_bucket, left(coalesce(nullif(btrim(p_ip), ''), 'unknown'), 128), interval '15 minutes') >= 10
-    or private.join_failure_count(p_global_bucket, 'all', interval '10 minutes') >= 100;
+  select private.join_failure_count(p_bucket, left(coalesce(nullif(btrim(p_subject), ''), 'unknown'), 128), p_window) >= p_limit;
 $$;
 
+create or replace function private.record_ip_and_global(p_ip_bucket text, p_ip text, p_global_bucket text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform private.record_join_failure(p_ip_bucket, p_ip);
+  perform private.record_join_failure(p_global_bucket, 'all');
+end;
+$$;
+
+-- Real service check. PostgREST 12 puts the role in request.jwt.claims.
+-- The legacy request.jwt.claim.role is used only when claims are absent.
+-- An empty claim is not service_role.
 create or replace function private.reject_unless_service()
 returns void
 language plpgsql
@@ -479,9 +556,24 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_role text := nullif(current_setting('request.jwt.claim.role', true), '');
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_role text;
 begin
-  if v_role in ('authenticated', 'anon') then
+  if v_claims is not null and btrim(v_claims) <> '' then
+    begin
+      v_role := nullif(btrim(v_claims::jsonb ->> 'role'), '');
+    exception
+      when others then
+        v_role := null;
+    end;
+    if v_role is distinct from 'service_role' then
+      raise exception 'not_authorized';
+    end if;
+    return;
+  end if;
+
+  v_role := nullif(current_setting('request.jwt.claim.role', true), '');
+  if v_role is distinct from 'service_role' then
     raise exception 'not_authorized';
   end if;
 end;
@@ -540,13 +632,12 @@ end;
 $$;
 
 revoke all on function private.normalize_join_code(text) from public, anon, authenticated;
-revoke all on function private.join_code_pepper() from public, anon, authenticated;
-revoke all on function private.hmac_join_code(text) from public, anon, authenticated;
-revoke all on function private.generate_join_code() from public, anon, authenticated;
+revoke all on function private.ip_subject(text) from public, anon, authenticated;
 revoke all on function private.join_actor() from public, anon, authenticated;
 revoke all on function private.join_failure_count(text, text, interval) from public, anon, authenticated;
 revoke all on function private.record_join_failure(text, text) from public, anon, authenticated;
-revoke all on function private.join_rate_limited(text, text, text) from public, anon, authenticated;
+revoke all on function private.subject_limited(text, text, interval, integer) from public, anon, authenticated;
+revoke all on function private.record_ip_and_global(text, text, text) from public, anon, authenticated;
 revoke all on function private.reject_unless_service() from public, anon, authenticated;
 revoke all on function private.clear_auth_sessions(uuid) from public, anon, authenticated;
 revoke all on function private.ban_auth_user(uuid) from public, anon, authenticated;
@@ -559,7 +650,8 @@ create or replace function public.create_join_code(
   p_site_id uuid,
   p_label text default null,
   p_max_uses integer default 10,
-  p_hours integer default 24
+  p_hours integer default 24,
+  p_code_hash text default null
 )
 returns jsonb
 language plpgsql
@@ -570,11 +662,11 @@ declare
   v_actor record;
   v_company uuid;
   v_site_name text;
+  v_archived timestamptz;
   v_company_name text;
   v_label text := nullif(btrim(coalesce(p_label, '')), '');
   v_max integer := coalesce(p_max_uses, 10);
   v_hours integer := coalesce(p_hours, 24);
-  v_code text;
   v_hash bytea;
   v_id uuid;
   v_expires timestamptz;
@@ -584,11 +676,11 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  select s.company_id, s.name into v_company, v_site_name
+  select s.company_id, s.name, s.archived_at into v_company, v_site_name, v_archived
   from public.sites s
   where s.id = p_site_id;
 
-  if v_company is null or v_company is distinct from v_actor.company_id then
+  if v_company is null or v_company is distinct from v_actor.company_id or v_archived is not null then
     raise exception 'not_authorized';
   end if;
 
@@ -611,29 +703,30 @@ begin
     raise exception 'expiry_out_of_range';
   end if;
 
+  begin
+    v_hash := decode(p_code_hash, 'hex');
+  exception
+    when others then
+      v_hash := null;
+  end;
+  if v_hash is null or octet_length(v_hash) <> 32 then
+    raise exception 'invalid_input';
+  end if;
+
   v_expires := now() + make_interval(hours => v_hours);
 
-  for i in 1..5 loop
-    v_code := private.generate_join_code();
-    v_hash := private.hmac_join_code(v_code);
-    begin
-      insert into public.join_codes (
-        company_id, site_id, code_hash, label, created_by, expires_at, max_uses
-      )
-      values (
-        v_company, p_site_id, v_hash, v_label, v_actor.person_id, v_expires, v_max
-      )
-      returning id into v_id;
-      exit;
-    exception
-      when unique_violation then
-        v_id := null;
-    end;
-  end loop;
-
-  if v_id is null then
-    raise exception 'join_rejected';
-  end if;
+  begin
+    insert into public.join_codes (
+      company_id, site_id, code_hash, label, created_by, expires_at, max_uses
+    )
+    values (
+      v_company, p_site_id, v_hash, v_label, v_actor.person_id, v_expires, v_max
+    )
+    returning id into v_id;
+  exception
+    when unique_violation then
+      raise exception 'code_in_use';
+  end;
 
   select c.name into v_company_name from public.companies c where c.id = v_company;
 
@@ -648,7 +741,6 @@ begin
 
   return jsonb_build_object(
     'id', v_id,
-    'code', substr(v_code, 1, 4) || '-' || substr(v_code, 5, 4),
     'expires_at', v_expires,
     'max_uses', v_max,
     'label', v_label,
@@ -763,15 +855,11 @@ declare
   v_name text := btrim(coalesce(p_display_name, ''));
   v_trade text := nullif(btrim(coalesce(p_trade, '')), '');
   v_username text := lower(btrim(coalesce(p_username, '')));
-  v_ip text := left(coalesce(nullif(btrim(p_client_ip), ''), 'unknown'), 128);
+  v_ip text := coalesce(p_client_ip, '');
   v_person uuid;
+  v_dead boolean;
 begin
   perform private.reject_unless_service();
-
-  -- Return, don't raise, so the failure row commits. A raised error would roll it back.
-  if private.join_rate_limited('ip', v_ip, 'global') then
-    return jsonb_build_object('ok', false, 'error', 'join_rejected');
-  end if;
 
   begin
     v_hash := decode(p_code_hash, 'hex');
@@ -780,9 +868,8 @@ begin
       v_hash := null;
   end;
 
-  if v_hash is null or p_auth_user_id is null then
-    perform private.record_join_failure('ip', v_ip);
-    perform private.record_join_failure('global', 'all');
+  if v_hash is null or octet_length(v_hash) <> 32 or p_auth_user_id is null then
+    perform private.record_ip_and_global('ip', v_ip, 'global');
     return jsonb_build_object('ok', false, 'error', 'join_rejected');
   end if;
 
@@ -791,29 +878,35 @@ begin
   where code_hash = v_hash
   for update;
 
-  if not found
-     or v_code.revoked_at is not null
-     or v_code.expires_at <= now()
-     or v_code.uses >= v_code.max_uses then
-    perform private.record_join_failure('ip', v_ip);
-    perform private.record_join_failure('global', 'all');
+  v_dead := not found
+    or v_code.revoked_at is not null
+    or v_code.expires_at <= now()
+    or exists (
+      select 1 from public.sites s
+      where s.id = v_code.site_id
+        and s.archived_at is not null
+    );
+
+  if v_dead then
+    perform private.record_ip_and_global('ip', v_ip, 'global');
     return jsonb_build_object('ok', false, 'error', 'join_rejected');
   end if;
 
-  if v_name = '' or char_length(v_name) > 80
+  if v_code.uses >= v_code.max_uses
+     or v_name = '' or char_length(v_name) > 80
      or (v_trade is not null and char_length(v_trade) > 80)
-     or v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$' then
-    perform private.record_join_failure('ip', v_ip);
-    perform private.record_join_failure('global', 'all');
-    return jsonb_build_object('ok', false, 'error', 'invalid_input');
-  end if;
-
-  if exists (
-    select 1 from public.people p where lower(p.username) = v_username
-  ) then
-    perform private.record_join_failure('ip', v_ip);
-    perform private.record_join_failure('global', 'all');
-    return jsonb_build_object('ok', false, 'error', 'username_taken');
+     or v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$'
+     or exists (select 1 from public.people p where lower(p.username) = v_username) then
+    perform private.record_ip_and_global('ip', v_ip, 'global');
+    insert into public.join_audit (company_id, site_id, actor_id, action, detail)
+    values (
+      v_code.company_id,
+      v_code.site_id,
+      null,
+      'attempt',
+      jsonb_build_object('code_id', v_code.id, 'reason', 'apply_failed')
+    );
+    return jsonb_build_object('ok', false, 'error', 'join_rejected');
   end if;
 
   begin
@@ -826,9 +919,16 @@ begin
     returning id into v_person;
   exception
     when unique_violation then
-      perform private.record_join_failure('ip', v_ip);
-      perform private.record_join_failure('global', 'all');
-      return jsonb_build_object('ok', false, 'error', 'username_taken');
+      perform private.record_ip_and_global('ip', v_ip, 'global');
+      insert into public.join_audit (company_id, site_id, actor_id, action, detail)
+      values (
+        v_code.company_id,
+        v_code.site_id,
+        null,
+        'attempt',
+        jsonb_build_object('code_id', v_code.id, 'reason', 'username_race')
+      );
+      return jsonb_build_object('ok', false, 'error', 'join_rejected');
   end;
 
   insert into public.site_assignments (site_id, person_id)
@@ -868,8 +968,71 @@ begin
 end;
 $$;
 
+-- Cheap check before createUser. No row lock. Same payload for every dead code.
+create or replace function public.preview_join_code(p_code_hash text, p_client_ip text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_hash bytea;
+  v_code public.join_codes;
+begin
+  perform private.reject_unless_service();
+
+  begin
+    v_hash := decode(p_code_hash, 'hex');
+  exception
+    when others then
+      v_hash := null;
+  end;
+
+  if v_hash is null or octet_length(v_hash) <> 32 then
+    perform private.record_ip_and_global('ip', p_client_ip, 'global');
+    return jsonb_build_object('ok', false, 'error', 'join_rejected');
+  end if;
+
+  select * into v_code from public.join_codes where code_hash = v_hash;
+  if not found
+     or v_code.revoked_at is not null
+     or v_code.expires_at <= now()
+     or v_code.uses >= v_code.max_uses
+     or exists (
+       select 1 from public.sites s
+       where s.id = v_code.site_id and s.archived_at is not null
+     ) then
+    perform private.record_ip_and_global('ip', p_client_ip, 'global');
+    return jsonb_build_object('ok', false, 'error', 'join_rejected');
+  end if;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.username_is_taken(p_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_username text := lower(btrim(coalesce(p_username, '')));
+begin
+  perform private.reject_unless_service();
+  if v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$' then
+    return jsonb_build_object('taken', false);
+  end if;
+  return jsonb_build_object(
+    'taken',
+    exists (select 1 from public.people p where lower(p.username) = v_username)
+  );
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
--- Remove. Drops the assignment, removes or detaches the people row, bans.
+-- Remove. The owner bans. A contracts manager only drops their own site,
+-- and only for someone a contracts manager invited.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.remove_joiner(
@@ -887,6 +1050,7 @@ declare
   v_person public.people;
   v_auth uuid;
   v_code uuid;
+  v_creator_role text;
 begin
   select * into v_actor from private.join_actor();
   if not found or v_actor.role not in ('owner', 'cm') then
@@ -900,33 +1064,75 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  if v_actor.role = 'cm' and not private.can_access_site(p_site_id) then
-    raise exception 'not_authorized';
+  select e.code_id, creator.role into v_code, v_creator_role
+  from public.join_events e
+  join public.join_codes c on c.id = e.code_id
+  left join public.people creator on creator.id = c.created_by
+  where e.person_id = p_person_id
+    and e.site_id = p_site_id
+    and e.company_id = v_actor.company_id
+    and e.removed_at is null
+  order by e.joined_at desc
+  limit 1;
+
+  if v_actor.role = 'cm' then
+    if not private.can_access_site(p_site_id) or v_code is null or v_creator_role is distinct from 'cm' then
+      raise exception 'not_authorized';
+    end if;
+
+    update public.join_events
+    set removed_at = now(),
+        removed_by = v_actor.person_id
+    where person_id = p_person_id
+      and site_id = p_site_id
+      and removed_at is null;
+
+    delete from public.site_assignments
+    where person_id = p_person_id
+      and site_id = p_site_id;
+
+    if coalesce(p_revoke_code, false) then
+      update public.join_codes
+      set revoked_at = coalesce(revoked_at, now())
+      where id = v_code
+        and revoked_at is null;
+      insert into public.join_audit (company_id, site_id, actor_id, action, detail)
+      values (
+        v_actor.company_id,
+        p_site_id,
+        v_actor.person_id,
+        'code_revoke',
+        jsonb_build_object('code_id', v_code, 'via', 'remove_joiner')
+      );
+    end if;
+
+    insert into public.join_audit (company_id, site_id, actor_id, action, detail)
+    values (
+      v_actor.company_id,
+      p_site_id,
+      v_actor.person_id,
+      'remove',
+      jsonb_build_object(
+        'person_id', p_person_id,
+        'scope', 'site',
+        'revoked_code', coalesce(p_revoke_code, false),
+        'code_id', v_code
+      )
+    );
+
+    return jsonb_build_object('ok', true, 'person_id', p_person_id, 'scope', 'site');
   end if;
 
   if not exists (
-    select 1
-    from public.join_events e
-    where e.person_id = p_person_id
-      and e.site_id = p_site_id
-      and e.company_id = v_actor.company_id
-  ) and not exists (
     select 1
     from public.site_assignments a
     join public.sites s on s.id = a.site_id
     where a.person_id = p_person_id
       and a.site_id = p_site_id
       and s.company_id = v_actor.company_id
-  ) then
+  ) and v_code is null then
     raise exception 'not_authorized';
   end if;
-
-  select e.code_id into v_code
-  from public.join_events e
-  where e.person_id = p_person_id
-    and e.site_id = p_site_id
-  order by e.joined_at desc
-  limit 1;
 
   update public.join_events
   set removed_at = coalesce(removed_at, now()),
@@ -974,12 +1180,13 @@ begin
     'remove',
     jsonb_build_object(
       'person_id', p_person_id,
+      'scope', 'company',
       'revoked_code', coalesce(p_revoke_code, false),
       'code_id', v_code
     )
   );
 
-  return jsonb_build_object('ok', true, 'person_id', p_person_id);
+  return jsonb_build_object('ok', true, 'person_id', p_person_id, 'scope', 'company');
 end;
 $$;
 
@@ -988,7 +1195,7 @@ $$;
 -- Never an owner or contracts manager account.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.reset_password_code(p_person_id uuid)
+create or replace function public.reset_password_code(p_person_id uuid, p_code_hash text)
 returns jsonb
 language plpgsql
 security definer
@@ -997,7 +1204,6 @@ as $$
 declare
   v_actor record;
   v_target public.people;
-  v_code text;
   v_hash bytea;
   v_id uuid;
   v_expires timestamptz := now() + interval '30 minutes';
@@ -1005,10 +1211,6 @@ begin
   select * into v_actor from private.join_actor();
   if not found or v_actor.role not in ('owner', 'cm') then
     raise exception 'not_authorized';
-  end if;
-
-  if private.join_rate_limited('reset_issue', v_actor.person_id::text, 'reset_issue_global') then
-    raise exception 'rate_limited';
   end if;
 
   select * into v_target from public.people where id = p_person_id;
@@ -1031,31 +1233,32 @@ begin
     raise exception 'not_authorized';
   end if;
 
+  begin
+    v_hash := decode(p_code_hash, 'hex');
+  exception
+    when others then
+      v_hash := null;
+  end;
+  if v_hash is null or octet_length(v_hash) <> 32 then
+    raise exception 'invalid_input';
+  end if;
+
   update public.password_reset_codes
   set revoked_at = now()
   where person_id = v_target.id
     and used_at is null
     and revoked_at is null;
 
-  for i in 1..5 loop
-    v_code := private.generate_join_code();
-    v_hash := private.hmac_join_code(v_code);
-    begin
-      insert into public.password_reset_codes (
-        person_id, company_id, code_hash, created_by, expires_at
-      )
-      values (v_target.id, v_target.company_id, v_hash, v_actor.person_id, v_expires)
-      returning id into v_id;
-      exit;
-    exception
-      when unique_violation then
-        v_id := null;
-    end;
-  end loop;
-
-  if v_id is null then
-    raise exception 'reset_rejected';
-  end if;
+  begin
+    insert into public.password_reset_codes (
+      person_id, company_id, code_hash, created_by, expires_at
+    )
+    values (v_target.id, v_target.company_id, v_hash, v_actor.person_id, v_expires)
+    returning id into v_id;
+  exception
+    when unique_violation then
+      raise exception 'code_in_use';
+  end;
 
   insert into public.join_audit (company_id, site_id, actor_id, action, detail)
   values (
@@ -1067,9 +1270,9 @@ begin
   );
 
   return jsonb_build_object(
-    'code', substr(v_code, 1, 4) || '-' || substr(v_code, 5, 4),
     'expires_at', v_expires,
-    'person_id', v_target.id
+    'person_id', v_target.id,
+    'reset_id', v_id
   );
 end;
 $$;
@@ -1087,11 +1290,15 @@ declare
   v_hash bytea;
   v_row public.password_reset_codes;
   v_auth uuid;
-  v_ip text := left(coalesce(nullif(btrim(p_client_ip), ''), 'unknown'), 128);
+  v_ip text := coalesce(p_client_ip, '');
+  v_code_key text := left(lower(coalesce(nullif(btrim(p_code_hash), ''), 'bad')), 128);
+  v_found boolean;
 begin
   perform private.reject_unless_service();
 
-  if private.join_rate_limited('reset_ip', v_ip, 'reset_global') then
+  if private.subject_limited('reset_code', v_code_key, interval '15 minutes', 10) then
+    perform private.record_join_failure('reset_code', v_code_key);
+    perform private.record_ip_and_global('reset_ip', v_ip, 'reset_global');
     return jsonb_build_object('ok', false, 'error', 'reset_rejected');
   end if;
 
@@ -1102,9 +1309,9 @@ begin
       v_hash := null;
   end;
 
-  if v_hash is null then
-    perform private.record_join_failure('reset_ip', v_ip);
-    perform private.record_join_failure('reset_global', 'all');
+  if v_hash is null or octet_length(v_hash) <> 32 then
+    perform private.record_join_failure('reset_code', v_code_key);
+    perform private.record_ip_and_global('reset_ip', v_ip, 'reset_global');
     return jsonb_build_object('ok', false, 'error', 'reset_rejected');
   end if;
 
@@ -1112,13 +1319,24 @@ begin
   from public.password_reset_codes
   where code_hash = v_hash
   for update;
+  v_found := found;
 
-  if not found
+  if not v_found
      or v_row.used_at is not null
      or v_row.revoked_at is not null
      or v_row.expires_at <= now() then
-    perform private.record_join_failure('reset_ip', v_ip);
-    perform private.record_join_failure('reset_global', 'all');
+    perform private.record_join_failure('reset_code', v_code_key);
+    if v_found then
+      perform private.record_join_failure('reset_target', v_row.person_id::text);
+    end if;
+    perform private.record_ip_and_global('reset_ip', v_ip, 'reset_global');
+    return jsonb_build_object('ok', false, 'error', 'reset_rejected');
+  end if;
+
+  if private.subject_limited('reset_target', v_row.person_id::text, interval '15 minutes', 10) then
+    perform private.record_join_failure('reset_target', v_row.person_id::text);
+    perform private.record_join_failure('reset_code', v_code_key);
+    perform private.record_ip_and_global('reset_ip', v_ip, 'reset_global');
     return jsonb_build_object('ok', false, 'error', 'reset_rejected');
   end if;
 
@@ -1128,8 +1346,9 @@ begin
     and p.role = 'operative';
 
   if v_auth is null then
-    perform private.record_join_failure('reset_ip', v_ip);
-    perform private.record_join_failure('reset_global', 'all');
+    perform private.record_join_failure('reset_target', v_row.person_id::text);
+    perform private.record_join_failure('reset_code', v_code_key);
+    perform private.record_ip_and_global('reset_ip', v_ip, 'reset_global');
     return jsonb_build_object('ok', false, 'error', 'reset_rejected');
   end if;
 
@@ -1199,15 +1418,18 @@ as $$
 declare
   v_username text := lower(btrim(coalesce(p_username, '')));
   v_auth uuid;
-  v_ip text := left(coalesce(nullif(btrim(p_client_ip), ''), 'unknown'), 128);
+  v_ip text := coalesce(p_client_ip, '');
 begin
   perform private.reject_unless_service();
-  if private.join_rate_limited('login_ip', v_ip, 'login_global') then
+  if v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$' then
+    perform private.record_join_failure('login_user', left(coalesce(nullif(v_username, ''), 'bad'), 128));
+    perform private.record_ip_and_global('login_ip', v_ip, 'login_global');
     return jsonb_build_object('ok', false, 'error', 'sign_in_failed');
   end if;
-  if v_username !~ '^[a-z0-9][a-z0-9._-]{2,23}$' then
-    perform private.record_join_failure('login_ip', v_ip);
-    perform private.record_join_failure('login_global', 'all');
+
+  if private.subject_limited('login_user', v_username, interval '15 minutes', 10) then
+    perform private.record_join_failure('login_user', v_username);
+    perform private.record_ip_and_global('login_ip', v_ip, 'login_global');
     return jsonb_build_object('ok', false, 'error', 'sign_in_failed');
   end if;
 
@@ -1217,8 +1439,8 @@ begin
     and p.auth_user_id is not null;
 
   if v_auth is null then
-    perform private.record_join_failure('login_ip', v_ip);
-    perform private.record_join_failure('login_global', 'all');
+    perform private.record_join_failure('login_user', v_username);
+    perform private.record_ip_and_global('login_ip', v_ip, 'login_global');
     return jsonb_build_object('ok', false, 'error', 'sign_in_failed');
   end if;
 
@@ -1226,18 +1448,18 @@ begin
 end;
 $$;
 
-create or replace function public.note_login_failure(p_client_ip text)
+create or replace function public.note_login_failure(p_username text, p_client_ip text)
 returns void
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  v_ip text := left(coalesce(nullif(btrim(p_client_ip), ''), 'unknown'), 128);
+  v_username text := lower(btrim(coalesce(p_username, '')));
 begin
   perform private.reject_unless_service();
-  perform private.record_join_failure('login_ip', v_ip);
-  perform private.record_join_failure('login_global', 'all');
+  perform private.record_join_failure('login_user', left(coalesce(nullif(v_username, ''), 'bad'), 128));
+  perform private.record_ip_and_global('login_ip', p_client_ip, 'login_global');
 end;
 $$;
 
@@ -1254,34 +1476,38 @@ begin
 end;
 $$;
 
-revoke all on function public.create_join_code(uuid, text, integer, integer) from public, anon;
+revoke all on function public.create_join_code(uuid, text, integer, integer, text) from public, anon;
 revoke all on function public.revoke_join_code(uuid) from public, anon;
 revoke all on function public.set_join_code_cap(uuid, integer) from public, anon;
 revoke all on function public.remove_joiner(uuid, uuid, boolean) from public, anon;
-revoke all on function public.reset_password_code(uuid) from public, anon;
+revoke all on function public.reset_password_code(uuid, text) from public, anon;
 revoke all on function public.acknowledge_password_reset() from public, anon;
 
-grant execute on function public.create_join_code(uuid, text, integer, integer) to authenticated;
+grant execute on function public.create_join_code(uuid, text, integer, integer, text) to authenticated;
 grant execute on function public.revoke_join_code(uuid) to authenticated;
 grant execute on function public.set_join_code_cap(uuid, integer) to authenticated;
 grant execute on function public.remove_joiner(uuid, uuid, boolean) to authenticated;
-grant execute on function public.reset_password_code(uuid) to authenticated;
+grant execute on function public.reset_password_code(uuid, text) to authenticated;
 grant execute on function public.acknowledge_password_reset() to authenticated;
 
 revoke all on function public.apply_join_code(text, uuid, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.preview_join_code(text, text) from public, anon, authenticated;
+revoke all on function public.username_is_taken(text) from public, anon, authenticated;
 revoke all on function public.redeem_password_reset(text, text) from public, anon, authenticated;
 revoke all on function public.release_password_reset(uuid) from public, anon, authenticated;
 revoke all on function public.lookup_username_login(text, text) from public, anon, authenticated;
-revoke all on function public.note_login_failure(text) from public, anon, authenticated;
+revoke all on function public.note_login_failure(text, text) from public, anon, authenticated;
 
 grant execute on function public.apply_join_code(text, uuid, text, text, text, text, text) to service_role;
+grant execute on function public.preview_join_code(text, text) to service_role;
+grant execute on function public.username_is_taken(text) to service_role;
 grant execute on function public.redeem_password_reset(text, text) to service_role;
 grant execute on function public.release_password_reset(uuid) to service_role;
 grant execute on function public.lookup_username_login(text, text) to service_role;
-grant execute on function public.note_login_failure(text) to service_role;
+grant execute on function public.note_login_failure(text, text) to service_role;
 
-comment on function public.create_join_code(uuid, text, integer, integer) is
-  'Owner or CM creates a code for one site. Returns the plaintext once. Default 24h and 10 uses. Max 7 days and 25 uses.';
+comment on function public.create_join_code(uuid, text, integer, integer, text) is
+  'Owner or CM stores a code hash for one active site. The edge function returns the plaintext. Default 24h and 10 uses. Max 7 days and 25 uses.';
 
 comment on function public.revoke_join_code(uuid) is
   'Owner or CM of that site revokes a code.';
@@ -1290,19 +1516,25 @@ comment on function public.set_join_code_cap(uuid, integer) is
   'Owner or CM changes max uses. Hard max 25. Cannot drop below uses already counted.';
 
 comment on function public.apply_join_code(text, uuid, text, text, text, text, text) is
-  'Service role only. Locks the code row, checks cap, expiry, and revoke, then inserts an operative on that code''s company and site.';
+  'Service role only. Locks the code row, checks cap, expiry, revoke, and an active site, then inserts an operative on that code''s company and site.';
+
+comment on function public.preview_join_code(text, text) is
+  'Service role only. Same accept or reject as apply, without creating a person and without a long lock.';
+
+comment on function public.username_is_taken(text) is
+  'Service role only. Username check that does not look at a join code.';
 
 comment on function public.remove_joiner(uuid, uuid, boolean) is
-  'Drops assignments, deletes or detaches the people row, deletes sessions, and bans the auth user. Optional code revoke.';
+  'Owner: drop every assignment, detach or delete the person, clear sessions, and ban. CM: drop only that site, and only when a CM invited them.';
 
-comment on function public.reset_password_code(uuid) is
-  'Owner resets any operative. A CM resets operatives on their sites only. Never an owner or CM account. 30 minutes, single use.';
+comment on function public.reset_password_code(uuid, text) is
+  'Owner resets any operative. A CM resets operatives on their sites only. Never an owner or CM account. Stores the hash. 30 minutes, single use.';
 
 comment on function public.redeem_password_reset(text, text) is
-  'Service role only. Single use, 30 minutes, rate limited. Clears sessions. Does not set the password.';
+  'Service role only. Single use, 30 minutes. Limited per code and per person. IP and global counters only alert. Clears sessions. Does not set the password.';
 
 comment on function public.lookup_username_login(text, text) is
-  'Service role only. Resolves a username to an auth user id. Does not return the placeholder email.';
+  'Service role only. Resolves a username to an auth user id. Limited per username. Does not return the placeholder email.';
 
 -- ---------------------------------------------------------------------------
 -- New-joiner badge on the site list. Seven days, not yet removed.
@@ -1405,6 +1637,70 @@ comment on function public.company_sites_pulse() is
 
 revoke all on function public.company_sites_pulse() from public, anon;
 grant execute on function public.company_sites_pulse() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Labour list. Managers see usernames. Operatives do not call this.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.company_people()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_role text := private.my_role();
+  v_company uuid := private.my_company_id();
+  v_actor uuid := (
+    select p.id from public.people p where p.auth_user_id = (select auth.uid())
+  );
+begin
+  if v_role is null or v_role not in ('cm', 'owner') or v_company is null then
+    raise exception 'not_authorized';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(row_data order by row_data->>'display_name', row_data->>'id')
+      from (
+        select jsonb_build_object(
+          'id', p.id,
+          'display_name', p.display_name,
+          'role', p.role,
+          'trade', p.trade,
+          'username', p.username,
+          'has_login', p.auth_user_id is not null,
+          'site_names', coalesce(
+            (
+              select jsonb_agg(s.name order by s.name)
+              from public.site_assignments a
+              join public.sites s on s.id = a.site_id
+              where a.person_id = p.id
+                and s.company_id = p.company_id
+            ),
+            '[]'::jsonb
+          )
+        ) as row_data
+        from public.people p
+        where p.company_id = v_company
+          and (
+            v_role = 'owner'
+            or p.id = v_actor
+            or private.shares_assigned_site(p.id)
+          )
+      ) q
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+comment on function public.company_people() is
+  'Labour list for the owner and contracts managers. Includes username. No email or phone.';
+
+revoke all on function public.company_people() from public, anon;
+grant execute on function public.company_people() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Placeholder logins cannot move onto a real inbox.

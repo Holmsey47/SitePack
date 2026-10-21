@@ -10,11 +10,11 @@ import { downloadCurrentPack, isPackReady, readPackMeta } from '@/lib/offline';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
-  const { person } = useAuth();
+  const { person, signOut } = useAuth();
   const router = useRouter();
   const [site, setSite] = useState<HomeSite | null>(null);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -92,6 +92,22 @@ export default function SitePackScreen() {
 
   return (
     <Screen>
+      {person?.role === 'operative' ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.replace('/sites')}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>← Sites</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void signOut()}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>Sign out</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <Title>{site.name}</Title>
       {manage && newJoiners > 0 ? (
         <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', alignSelf: 'flex-start', borderRadius: 8, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6 }}>

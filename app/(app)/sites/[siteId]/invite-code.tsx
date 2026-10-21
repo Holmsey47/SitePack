@@ -7,6 +7,7 @@ import {
   JOIN_DEFAULT_MAX_USES,
   JOIN_HARD_MAX_USES,
   JOIN_WEB_ORIGIN,
+  expiryChoiceHours,
   joinFailureMessage,
   joinShareText,
 } from '@/data/joinCodes';
@@ -15,7 +16,7 @@ import { formatDate } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, Share, Text, View } from 'react-native';
+import { Share, Text, View } from 'react-native';
 
 const HOURS = [
   { hours: 24, label: '24 hours' },
@@ -33,6 +34,7 @@ export default function InviteCodeScreen() {
   const [share, setShare] = useState<JoinCodeCreated | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingRevoke, setPendingRevoke] = useState<JoinCodeRow | null>(null);
 
   const load = useCallback(() => {
     if (!siteId) return;
@@ -91,13 +93,35 @@ export default function InviteCodeScreen() {
     }
   }
 
-  async function onRevoke(codeId: string) {
+  async function onRevoke() {
+    if (!pendingRevoke) return;
     setError('');
     try {
-      await repo.revokeJoinCode(codeId);
+      await repo.revokeJoinCode(pendingRevoke.id);
+      setPendingRevoke(null);
       load();
     } catch (err) {
       setError(joinFailureMessage(err instanceof Error ? err.message : 'not_authorized'));
+    }
+  }
+
+  async function onShareAgain(row: JoinCodeRow) {
+    if (!siteId) return;
+    setError('');
+    setLoading(true);
+    try {
+      const created = await repo.createJoinCode({
+        siteId,
+        label: row.label ?? '',
+        maxUses: row.max_uses,
+        hours: expiryChoiceHours(row.created_at, row.expires_at),
+      });
+      setShare(created);
+      load();
+    } catch (err) {
+      setError(joinFailureMessage(err instanceof Error ? err.message : 'not_authorized'));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -131,6 +155,9 @@ export default function InviteCodeScreen() {
       {share ? (
         <Card>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Share this</Text>
+          <Text selectable style={{ color: theme.text, fontSize: 28, fontWeight: '800', letterSpacing: 1 }}>
+            {share.code}
+          </Text>
           <Text selectable style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
             {shareMessage}
           </Text>
@@ -146,14 +173,20 @@ export default function InviteCodeScreen() {
           <Muted>
             {row.uses} of {row.max_uses} used · ends {formatDate(row.expires_at)}
           </Muted>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void onRevoke(row.id)}
-            style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: theme.danger, fontSize: 17, fontWeight: '800' }}>Revoke</Text>
-          </Pressable>
+          <Button label="Share again" variant="secondary" onPress={() => void onShareAgain(row)} />
+          <Button label="Revoke" variant="danger" onPress={() => setPendingRevoke(row)} />
         </Card>
       ))}
+
+      {pendingRevoke ? (
+        <Card>
+          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+            {`Revoke ${pendingRevoke.label || 'this'} code? Anyone who hasn't joined yet can't use it.`}
+          </Text>
+          <Button label="Revoke code" variant="danger" onPress={() => void onRevoke()} />
+          <Button label="Cancel" variant="ghost" onPress={() => setPendingRevoke(null)} />
+        </Card>
+      ) : null}
     </Screen>
   );
 }

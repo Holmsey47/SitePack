@@ -385,11 +385,12 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
-# Public join and username login. verify_jwt is off because the caller has no session.
-# Set the edge secret JOIN_CODE_PEPPER (never commit a value). Set the same string as
-# the database custom setting app.join_code_pepper so create_join_code and
-# reset_password_code hash with it. Example, run by an operator, not this file:
-#   alter database postgres set app.join_code_pepper = '<the secret>';
+# Public join, username login, and reset redeem. verify_jwt is off because the caller has no session.
+# issue-join-code and issue-reset-code are logged-in. They hash with the edge secret
+# JOIN_CODE_PEPPER. SQL only receives the hash. Do not set a database pepper.
+# JOIN_IP_HEADER defaults to cf-connecting-ip. Confirm it at ship.
+# The functions send Sb-Forwarded-For. Auth honors it only after IP Address Forwarding
+# is enabled, and only with an sb_secret_ key. Do not change that dashboard toggle here.
 # Dashboard, before any lad joins: turn public signups off, turn on leaked-password
 # protection, and set password requirements to letters and digits. Minimum length
 # is already 8. Do not change those dashboard toggles from a migration.
@@ -401,6 +402,12 @@ verify_jwt = false
 
 [functions.redeem-reset-code]
 verify_jwt = false
+
+[functions.issue-join-code]
+verify_jwt = true
+
+[functions.issue-reset-code]
+verify_jwt = true
 
 [edge_runtime]
 enabled = true
