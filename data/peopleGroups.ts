@@ -53,9 +53,27 @@ export function sameMemberIds(saved: readonly string[], draft: readonly string[]
   return left.every((id, index) => id === right[index]);
 }
 
-/** Count is how many people will be in the group after the save. */
-export function savePeopleLabel(count: number): string {
-  return count === 1 ? 'Save 1 person' : `Save ${count} people`;
+/**
+ * How many edits are waiting. A renamed name is one change. Each person added
+ * or taken out of the saved member list is one change. Order does not count.
+ */
+export function groupChangeCount(input: {
+  savedName: string;
+  draftName: string;
+  savedMemberIds: readonly string[];
+  draftMemberIds: readonly string[];
+}): number {
+  const nameChanged = input.savedName.trim() !== input.draftName.trim() ? 1 : 0;
+  const saved = new Set(input.savedMemberIds);
+  const draft = new Set(input.draftMemberIds);
+  let members = 0;
+  for (const id of saved) if (!draft.has(id)) members += 1;
+  for (const id of draft) if (!saved.has(id)) members += 1;
+  return nameChanged + members;
+}
+
+export function saveChangesLabel(count: number): string {
+  return `Save changes (${count})`;
 }
 
 export function groupCount(data: unknown, key: 'added' | 'removed'): number {

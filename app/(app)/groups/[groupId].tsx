@@ -1,22 +1,24 @@
-import { Button, Card, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, ErrorText, Field, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { occupationLine } from '@/data/companyPeople';
 import { repo } from '@/data/index';
 import {
   canAssignPeopleGroup,
   canEditPeopleGroup,
+  groupChangeCount,
   groupFailureMessage,
   memberRowMark,
   sameMemberIds,
-  savePeopleLabel,
+  saveChangesLabel,
   siteRowMark,
 } from '@/data/peopleGroups';
 import type { CompanyPerson, PeopleGroup, PulseRow } from '@/data/types';
 import { personLabel } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
+import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function GroupScreen() {
@@ -35,6 +37,11 @@ export default function GroupScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [missing, setMissing] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [allowLeave, setAllowLeave] = useState(false);
+  const pendingAction = useRef<NavigationAction | null>(null);
+  const leaveToGroups = useRef(false);
+  const navigation = useNavigation();
 
   const load = useCallback(async () => {
     if (!groupId) return;
@@ -62,12 +69,40 @@ export default function GroupScreen() {
     });
   }, [load, person]);
 
+  const editor = person ? canEditPeopleGroup(person.role) : false;
+  const savedMemberIds = group?.members.map((member) => member.person_id) ?? [];
+  const changeCount =
+    editor && group
+      ? groupChangeCount({
+          savedName: group.name,
+          draftName: name,
+          savedMemberIds,
+          draftMemberIds: memberIds,
+        })
+      : 0;
+  const unsaved = changeCount > 0;
+
+  usePreventRemove(unsaved && !allowLeave, ({ data }) => {
+    pendingAction.current = data.action;
+    setPromptOpen(true);
+  });
+
+  useEffect(() => {
+    if (!allowLeave) return;
+    if (leaveToGroups.current) {
+      leaveToGroups.current = false;
+      router.replace('/groups');
+      return;
+    }
+    if (!pendingAction.current) return;
+    const action = pendingAction.current;
+    pendingAction.current = null;
+    navigation.dispatch(action);
+  }, [allowLeave, navigation, router]);
+
   if (person && !canAssignPeopleGroup(person.role)) return <Redirect href="/sites" />;
 
-  const editor = person ? canEditPeopleGroup(person.role) : false;
   const workingSites = sites;
-  const savedMemberIds = group?.members.map((member) => member.person_id) ?? [];
-  const peopleDirty = editor && group != null && !sameMemberIds(savedMemberIds, memberIds);
 
   function toggleMember(id: string) {
     setMemberIds((current) => (current.includes(id) ? current.filter((row) => row !== id) : [...current, id]));
@@ -77,36 +112,42 @@ export default function GroupScreen() {
     setSiteIds((current) => (current.includes(id) ? current.filter((row) => row !== id) : [...current, id]));
   }
 
-  async function onRename() {
-    if (!groupId) return;
+  async function persistChanges(): Promise<boolean> {
+    if (!groupId || !group) return false;
     setLoading(true);
     setError('');
     setNotice('');
     try {
-      await repo.renamePeopleGroup(groupId, name);
-      setNotice('Name saved.');
+      const savedName = group.name;
+      const savedIds = group.members.map((member) => member.person_id);
+      if (name.trim() !== savedName) await repo.renamePeopleGroup(groupId, name);
+      if (!sameMemberIds(savedIds, memberIds)) await repo.setPeopleGroupMembers(groupId, memberIds);
+      setNotice('Changes saved.');
       await load();
+      return true;
     } catch (err) {
       setError(groupFailureMessage(err instanceof Error ? err.message : ''));
+      return false;
     } finally {
       setLoading(false);
     }
   }
 
-  async function onSaveMembers() {
-    if (!groupId) return;
-    setLoading(true);
-    setError('');
-    setNotice('');
-    try {
-      await repo.setPeopleGroupMembers(groupId, memberIds);
-      setNotice('People saved.');
-      await load();
-    } catch (err) {
-      setError(groupFailureMessage(err instanceof Error ? err.message : ''));
-    } finally {
-      setLoading(false);
-    }
+  async function onPromptSave() {
+    const saved = await persistChanges();
+    if (!saved) return;
+    setPromptOpen(false);
+    setAllowLeave(true);
+  }
+
+  function onDiscard() {
+    setPromptOpen(false);
+    setAllowLeave(true);
+  }
+
+  function onKeepEditing() {
+    pendingAction.current = null;
+    setPromptOpen(false);
   }
 
   async function onDelete() {
@@ -119,7 +160,8 @@ export default function GroupScreen() {
     setError('');
     try {
       await repo.deletePeopleGroup(groupId);
-      router.replace('/groups');
+      leaveToGroups.current = true;
+      setAllowLeave(true);
     } catch (err) {
       setError(groupFailureMessage(err instanceof Error ? err.message : ''));
       setLoading(false);
@@ -147,6 +189,40 @@ export default function GroupScreen() {
     }
   }
 
+  const promptName = name.trim() || group?.name || 'this group';
+  const leavePrompt = promptOpen ? (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: 'rgba(8, 10, 14, 0.86)',
+        justifyContent: 'flex-end',
+        padding: 16,
+        gap: 12,
+      }}>
+      <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Save changes to {promptName}?</Text>
+      <Button label="Save" onPress={() => void onPromptSave()} loading={loading} />
+      <Button label="Discard" variant="danger" onPress={onDiscard} />
+      <Button label="Keep editing" variant="secondary" onPress={onKeepEditing} />
+    </View>
+  ) : null;
+  const saveBar = unsaved ? (
+    <View
+      style={{
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 16,
+        borderTopWidth: 1,
+        borderTopColor: theme.line,
+        backgroundColor: theme.bg,
+      }}>
+      <Button label={saveChangesLabel(changeCount)} onPress={() => void persistChanges()} loading={loading} />
+    </View>
+  ) : null;
+
   if (missing) {
     return (
       <Screen>
@@ -157,6 +233,7 @@ export default function GroupScreen() {
 
   if (assigning && group) {
     return (
+      <View style={{ flex: 1 }}>
       <Screen>
         <Title>Assign to sites</Title>
         <Muted>
@@ -184,19 +261,19 @@ export default function GroupScreen() {
         />
         <Button label="Back" variant="ghost" onPress={() => setAssigning(false)} />
       </Screen>
+      {leavePrompt}
+      </View>
     );
   }
 
   return (
-    <Screen>
+    <View style={{ flex: 1 }}>
+    <Screen footer={editor ? saveBar : null}>
       <Title>{group?.name ?? 'Group'}</Title>
       <ErrorText>{error}</ErrorText>
       {notice ? <Text style={{ color: theme.sent, fontWeight: '700' }}>{notice}</Text> : null}
       {editor ? (
-        <>
-          <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" maxLength={40} />
-          <Button label="Save name" variant="secondary" onPress={() => void onRename()} loading={loading} disabled={!name.trim()} />
-        </>
+        <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" maxLength={40} />
       ) : (
         <Muted>The owner edits who is in this group. You can put the group on your sites.</Muted>
       )}
@@ -208,8 +285,9 @@ export default function GroupScreen() {
               <MarkRow
                 key={row.id}
                 title={personLabel(row)}
-                detail={`${occupationLine(row.role, row.trade)} · ${row.has_login ? 'Has a login' : 'No login'}`}
+                detail={occupationLine(row.role, row.trade)}
                 mark={memberRowMark(on)}
+                noLogin={!row.has_login}
                 on={on}
                 onPress={() => toggleMember(row.id)}
               />
@@ -220,19 +298,10 @@ export default function GroupScreen() {
               <Text style={{ color: theme.text, fontWeight: '800', fontSize: 17 }}>
                 {member.display_name?.trim() || 'Someone in the company'}
               </Text>
-              {member.role ? (
-                <Muted>
-                  {occupationLine(member.role, member.trade)}
-                  {member.has_login === false ? ' · No login' : ''}
-                </Muted>
-              ) : (
-                <Muted>Not on your sites yet</Muted>
-              )}
+              {member.role ? <Muted>{occupationLine(member.role, member.trade)}</Muted> : <Muted>Not on your sites yet</Muted>}
+              {member.has_login === false ? <NoLoginBadge /> : null}
             </Card>
           ))}
-      {peopleDirty ? (
-        <Button label={savePeopleLabel(memberIds.length)} onPress={() => void onSaveMembers()} loading={loading} />
-      ) : null}
       <Button label="Assign to sites" variant="secondary" onPress={() => setAssigning(true)} />
       {editor ? (
         <Button
@@ -244,6 +313,8 @@ export default function GroupScreen() {
       ) : null}
       {editor && confirmDelete ? <Muted>People stay in the company. Sites they are already on stay as they are.</Muted> : null}
     </Screen>
+    {leavePrompt}
+    </View>
   );
 }
 
@@ -251,6 +322,7 @@ function MarkRow({
   title,
   detail,
   mark,
+  noLogin,
   on,
   filled,
   onPress,
@@ -258,6 +330,7 @@ function MarkRow({
   title: string;
   detail?: string;
   mark: string;
+  noLogin?: boolean;
   on: boolean;
   filled?: boolean;
   onPress: () => void;
@@ -286,6 +359,7 @@ function MarkRow({
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: ink, fontWeight: '800', fontSize: 17 }}>{title}</Text>
         {detail ? <Text style={{ color: filled ? theme.currentInk : theme.muted }}>{detail}</Text> : null}
+        {noLogin ? <NoLoginBadge /> : null}
         <Text style={{ color: markColor, fontWeight: '800', fontSize: 16 }}>{mark}</Text>
       </View>
     </Pressable>

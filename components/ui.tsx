@@ -162,6 +162,17 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
   );
 }
 
+const NO_LOGIN = "No login: can't see drawings";
+
+/** Words carry the meaning. The amber fill is only a second cue. */
+export function NoLoginBadge() {
+  return (
+    <View style={styles.noLogin} accessibilityRole="text">
+      <Text style={styles.noLoginText}>{NO_LOGIN}</Text>
+    </View>
+  );
+}
+
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <Text style={styles.error}>{children}</Text>;
@@ -265,4 +276,14 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 16, fontWeight: '800' },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.currentInk },
+  noLogin: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.current,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
 });

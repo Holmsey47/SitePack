@@ -3,7 +3,7 @@ import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { readFileSync } from 'node:fs';
-import { groupFailureMessage, memberRowMark, normalizeGroupName, sameMemberIds, savePeopleLabel, siteRowMark } from './peopleGroups.ts';
+import { groupChangeCount, groupFailureMessage, memberRowMark, normalizeGroupName, sameMemberIds, saveChangesLabel, siteRowMark } from './peopleGroups.ts';
 
 test('group name rules and plain failure words', () => {
   assert.equal(normalizeGroupName('  Oak dryliners  '), 'Oak dryliners');
@@ -15,22 +15,50 @@ test('group name rules and plain failure words', () => {
   assert.equal(groupFailureMessage('raw database detail'), 'Could not update the group.');
 });
 
-test('a row says in or out in words, and save appears only after a change', () => {
+test('dirty state counts name and membership changes, and zero stays clean', () => {
   assert.equal(memberRowMark(true), 'In group');
   assert.equal(memberRowMark(false), 'Not in group');
   assert.equal(siteRowMark(true), 'Selected');
   assert.equal(siteRowMark(false), 'Not selected');
-  assert.equal(savePeopleLabel(5), 'Save 5 people');
-  assert.equal(savePeopleLabel(1), 'Save 1 person');
   assert.equal(sameMemberIds(['b', 'a'], ['a', 'b']), true);
   assert.equal(sameMemberIds(['a'], ['a', 'b']), false);
 
+  const saved = {
+    savedName: 'Oak dryliners',
+    draftName: 'Oak dryliners',
+    savedMemberIds: ['amy', 'ben', 'lee'],
+    draftMemberIds: ['ben', 'amy', 'lee'],
+  };
+  assert.equal(groupChangeCount(saved), 0);
+  assert.equal(
+    groupChangeCount({ ...saved, draftMemberIds: ['amy', 'lee'] }),
+    1
+  );
+  assert.equal(
+    groupChangeCount({ ...saved, draftMemberIds: ['amy', 'ben', 'chris'] }),
+    2
+  );
+  assert.equal(groupChangeCount({ ...saved, draftName: 'Night shift' }), 1);
+  assert.equal(
+    groupChangeCount({ ...saved, draftName: '  Night shift  ', draftMemberIds: ['amy', 'ben', 'chris'] }),
+    3
+  );
+  assert.equal(saveChangesLabel(2), 'Save changes (2)');
+  assert.equal(saveChangesLabel(0), 'Save changes (0)');
+
   const screen = readFileSync(new URL('../app/(app)/groups/[groupId].tsx', import.meta.url), 'utf8');
+  const assignees = readFileSync(new URL('../app/(app)/sites/[siteId]/assignments.tsx', import.meta.url), 'utf8');
   assert.match(screen, /accessibilityState=\{\{ selected: on, checked: on \}\}/);
   assert.match(screen, /minHeight: 48/);
-  assert.match(screen, /name=\{on \? 'check-circle' : 'radio-button-unchecked'\}/);
-  assert.match(screen, /peopleDirty \?/);
-  assert.match(screen, /savePeopleLabel\(memberIds\.length\)/);
+  assert.match(screen, /usePreventRemove\(unsaved && !allowLeave/);
+  assert.match(screen, /Save changes to \{promptName\}\?/);
+  assert.match(screen, /label="Keep editing"/);
+  assert.match(screen, /label="Discard"/);
+  assert.match(screen, /saveChangesLabel\(changeCount\)/);
+  assert.match(screen, /footer=\{editor \? saveBar : null\}/);
+  assert.match(screen, /NoLoginBadge/);
+  assert.match(assignees, /NoLoginBadge/);
+  assert.match(assignees, /Removes people this gang added\. People added by hand stay\./);
 });
 
 test('the fixture crew has five people and one has no login', async () => {
@@ -128,11 +156,13 @@ test('assigning a group shows those sites only, and remove leaves the other site
   await fixtureRepo.signOut();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
   const removed = await fixtureRepo.removeGroupFromSite(groupId, IDS.oak);
-  assert.equal(removed.removed, 5);
+  assert.equal(removed.removed, 2);
   const oak = await fixtureRepo.listAssignments(IDS.oak);
-  assert.equal(oak.some((row) => row.person_id === IDS.amy), false);
-  assert.equal(oak.some((row) => row.person_id === IDS.ben), false);
+  assert.equal(oak.some((row) => row.person_id === IDS.amy), true);
+  assert.equal(oak.some((row) => row.person_id === IDS.ben), true);
+  assert.equal(oak.some((row) => row.person_id === IDS.cm), true);
   assert.equal(oak.some((row) => row.person_id === IDS.lee), false);
+  assert.equal(oak.some((row) => row.person_id === IDS.chris), false);
   assert.equal(oak.some((row) => row.person_id === sam), true);
   const riverside = await fixtureRepo.listAssignments(IDS.riverside);
   assert.equal(riverside.some((row) => row.person_id === IDS.amy), true);
@@ -146,4 +176,45 @@ test('assigning a group shows those sites only, and remove leaves the other site
   assert.deepEqual(chrisSites, [IDS.riverside, IDS.warehouse, plot8.id, plot9.id].sort());
   assert.equal(chrisSites.includes(spare.id), false);
   assert.equal(chrisSites.includes(IDS.oak), false);
+});
+
+test('a gang remove leaves manual rows, the other gang, and the caller', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const first = await fixtureRepo.createPeopleGroup('First gang');
+  const second = await fixtureRepo.createPeopleGroup('Second gang');
+  await fixtureRepo.setPeopleGroupMembers(first, [IDS.amy, IDS.lee]);
+  await fixtureRepo.setPeopleGroupMembers(second, [IDS.lee]);
+  assert.equal((await fixtureRepo.assignGroupToSites(first, [IDS.oak])).added, 1);
+  assert.equal((await fixtureRepo.assignGroupToSites(second, [IDS.oak])).added, 0);
+  assert.equal((await fixtureRepo.removeGroupFromSite(first, IDS.oak)).removed, 0);
+  const afterFirst = await fixtureRepo.listAssignments(IDS.oak);
+  assert.equal(afterFirst.some((row) => row.person_id === IDS.lee), true);
+  assert.equal(afterFirst.some((row) => row.person_id === IDS.amy), true);
+  assert.equal((await fixtureRepo.removeGroupFromSite(second, IDS.oak)).removed, 1);
+  const afterSecond = await fixtureRepo.listAssignments(IDS.oak);
+  assert.equal(afterSecond.some((row) => row.person_id === IDS.lee), false);
+  assert.equal(afterSecond.some((row) => row.person_id === IDS.amy), true);
+
+  const kept = await fixtureRepo.createPeopleGroup('Kept gang');
+  await fixtureRepo.setPeopleGroupMembers(kept, [IDS.chris]);
+  assert.equal((await fixtureRepo.assignGroupToSites(kept, [IDS.riverside])).added, 1);
+  await fixtureRepo.deletePeopleGroup(kept);
+  const riverside = await fixtureRepo.listAssignments(IDS.riverside);
+  assert.equal(riverside.some((row) => row.person_id === IDS.chris), true);
+
+  const yard = await fixtureRepo.createSite({ name: 'CM yard' });
+  const leaders = await fixtureRepo.createPeopleGroup('Leaders');
+  await fixtureRepo.setPeopleGroupMembers(leaders, [IDS.owner, IDS.cm, IDS.lee]);
+  await fixtureRepo.assignGroupToSites(leaders, [yard.id]);
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('cm@sitepack.test', SEED_PASSWORD);
+  const removed = await fixtureRepo.removeGroupFromSite(leaders, yard.id);
+  assert.equal(removed.removed, 1);
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const yardRows = await fixtureRepo.listAssignments(yard.id);
+  assert.equal(yardRows.some((row) => row.person_id === IDS.lee), false);
+  assert.equal(yardRows.some((row) => row.person_id === IDS.owner), true);
+  assert.equal(yardRows.some((row) => row.person_id === IDS.cm), true);
 });

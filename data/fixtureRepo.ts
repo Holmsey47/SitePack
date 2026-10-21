@@ -34,10 +34,16 @@ type GroupRecord = {
   memberIds: string[];
 };
 
+type AssignmentSource = {
+  site_assignment_id: string;
+  group_id: string;
+};
+
 type Store = {
   people: Person[];
   sites: Site[];
   assignments: SiteAssignment[];
+  assignmentGroups: AssignmentSource[];
   drawings: Drawing[];
   requests: DrawingRequest[];
   groups: GroupRecord[];
@@ -72,6 +78,21 @@ function setOutSheets(): Drawing[] {
     created_at: '2026-10-01T09:00:00.000Z',
     updated_at: '2026-10-01T09:00:00.000Z',
   }));
+}
+
+function forgetAssignment(assignmentId: string) {
+  store.assignmentGroups = store.assignmentGroups.filter((row) => row.site_assignment_id !== assignmentId);
+}
+
+function groupCovers(assignmentId: string): boolean {
+  return store.assignmentGroups.some((row) => row.site_assignment_id === assignmentId);
+}
+
+function linkGroup(assignmentId: string, groupId: string) {
+  const exists = store.assignmentGroups.some(
+    (row) => row.site_assignment_id === assignmentId && row.group_id === groupId
+  );
+  if (!exists) store.assignmentGroups.push({ site_assignment_id: assignmentId, group_id: groupId });
 }
 
 function seed(): Store {
@@ -291,7 +312,7 @@ function seed(): Store {
     },
   ];
 
-  return { people, sites, assignments, drawings, requests, groups, sessionPersonId: null };
+  return { people, sites, assignments, assignmentGroups: [], drawings, requests, groups, sessionPersonId: null };
 }
 
 const SESSION_KEY = 'sitepack.fixture.session';
@@ -662,6 +683,7 @@ export const fixtureRepo: SitePackRepo = {
     if (!row || person.role === 'operative' || !canAccessSite(person, row.site_id)) {
       throw new Error('not_authorized');
     }
+    forgetAssignment(assignmentId);
     store.assignments = store.assignments.filter((a) => a.id !== assignmentId);
   },
 
@@ -741,6 +763,10 @@ export const fixtureRepo: SitePackRepo = {
     ) {
       throw new Error('not_authorized');
     }
+    const gone = store.assignments.filter(
+      (assignment) => assignment.site_id === siteId && assignment.person_id === personId
+    );
+    for (const row of gone) forgetAssignment(row.id);
     store.assignments = store.assignments.filter(
       (assignment) => !(assignment.site_id === siteId && assignment.person_id === personId)
     );
@@ -891,6 +917,7 @@ export const fixtureRepo: SitePackRepo = {
     const person = meOrThrow();
     if (!canEditPeopleGroup(person.role)) throw new Error('not_authorized');
     findOwnGroup(person, groupId);
+    store.assignmentGroups = store.assignmentGroups.filter((row) => row.group_id !== groupId);
     store.groups = store.groups.filter((group) => group.id !== groupId);
   },
 
@@ -925,14 +952,20 @@ export const fixtureRepo: SitePackRepo = {
     let added = 0;
     for (const siteId of uniqueSites) {
       for (const memberId of group.memberIds) {
-        if (store.assignments.some((row) => row.site_id === siteId && row.person_id === memberId)) continue;
-        store.assignments.push({
-          id: newId(),
-          site_id: siteId,
-          person_id: memberId,
-          created_at: now(),
-        });
-        added += 1;
+        const existing = store.assignments.find((row) => row.site_id === siteId && row.person_id === memberId);
+        if (!existing) {
+          const id = newId();
+          store.assignments.push({
+            id,
+            site_id: siteId,
+            person_id: memberId,
+            created_at: now(),
+          });
+          linkGroup(id, group.id);
+          added += 1;
+          continue;
+        }
+        if (groupCovers(existing.id)) linkGroup(existing.id, group.id);
       }
     }
     return { added };
@@ -945,15 +978,28 @@ export const fixtureRepo: SitePackRepo = {
     const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
     if (!site) throw new Error('site_not_found');
     if (person.role === 'cm' && !canAccessSite(person, siteId)) throw new Error('not_authorized');
-    const members = new Set(group.memberIds);
-    let removed = 0;
-    store.assignments = store.assignments.filter((row) => {
-      if (row.site_id === siteId && members.has(row.person_id)) {
-        removed += 1;
-        return false;
-      }
-      return true;
+    const touched = store.assignments.filter((row) => {
+      if (row.site_id !== siteId) return false;
+      return store.assignmentGroups.some(
+        (source) => source.site_assignment_id === row.id && source.group_id === group.id
+      );
     });
+    store.assignmentGroups = store.assignmentGroups.filter(
+      (source) =>
+        !(
+          source.group_id === group.id &&
+          touched.some((row) => row.id === source.site_assignment_id)
+        )
+    );
+    let removed = 0;
+    for (const row of touched) {
+      if (groupCovers(row.id)) continue;
+      const member = store.people.find((candidate) => candidate.id === row.person_id);
+      if (member && (member.role === 'owner' || member.role === 'cm' || member.id === person.id)) continue;
+      forgetAssignment(row.id);
+      store.assignments = store.assignments.filter((assignment) => assignment.id !== row.id);
+      removed += 1;
+    }
     return { removed };
   },
 };

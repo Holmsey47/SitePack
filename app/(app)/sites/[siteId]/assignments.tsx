@@ -1,4 +1,4 @@
-import { Button, Card, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { groupFailureMessage } from '@/data/peopleGroups';
@@ -18,6 +18,7 @@ export default function AssignmentsScreen() {
   const [groups, setGroups] = useState<PeopleGroup[]>([]);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -85,8 +86,8 @@ export default function AssignmentsScreen() {
           {contactLine(row.person) ? <Text style={{ color: theme.muted }}>{contactLine(row.person)}</Text> : null}
           <Text style={{ color: theme.muted }}>
             {row.person ? occupationLine(row.person.role, row.person.trade) : 'Operative'}
-            {row.person && !row.person.auth_user_id ? ' · No login' : ''}
           </Text>
+          {row.person && !row.person.auth_user_id ? <NoLoginBadge /> : null}
           <View style={{ alignItems: 'flex-end' }}>
             <Button
               label="Remove"
@@ -107,7 +108,20 @@ export default function AssignmentsScreen() {
             {group.members.length} {group.members.length === 1 ? 'person' : 'people'}
           </Muted>
           <Button label={`Add ${group.name}`} variant="secondary" onPress={() => void onAddGroup(group.id)} />
-          <Button label={`Remove ${group.name}`} variant="ghost" onPress={() => void onRemoveGroup(group.id)} />
+          {confirmRemove === group.id ? (
+            <Muted>Removes people this gang added. People added by hand stay.</Muted>
+          ) : null}
+          <Button
+            label={confirmRemove === group.id ? `Remove ${group.name} from this site` : `Remove ${group.name}`}
+            variant="ghost"
+            onPress={() => {
+              if (confirmRemove !== group.id) {
+                setConfirmRemove(group.id);
+                return;
+              }
+              void onRemoveGroup(group.id);
+            }}
+          />
         </Card>
       ))}
       <Text style={{ color: theme.text, fontWeight: '800' }}>Not on this site</Text>
