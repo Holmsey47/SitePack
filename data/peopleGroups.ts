@@ -37,6 +37,27 @@ export function groupFailureMessage(message: string): string {
   }
 }
 
+export function memberRowMark(inGroup: boolean): 'In group' | 'Not in group' {
+  return inGroup ? 'In group' : 'Not in group';
+}
+
+export function siteRowMark(selected: boolean): 'Selected' | 'Not selected' {
+  return selected ? 'Selected' : 'Not selected';
+}
+
+/** True when the draft membership is the saved set, ignoring order. */
+export function sameMemberIds(saved: readonly string[], draft: readonly string[]): boolean {
+  if (saved.length !== draft.length) return false;
+  const left = [...saved].sort();
+  const right = [...draft].sort();
+  return left.every((id, index) => id === right[index]);
+}
+
+/** Count is how many people will be in the group after the save. */
+export function savePeopleLabel(count: number): string {
+  return count === 1 ? 'Save 1 person' : `Save ${count} people`;
+}
+
 export function groupCount(data: unknown, key: 'added' | 'removed'): number {
   if (!data || typeof data !== 'object' || !(key in data)) return 0;
   const value = (data as Record<string, unknown>)[key];

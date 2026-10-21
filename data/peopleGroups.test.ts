@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
-import { groupFailureMessage, normalizeGroupName } from './peopleGroups.ts';
+import { readFileSync } from 'node:fs';
+import { groupFailureMessage, memberRowMark, normalizeGroupName, sameMemberIds, savePeopleLabel, siteRowMark } from './peopleGroups.ts';
 
 test('group name rules and plain failure words', () => {
   assert.equal(normalizeGroupName('  Oak dryliners  '), 'Oak dryliners');
@@ -12,6 +13,24 @@ test('group name rules and plain failure words', () => {
   assert.equal(groupFailureMessage('name_in_use'), 'That group name is already used.');
   assert.equal(groupFailureMessage('person_not_in_company'), 'Choose people from this company.');
   assert.equal(groupFailureMessage('raw database detail'), 'Could not update the group.');
+});
+
+test('a row says in or out in words, and save appears only after a change', () => {
+  assert.equal(memberRowMark(true), 'In group');
+  assert.equal(memberRowMark(false), 'Not in group');
+  assert.equal(siteRowMark(true), 'Selected');
+  assert.equal(siteRowMark(false), 'Not selected');
+  assert.equal(savePeopleLabel(5), 'Save 5 people');
+  assert.equal(savePeopleLabel(1), 'Save 1 person');
+  assert.equal(sameMemberIds(['b', 'a'], ['a', 'b']), true);
+  assert.equal(sameMemberIds(['a'], ['a', 'b']), false);
+
+  const screen = readFileSync(new URL('../app/(app)/groups/[groupId].tsx', import.meta.url), 'utf8');
+  assert.match(screen, /accessibilityState=\{\{ selected: on, checked: on \}\}/);
+  assert.match(screen, /minHeight: 48/);
+  assert.match(screen, /name=\{on \? 'check-circle' : 'radio-button-unchecked'\}/);
+  assert.match(screen, /peopleDirty \?/);
+  assert.match(screen, /savePeopleLabel\(memberIds\.length\)/);
 });
 
 test('the fixture crew has five people and one has no login', async () => {

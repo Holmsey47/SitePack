@@ -2,10 +2,19 @@ import { Button, Card, ErrorText, Field, Muted, Screen, Title } from '@/componen
 import { useAuth } from '@/context/AuthContext';
 import { occupationLine } from '@/data/companyPeople';
 import { repo } from '@/data/index';
-import { canAssignPeopleGroup, canEditPeopleGroup, groupFailureMessage } from '@/data/peopleGroups';
+import {
+  canAssignPeopleGroup,
+  canEditPeopleGroup,
+  groupFailureMessage,
+  memberRowMark,
+  sameMemberIds,
+  savePeopleLabel,
+  siteRowMark,
+} from '@/data/peopleGroups';
 import type { CompanyPerson, PeopleGroup, PulseRow } from '@/data/types';
 import { personLabel } from '@/data/walk';
 import { theme } from '@/lib/theme';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -57,6 +66,8 @@ export default function GroupScreen() {
 
   const editor = person ? canEditPeopleGroup(person.role) : false;
   const workingSites = sites;
+  const savedMemberIds = group?.members.map((member) => member.person_id) ?? [];
+  const peopleDirty = editor && group != null && !sameMemberIds(savedMemberIds, memberIds);
 
   function toggleMember(id: string) {
     setMemberIds((current) => (current.includes(id) ? current.filter((row) => row !== id) : [...current, id]));
@@ -155,24 +166,14 @@ export default function GroupScreen() {
         {workingSites.map((site) => {
           const on = siteIds.includes(site.site_id);
           return (
-            <Pressable
+            <MarkRow
               key={site.site_id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
+              title={site.name}
+              mark={siteRowMark(on)}
+              on={on}
+              filled={on}
               onPress={() => toggleSite(site.site_id)}
-              style={{
-                minHeight: 48,
-                justifyContent: 'center',
-                paddingHorizontal: 14,
-                borderRadius: 12,
-                borderWidth: 2,
-                borderColor: on ? theme.current : theme.line,
-                backgroundColor: on ? theme.current : theme.surface,
-              }}>
-              <Text style={{ color: on ? theme.currentInk : theme.text, fontWeight: '800', fontSize: 17 }}>
-                {site.name}
-              </Text>
-            </Pressable>
+            />
           );
         })}
         <Button
@@ -204,24 +205,14 @@ export default function GroupScreen() {
         ? people.map((row) => {
             const on = memberIds.includes(row.id);
             return (
-              <Pressable
+              <MarkRow
                 key={row.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
+                title={personLabel(row)}
+                detail={`${occupationLine(row.role, row.trade)} · ${row.has_login ? 'Has a login' : 'No login'}`}
+                mark={memberRowMark(on)}
+                on={on}
                 onPress={() => toggleMember(row.id)}
-                style={{
-                  minHeight: 48,
-                  justifyContent: 'center',
-                  paddingHorizontal: 14,
-                  borderRadius: 12,
-                  borderWidth: 2,
-                  borderColor: on ? theme.current : theme.line,
-                }}>
-                <Text style={{ color: theme.text, fontWeight: '800', fontSize: 17 }}>{personLabel(row)}</Text>
-                <Text style={{ color: theme.muted }}>
-                  {occupationLine(row.role, row.trade)} · {row.has_login ? 'Has a login' : 'No login'}
-                </Text>
-              </Pressable>
+              />
             );
           })
         : (group?.members ?? []).map((member) => (
@@ -239,8 +230,8 @@ export default function GroupScreen() {
               )}
             </Card>
           ))}
-      {editor ? (
-        <Button label="Save people" onPress={() => void onSaveMembers()} loading={loading} />
+      {peopleDirty ? (
+        <Button label={savePeopleLabel(memberIds.length)} onPress={() => void onSaveMembers()} loading={loading} />
       ) : null}
       <Button label="Assign to sites" variant="secondary" onPress={() => setAssigning(true)} />
       {editor ? (
@@ -253,6 +244,51 @@ export default function GroupScreen() {
       ) : null}
       {editor && confirmDelete ? <Muted>People stay in the company. Sites they are already on stay as they are.</Muted> : null}
     </Screen>
+  );
+}
+
+function MarkRow({
+  title,
+  detail,
+  mark,
+  on,
+  filled,
+  onPress,
+}: {
+  title: string;
+  detail?: string;
+  mark: string;
+  on: boolean;
+  filled?: boolean;
+  onPress: () => void;
+}) {
+  const ink = filled ? theme.currentInk : theme.text;
+  const markColor = filled ? theme.currentInk : on ? theme.current : theme.muted;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ selected: on, checked: on }}
+      accessibilityLabel={`${title}. ${mark}`}
+      onPress={onPress}
+      style={{
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: on ? theme.current : theme.line,
+        backgroundColor: filled ? theme.current : theme.surface,
+      }}>
+      <MaterialIcons name={on ? 'check-circle' : 'radio-button-unchecked'} size={28} color={markColor} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: ink, fontWeight: '800', fontSize: 17 }}>{title}</Text>
+        {detail ? <Text style={{ color: filled ? theme.currentInk : theme.muted }}>{detail}</Text> : null}
+        <Text style={{ color: markColor, fontWeight: '800', fontSize: 16 }}>{mark}</Text>
+      </View>
+    </Pressable>
   );
 }
 
