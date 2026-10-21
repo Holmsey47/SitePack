@@ -21,7 +21,19 @@ export COMPANY_NAME="Your company"
 export SUPABASE_DB_PASSWORD="database password for the new project"
 ```
 
-Optional: `SHAUN_DISPLAY_NAME` (default Shaun), `SUPABASE_ORG_ID` if the account has more than one org, `SITEPACK_REGION` (default `eu-west-2`), `WEB_ORIGIN` (default `http://127.0.0.1:8081`).
+Optional: `SHAUN_DISPLAY_NAME` (default Shaun), `SUPABASE_ORG_ID` if the account has more than one org, `SITEPACK_REGION` (default `eu-west-2`). `WEB_ORIGIN` defaults to `https://sitepack-preview.vercel.app`. Set it only for a different https origin. An http origin, including localhost, is refused.
+
+The script checks that `{WEB_ORIGIN}/set-password` is in `additional_redirect_urls`, then sets the edge secret `INVITE_REDIRECT_URL` to that URL.
+
+Hosted auth (set in the dashboard; `supabase/config.toml` is what `config push` would copy):
+
+- Site URL: `https://sitepack-preview.vercel.app`
+- Redirect allow-list includes `https://sitepack-preview.vercel.app` and `https://sitepack-preview.vercel.app/set-password`, plus the localhost entries and `sitepack://set-password`
+- Edge secret: `INVITE_REDIRECT_URL=https://sitepack-preview.vercel.app/set-password`
+
+Redeploy `invite-person` after this code is on the project. The function has no localhost fallback. If `INVITE_REDIRECT_URL` is missing, or is not https (`http` is accepted only for `127.0.0.1` and `localhost`), it returns `{ "error": "invite_redirect_not_configured" }` and does not send mail.
+
+Local `supabase functions serve` needs `INVITE_REDIRECT_URL=http://127.0.0.1:8081/set-password` in the shell or in `supabase/functions/.env` (do not commit that file). Local `supabase start` still allow-lists that URL.
 
 Check, then run:
 

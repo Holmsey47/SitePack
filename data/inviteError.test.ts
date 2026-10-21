@@ -16,3 +16,13 @@ test('a second invite of the same email says they are already in the company', (
 test('an unknown invite failure keeps the function message', () => {
   assert.equal(inviteFailureMessage('email rate limit exceeded', 'fallback'), 'email rate limit exceeded');
 });
+
+test('a missing invite redirect is explained in plain words', () => {
+  const message = inviteFailureMessage(
+    'invite_redirect_not_configured',
+    'Edge Function returned a non-2xx status code'
+  );
+  assert.equal(message, 'The invite link is not set up, so the email was not sent.');
+  assert.equal(message.includes('invite_redirect_not_configured'), false);
+  assert.equal(message.includes('127.0.0.1'), false);
+});

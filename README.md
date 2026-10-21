@@ -77,6 +77,8 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon from supabase status>
 
 Hosted project — one live company, no fixture seed. Run [docs/live-company.md](docs/live-company.md) (`node scripts/live-company.mjs`). That creates `sitepack-live`, pushes the two migrations, creates Shaun as owner, deploys `invite-person`, and writes `.env.local`. Do not run `supabase/seed.sql`, `supabase db reset`, or `supabase db push --include-seed` on it.
 
+Hosted invite links open `https://sitepack-preview.vercel.app/set-password`. That is the `INVITE_REDIRECT_URL` secret, and `supabase/config.toml` `site_url` is `https://sitepack-preview.vercel.app` (not localhost). Redeploy `invite-person` with this code: a missing or non-https secret returns an error and does not mail `127.0.0.1`.
+
 Local `supabase start` still loads `seed.sql`. That path is for fixture tests, not the live company.
 
 `site_pack_manifest` returns current-sheet metadata (including `storage_path`). The mobile repo adds 1-hour signed URLs with `storage.createSignedUrls` because Storage signing keys are not in Postgres.

@@ -17,7 +17,9 @@ import {
   dbPushArgs,
   deployArgs,
   dollarQuote,
+  DEFAULT_WEB_ORIGIN,
   inviteRedirect,
+  liveWebOrigin,
   ownerBootstrapSql,
   pickClientKey,
   pickOrgId,
@@ -129,8 +131,21 @@ test('client key is the anon key, not the service role', () => {
 });
 
 test('invite redirect is the web set-password URL already allowed', () => {
+  assert.equal(DEFAULT_WEB_ORIGIN, 'https://sitepack-preview.vercel.app');
   assert.equal(inviteRedirect('http://127.0.0.1:8081/'), 'http://127.0.0.1:8081/set-password');
   assertInviteRedirect('http://127.0.0.1:8081/set-password', toml);
+  assertInviteRedirect('http://localhost:8081/set-password', toml);
+  assertInviteRedirect('https://sitepack-preview.vercel.app/set-password', toml);
+  assert.equal(liveWebOrigin(undefined), 'https://sitepack-preview.vercel.app');
+  assert.equal(liveWebOrigin(''), 'https://sitepack-preview.vercel.app');
+  assert.equal(
+    inviteRedirect(liveWebOrigin(undefined)),
+    'https://sitepack-preview.vercel.app/set-password',
+  );
+  assert.throws(() => liveWebOrigin('http://127.0.0.1:8081'), /https/);
+  assert.match(toml, /site_url = "https:\/\/sitepack-preview\.vercel\.app"/);
+  assert.doesNotMatch(toml, /site_url = "http:\/\/127\.0\.0\.1/);
   const auth = toml.split('[auth.email]')[0];
   assert.match(auth, /enable_signup = false/);
+  assert.match(auth, /sitepack:\/\/set-password/);
 });
