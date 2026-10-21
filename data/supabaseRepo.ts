@@ -31,6 +31,15 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
   return data;
 }
 
+// Client list of people. The view has no email or phone. Own contact fields come from my_person().
+const PERSON_DIRECTORY_COLUMNS = 'id, auth_user_id, company_id, role, trade, display_name, created_at';
+
+type DirectoryPerson = Omit<Person, 'email' | 'phone'>;
+
+function listedPerson(row: DirectoryPerson): Person {
+  return { ...row, email: null, phone: null };
+}
+
 async function invokeInvite(body: Record<string, unknown>): Promise<void> {
   const supabase = getSupabase();
   const { data, error } = await supabase.functions.invoke('invite-person', { body });
@@ -113,11 +122,7 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return null;
-    const { data, error } = await supabase
-      .from('people')
-      .select('*')
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc('my_person');
     if (error) throw new Error(error.message);
     return (data as Person | null) ?? null;
   },
@@ -235,7 +240,7 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('drawing_requests')
-      .select('*, sites(name), people!drawing_requests_requester_id_fkey(display_name, email)')
+      .select('*, sites(name), people!drawing_requests_requester_id_fkey(display_name)')
       .neq('status', 'Closed')
       .order('created_at', { ascending: false });
     if (error) {
@@ -246,15 +251,13 @@ export const supabaseRepo: SitePackRepo = {
         .order('created_at', { ascending: false });
       return unwrap((plain ?? []) as DrawingRequest[], plainError);
     }
-    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null; email: string | null } }>)
+    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null } }>)
       .filter((row) => row.status !== 'Closed')
-      .map(
-      (row) => ({
+      .map((row) => ({
         ...row,
         site_name: row.sites?.name,
-        requester_name: row.people?.display_name ?? row.people?.email ?? undefined,
-      })
-    );
+        requester_name: row.people?.display_name ?? undefined,
+      }));
   },
 
   async getRequest(requestId) {
@@ -327,16 +330,19 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('site_assignments')
-      .select('*, people(*)')
+      .select(`id, site_id, person_id, created_at, people(${PERSON_DIRECTORY_COLUMNS})`)
       .eq('site_id', siteId);
     if (error) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      site_id: row.site_id,
-      person_id: row.person_id,
-      created_at: row.created_at,
-      person: row.people as Person,
-    }));
+    return (data ?? []).map((row) => {
+      const embedded = Array.isArray(row.people) ? row.people[0] : row.people;
+      return {
+        id: row.id,
+        site_id: row.site_id,
+        person_id: row.person_id,
+        created_at: row.created_at,
+        person: embedded ? listedPerson(embedded) : undefined,
+      };
+    });
   },
 
   async addAssignment(siteId, personId) {
@@ -353,8 +359,11 @@ export const supabaseRepo: SitePackRepo = {
 
   async listCompanyPeople() {
     const supabase = getSupabase();
-    const { data, error } = await supabase.from('people').select('*').order('display_name');
-    return unwrap((data ?? []) as Person[], error);
+    const { data, error } = await supabase
+      .from('people_directory')
+      .select(PERSON_DIRECTORY_COLUMNS)
+      .order('display_name');
+    return unwrap((data ?? []) as DirectoryPerson[], error).map(listedPerson);
   },
 
   async companyPeople() {

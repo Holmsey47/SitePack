@@ -51,7 +51,7 @@ test('people list rules', () => {
 test('company people read, no-login operative, and attach', async (t) => {
   const fields = ['display_name', 'has_login', 'id', 'role', 'site_names', 'trade'];
 
-  await t.test('owner and contracts manager see everyone, including a person on no site', async () => {
+  await t.test('the owner sees everyone, including a person on no site', async () => {
     resetFixtureStore();
     await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
     const rows = await fixtureRepo.companyPeople();
@@ -163,11 +163,16 @@ test('company people read, no-login operative, and attach', async (t) => {
       false,
     );
     await assert.rejects(() => fixtureRepo.removeOperativeFromSite(riversideId, IDS.riverside), /not_authorized/);
-    const rio = (await fixtureRepo.companyPeople()).find((person) => person.id === riversideId);
-    assert.deepEqual(rio?.site_names, ['Plot 4 – Riverside']);
+    assert.equal(
+      (await fixtureRepo.companyPeople()).some((person) => person.id === riversideId),
+      false,
+    );
+    assert.equal(
+      (await fixtureRepo.companyPeople()).some((person) => person.id === unassignedId),
+      false,
+    );
     await assert.rejects(() => fixtureRepo.attachLogin(riversideId, 'rio@sitepack.test'), /not_authorized/);
     await assert.rejects(() => fixtureRepo.attachLogin(unassignedId, 'sam@sitepack.test'), /not_authorized/);
-    assert.equal((await fixtureRepo.companyPeople()).find((person) => person.id === riversideId)?.has_login, false);
 
     await assert.rejects(
       () =>
@@ -179,6 +184,10 @@ test('company people read, no-login operative, and attach', async (t) => {
         }),
       /not_authorized/,
     );
+    await fixtureRepo.signOut();
+    await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+    assert.equal((await fixtureRepo.companyPeople()).find((person) => person.id === riversideId)?.has_login, false);
+    assert.equal((await fixtureRepo.companyPeople()).find((person) => person.id === unassignedId)?.has_login, false);
   });
 
   await t.test('the owner can add a name with no site, and removing the last site keeps the person', async () => {

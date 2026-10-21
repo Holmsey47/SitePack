@@ -101,7 +101,8 @@ test('the seat-shape migration replaces the full caller list and leaves the ship
   assert.doesNotMatch(pulse, /a\.person_id = \(select auth\.uid\(\)\)/);
 
   const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
-  assert.match(repo, /\.eq\('auth_user_id', userData\.user\.id\)/);
+  assert.match(repo, /rpc\('my_person'\)/);
+  assert.doesNotMatch(repo, /\.from\('people'\)/);
   assert.doesNotMatch(repo, /\.eq\('id', userData\.user\.id\)/);
 
   const invite = fs.readFileSync('supabase/functions/invite-person/index.ts', 'utf8');
