@@ -193,6 +193,8 @@ enable_manual_linking = false
 minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
+# Hosted dashboard must use letters_digits plus leaked-password protection before lads join.
+# This file stays blank so `supabase config push` does not change that dashboard setting.
 password_requirements = ""
 
 # Configure passkey sign-ins.
@@ -382,6 +384,23 @@ enabled = false
 authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
+
+# Public join and username login. verify_jwt is off because the caller has no session.
+# Set the edge secret JOIN_CODE_PEPPER (never commit a value). Set the same string as
+# the database custom setting app.join_code_pepper so create_join_code and
+# reset_password_code hash with it. Example, run by an operator, not this file:
+#   alter database postgres set app.join_code_pepper = '<the secret>';
+# Dashboard, before any lad joins: turn public signups off, turn on leaked-password
+# protection, and set password requirements to letters and digits. Minimum length
+# is already 8. Do not change those dashboard toggles from a migration.
+[functions.join-with-code]
+verify_jwt = false
+
+[functions.login-with-username]
+verify_jwt = false
+
+[functions.redeem-reset-code]
+verify_jwt = false
 
 [edge_runtime]
 enabled = true

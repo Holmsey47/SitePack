@@ -18,6 +18,11 @@ import type {
   PeopleGroup,
   PeopleGroupMember,
   Person,
+  JoinCodeCreated,
+  JoinCodeRow,
+  JoinWithCodeInput,
+  JoinerRow,
+  PasswordResetIssued,
   PulseRow,
   ReplaceDrawingInput,
   Role,
@@ -153,6 +158,28 @@ async function invokeInvite(body: Record<string, unknown>): Promise<void> {
   }
   const payload = data as { error?: unknown } | null;
   if (payload?.error) throw new Error(inviteFailureMessage(String(payload.error), String(payload.error)));
+}
+
+async function invokePublicFunction(name: string, body: Record<string, unknown>): Promise<unknown> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let code = 'join_rejected';
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = (await context.json()) as { error?: unknown };
+        if (typeof payload.error === 'string') code = payload.error;
+      } catch {
+        code = 'join_rejected';
+      }
+    }
+    throw new Error(code);
+  }
+  if (data && typeof data === 'object' && 'error' in data && (data as { error?: unknown }).error) {
+    throw new Error(String((data as { error: unknown }).error));
+  }
+  return data;
 }
 
 async function signUrls(items: Array<ManifestItem & { storage_path?: string }>): Promise<ManifestItem[]> {
@@ -603,6 +630,129 @@ export const supabaseRepo: SitePackRepo = {
     });
     if (error) throw new Error(rpcErrorCode(error));
     return { removed: groupCount(data, 'removed') };
+  },
+
+  async signInWithUsername(username, password) {
+    const data = (await invokePublicFunction('login-with-username', { username, password })) as {
+      access_token?: string;
+      refresh_token?: string;
+    };
+    if (!data.access_token || !data.refresh_token) throw new Error('sign_in_failed');
+    const { error } = await getSupabase().auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    if (error) throw new Error('sign_in_failed');
+    const person = await this.me();
+    if (!person) {
+      await getSupabase().auth.signOut();
+      throw new Error('sign_in_failed');
+    }
+    return { person, needsPassword: false };
+  },
+
+  async companyName() {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('companies').select('name').limit(1).maybeSingle();
+    if (error || !data?.name) throw new Error('not_authorized');
+    return data.name as string;
+  },
+
+  async createJoinCode(input) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('create_join_code', {
+      p_site_id: input.siteId,
+      p_label: input.label ?? null,
+      p_max_uses: input.maxUses ?? 10,
+      p_hours: input.hours ?? 24,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+    return data as JoinCodeCreated;
+  },
+
+  async listJoinCodes(siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('join_codes')
+      .select('id, site_id, label, expires_at, max_uses, uses, revoked_at, created_at')
+      .eq('site_id', siteId)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(rpcErrorCode(error));
+    return (data ?? []) as JoinCodeRow[];
+  },
+
+  async revokeJoinCode(codeId) {
+    const { error } = await getSupabase().rpc('revoke_join_code', { p_code_id: codeId });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async listJoiners(siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('join_events')
+      .select('id, person_id, display_name, trade, username, joined_at, removed_at, code_id, join_codes(label)')
+      .eq('site_id', siteId)
+      .order('joined_at', { ascending: false });
+    if (error) throw new Error(rpcErrorCode(error));
+    return ((data ?? []) as Array<JoinerRow & { join_codes?: { label: string | null } | { label: string | null }[] | null }>).map(
+      (row) => {
+        const linked = Array.isArray(row.join_codes) ? row.join_codes[0] : row.join_codes;
+        return {
+          id: row.id,
+          person_id: row.person_id,
+          display_name: row.display_name,
+          trade: row.trade,
+          username: row.username,
+          joined_at: row.joined_at,
+          removed_at: row.removed_at,
+          code_id: row.code_id,
+          code_label: linked?.label ?? null,
+        };
+      }
+    );
+  },
+
+  async joinWithCode(input: JoinWithCodeInput) {
+    const data = (await invokePublicFunction('join-with-code', {
+      code: input.code,
+      display_name: input.displayName,
+      trade: input.trade,
+      username: input.username,
+      password: input.password,
+    })) as { access_token?: string; refresh_token?: string; site_id?: string };
+    if (!data.access_token || !data.refresh_token || !data.site_id) throw new Error('join_rejected');
+    const { error } = await getSupabase().auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    if (error) throw new Error('join_rejected');
+    const person = await this.me();
+    if (!person) throw new Error('join_rejected');
+    return { person, siteId: data.site_id };
+  },
+
+  async removeJoiner(personId, siteId, revokeCode) {
+    const { error } = await getSupabase().rpc('remove_joiner', {
+      p_person_id: personId,
+      p_site_id: siteId,
+      p_revoke_code: revokeCode,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async issuePasswordReset(personId) {
+    const { data, error } = await getSupabase().rpc('reset_password_code', { p_person_id: personId });
+    if (error) throw new Error(rpcErrorCode(error));
+    return data as PasswordResetIssued;
+  },
+
+  async redeemPasswordReset(code, password) {
+    await invokePublicFunction('redeem-reset-code', { code, password });
+  },
+
+  async acknowledgePasswordReset() {
+    const { error } = await getSupabase().rpc('acknowledge_password_reset');
+    if (error) throw new Error(rpcErrorCode(error));
   },
 
   async getDrawingOpenUrl(drawing) {

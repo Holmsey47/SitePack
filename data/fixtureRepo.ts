@@ -23,6 +23,25 @@ import type {
 } from '@/data/types';
 import { resolveFolder, resolveLevel } from '@/data/folders';
 import { canAssignPeopleGroup, canEditPeopleGroup, normalizeGroupName } from '@/data/peopleGroups';
+import {
+  JOIN_ALPHABET,
+  JOIN_DEFAULT_HOURS,
+  JOIN_DEFAULT_MAX_USES,
+  JOIN_GLOBAL_FAILURE_LIMIT,
+  JOIN_GLOBAL_WINDOW_MINUTES,
+  JOIN_HARD_MAX_USES,
+  JOIN_IP_FAILURE_LIMIT,
+  JOIN_IP_WINDOW_MINUTES,
+  JOIN_MAX_HOURS,
+  JOIN_REJECTED,
+  RESET_CODE_MINUTES,
+  isJoinCodeShape,
+  isUsernameShape,
+  normalizeJoinCode,
+  normalizeUsername,
+  passwordHasLettersAndDigits,
+} from '@/data/joinCodes';
+import type { JoinCodeCreated, JoinCodeRow, JoinWithCodeInput, JoinerRow, PasswordResetIssued } from '@/data/types';
 import { pdfObjectUrl } from '@/lib/pdf';
 
 type GroupRecord = {
@@ -39,6 +58,45 @@ type AssignmentSource = {
   group_id: string;
 };
 
+type JoinCodeRecord = {
+  id: string;
+  company_id: string;
+  site_id: string;
+  code: string;
+  label: string | null;
+  created_by: string;
+  expires_at: string;
+  max_uses: number;
+  uses: number;
+  revoked_at: string | null;
+  created_at: string;
+};
+
+type JoinEventRecord = {
+  id: string;
+  code_id: string;
+  person_id: string | null;
+  company_id: string;
+  site_id: string;
+  display_name: string;
+  trade: string | null;
+  username: string;
+  joined_at: string;
+  removed_at: string | null;
+  removed_by: string | null;
+};
+
+type ResetCodeRecord = {
+  id: string;
+  person_id: string;
+  code: string;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+};
+
+type FailureRow = { bucket: string; subject: string; at: number };
+
 type Store = {
   people: Person[];
   sites: Site[];
@@ -48,6 +106,14 @@ type Store = {
   requests: DrawingRequest[];
   groups: GroupRecord[];
   sessionPersonId: string | null;
+  joinCodes: JoinCodeRecord[];
+  joinEvents: JoinEventRecord[];
+  resetCodes: ResetCodeRecord[];
+  failures: FailureRow[];
+  passwords: Record<string, string>;
+  banned: string[];
+  companyName: string;
+  codeSerial: number;
 };
 
 const now = () => new Date().toISOString();
@@ -139,6 +205,7 @@ function seed(): Store {
       display_name: 'Ben Torres',
       email: 'ben@sitepack.test',
       phone: null,
+      username: 'bentorres',
       created_at: '2026-08-01T09:00:00.000Z',
     },
     {
@@ -312,7 +379,24 @@ function seed(): Store {
     },
   ];
 
-  return { people, sites, assignments, assignmentGroups: [], drawings, requests, groups, sessionPersonId: null };
+  return {
+    people,
+    sites,
+    assignments,
+    assignmentGroups: [],
+    drawings,
+    requests,
+    groups,
+    sessionPersonId: null,
+    joinCodes: [],
+    joinEvents: [],
+    resetCodes: [],
+    failures: [],
+    passwords: {},
+    banned: [],
+    companyName: 'Ashfield Finishes',
+    codeSerial: 0,
+  };
 }
 
 const SESSION_KEY = 'sitepack.fixture.session';
@@ -336,6 +420,22 @@ function saveSessionId(id: string | null) {
 
 let store: Store = seed();
 store.sessionPersonId = loadSessionId();
+
+function recentFailures(bucket: string, subject: string, minutes: number): number {
+  const cutoff = Date.now() - minutes * 60 * 1000;
+  return store.failures.filter((row) => row.bucket === bucket && row.subject === subject && row.at > cutoff).length;
+}
+
+function noteFailure(bucket: string, subject: string) {
+  store.failures.push({ bucket, subject, at: Date.now() });
+}
+
+function limited(ipBucket: string, ip: string, globalBucket: string): boolean {
+  return (
+    recentFailures(ipBucket, ip, JOIN_IP_WINDOW_MINUTES) >= JOIN_IP_FAILURE_LIMIT ||
+    recentFailures(globalBucket, 'all', JOIN_GLOBAL_WINDOW_MINUTES) >= JOIN_GLOBAL_FAILURE_LIMIT
+  );
+}
 
 function meOrThrow(): Person {
   const person = store.people.find((p) => p.id === store.sessionPersonId);
@@ -422,11 +522,12 @@ function companyPersonView(person: Person): CompanyPerson {
 
 export const fixtureRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
-    if (password !== SEED_PASSWORD) {
+    const person = store.people.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
+    if (!person || store.banned.includes(person.auth_user_id ?? person.id)) {
       throw new Error('Couldn’t sign in. Check email and password and try again.');
     }
-    const person = store.people.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
-    if (!person) {
+    const expected = store.passwords[person.id] ?? SEED_PASSWORD;
+    if (password !== expected) {
       throw new Error('Couldn’t sign in. Check email and password and try again.');
     }
     store.sessionPersonId = person.id;
@@ -631,6 +732,10 @@ export const fixtureRepo: SitePackRepo = {
           archived_at: s.archived_at,
           last_pack_update: s.updated_at,
           open_request_count: store.requests.filter((r) => r.site_id === s.id && r.status === 'Open').length,
+          new_joiner_count: store.joinEvents.filter((event) => {
+            if (event.site_id !== s.id || event.removed_at) return false;
+            return Date.now() - new Date(event.joined_at).getTime() < 7 * 24 * 60 * 60 * 1000;
+          }).length,
         };
       });
   },
@@ -872,6 +977,278 @@ export const fixtureRepo: SitePackRepo = {
     }
     target.email = cleaned;
     target.auth_user_id = newId();
+  },
+
+  async signInWithUsername(username, password): Promise<SignInResult> {
+    const name = normalizeUsername(username);
+    const fail = (): never => {
+      noteFailure('login_ip', 'fixture');
+      noteFailure('login_global', 'all');
+      throw new Error('sign_in_failed');
+    };
+    if (limited('login_ip', 'fixture', 'login_global')) throw new Error('sign_in_failed');
+    const person = store.people.find((row) => row.username === name && row.auth_user_id);
+    if (!person?.auth_user_id || store.banned.includes(person.auth_user_id)) {
+      noteFailure('login_ip', 'fixture');
+      noteFailure('login_global', 'all');
+      throw new Error('sign_in_failed');
+    }
+    const expected = store.passwords[person.id] ?? SEED_PASSWORD;
+    if (!passwordHasLettersAndDigits(password) || password !== expected) fail();
+    store.sessionPersonId = person.id;
+    saveSessionId(person.id);
+    return { person, needsPassword: false };
+  },
+
+  async companyName() {
+    return store.companyName;
+  },
+
+  async createJoinCode(input): Promise<JoinCodeCreated> {
+    const actor = requireManager();
+    const site = store.sites.find((row) => row.id === input.siteId && row.company_id === actor.company_id);
+    if (!site || !canAccessSite(actor, site.id)) throw new Error('not_authorized');
+    const label = input.label?.trim() || null;
+    if (label && label.length > 40) throw new Error('label_too_long');
+    const maxUses = input.maxUses ?? JOIN_DEFAULT_MAX_USES;
+    const hours = input.hours ?? JOIN_DEFAULT_HOURS;
+    if (maxUses < 1 || maxUses > JOIN_HARD_MAX_USES) throw new Error('cap_out_of_range');
+    if (hours < 1 || hours > JOIN_MAX_HOURS) throw new Error('expiry_out_of_range');
+    store.codeSerial += 1;
+    let serial = store.codeSerial + 19873456218;
+    let code = '';
+    for (let i = 0; i < 8; i += 1) {
+      code = JOIN_ALPHABET[serial % JOIN_ALPHABET.length] + code;
+      serial = Math.floor(serial / JOIN_ALPHABET.length);
+    }
+    const created: JoinCodeRecord = {
+      id: newId(),
+      company_id: actor.company_id,
+      site_id: site.id,
+      code,
+      label,
+      created_by: actor.id,
+      expires_at: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString(),
+      max_uses: maxUses,
+      uses: 0,
+      revoked_at: null,
+      created_at: now(),
+    };
+    store.joinCodes.push(created);
+    return {
+      id: created.id,
+      code: `${code.slice(0, 4)}-${code.slice(4)}`,
+      expires_at: created.expires_at,
+      max_uses: maxUses,
+      label,
+      site_id: site.id,
+      site_name: site.name,
+      company_name: store.companyName,
+    };
+  },
+
+  async listJoinCodes(siteId): Promise<JoinCodeRow[]> {
+    const actor = requireManager();
+    if (!canAccessSite(actor, siteId)) throw new Error('not_authorized');
+    return store.joinCodes
+      .filter((row) => row.site_id === siteId && row.company_id === actor.company_id)
+      .map((row) => ({
+        id: row.id,
+        site_id: row.site_id,
+        label: row.label,
+        expires_at: row.expires_at,
+        max_uses: row.max_uses,
+        uses: row.uses,
+        revoked_at: row.revoked_at,
+        created_at: row.created_at,
+      }));
+  },
+
+  async revokeJoinCode(codeId) {
+    const actor = requireManager();
+    const row = store.joinCodes.find((code) => code.id === codeId && code.company_id === actor.company_id);
+    if (!row || !canAccessSite(actor, row.site_id)) throw new Error('not_authorized');
+    row.revoked_at = row.revoked_at ?? now();
+  },
+
+  async listJoiners(siteId): Promise<JoinerRow[]> {
+    const actor = requireManager();
+    if (!canAccessSite(actor, siteId)) throw new Error('not_authorized');
+    return store.joinEvents
+      .filter((event) => event.site_id === siteId && event.company_id === actor.company_id)
+      .sort((a, b) => b.joined_at.localeCompare(a.joined_at))
+      .map((event) => ({
+        id: event.id,
+        person_id: event.person_id,
+        display_name: event.display_name,
+        trade: event.trade,
+        username: event.username,
+        joined_at: event.joined_at,
+        removed_at: event.removed_at,
+        code_id: event.code_id,
+        code_label: store.joinCodes.find((code) => code.id === event.code_id)?.label ?? null,
+      }));
+  },
+
+  async joinWithCode(input: JoinWithCodeInput) {
+    if (!passwordHasLettersAndDigits(input.password)) throw new Error('weak_password');
+    const displayName = input.displayName.trim();
+    const username = normalizeUsername(input.username);
+    if (!displayName || !isUsernameShape(username)) throw new Error('invalid_input');
+    if (limited('ip', 'fixture', 'global')) throw new Error(JOIN_REJECTED);
+    const normalized = normalizeJoinCode(input.code);
+    const code = isJoinCodeShape(normalized)
+      ? store.joinCodes.find((row) => row.code === normalized)
+      : undefined;
+    const rejected =
+      !code || code.revoked_at != null || new Date(code.expires_at).getTime() <= Date.now() || code.uses >= code.max_uses;
+    if (rejected || !code) {
+      noteFailure('ip', 'fixture');
+      noteFailure('global', 'all');
+      throw new Error(JOIN_REJECTED);
+    }
+    if (store.people.some((person) => person.username === username)) {
+      noteFailure('ip', 'fixture');
+      noteFailure('global', 'all');
+      throw new Error('username_taken');
+    }
+    const person: Person = {
+      id: newId(),
+      auth_user_id: newId(),
+      company_id: code.company_id,
+      role: 'operative',
+      trade: input.trade.trim() || null,
+      display_name: displayName,
+      email: null,
+      phone: null,
+      username,
+      created_at: now(),
+    };
+    store.people.push(person);
+    store.passwords[person.id] = input.password;
+    store.assignments.push({
+      id: newId(),
+      site_id: code.site_id,
+      person_id: person.id,
+      created_at: now(),
+    });
+    store.joinEvents.push({
+      id: newId(),
+      code_id: code.id,
+      person_id: person.id,
+      company_id: code.company_id,
+      site_id: code.site_id,
+      display_name: displayName,
+      trade: person.trade,
+      username,
+      joined_at: now(),
+      removed_at: null,
+      removed_by: null,
+    });
+    code.uses += 1;
+    store.sessionPersonId = person.id;
+    saveSessionId(person.id);
+    return { person, siteId: code.site_id };
+  },
+
+  async removeJoiner(personId, siteId, revokeCode) {
+    const actor = requireManager();
+    const person = store.people.find((row) => row.id === personId);
+    if (!person || person.role !== 'operative' || person.company_id !== actor.company_id) {
+      throw new Error('not_authorized');
+    }
+    if (!canAccessSite(actor, siteId)) throw new Error('not_authorized');
+    const events = store.joinEvents.filter((event) => event.person_id === personId && event.site_id === siteId);
+    if (
+      events.length === 0 &&
+      !store.assignments.some((assignment) => assignment.person_id === personId && assignment.site_id === siteId)
+    ) {
+      throw new Error('not_authorized');
+    }
+    for (const event of events) {
+      event.removed_at = event.removed_at ?? now();
+      event.removed_by = actor.id;
+      if (revokeCode) {
+        const code = store.joinCodes.find((row) => row.id === event.code_id);
+        if (code) code.revoked_at = code.revoked_at ?? now();
+      }
+    }
+    const authId = person.auth_user_id;
+    const dropped = store.assignments.filter((assignment) => assignment.person_id === personId);
+    for (const assignment of dropped) forgetAssignment(assignment.id);
+    store.assignments = store.assignments.filter((assignment) => assignment.person_id !== personId);
+    const referenced = store.requests.some((request) => request.requester_id === personId);
+    if (referenced) {
+      person.auth_user_id = null;
+      person.username = null;
+    } else {
+      store.people = store.people.filter((row) => row.id !== personId);
+    }
+    if (authId) store.banned.push(authId);
+    if (store.sessionPersonId === personId) {
+      store.sessionPersonId = null;
+      saveSessionId(null);
+    }
+  },
+
+  async issuePasswordReset(personId): Promise<PasswordResetIssued> {
+    const actor = requireManager();
+    const target = store.people.find((row) => row.id === personId);
+    if (!target || target.company_id !== actor.company_id || target.role !== 'operative' || !target.auth_user_id) {
+      throw new Error('not_authorized');
+    }
+    if (actor.role === 'cm' && !sharesAssignedSite(actor, target)) throw new Error('not_authorized');
+    for (const existing of store.resetCodes) {
+      if (existing.person_id === target.id && !existing.used_at) existing.revoked_at = existing.revoked_at ?? now();
+    }
+    store.codeSerial += 1;
+    let serial = store.codeSerial + 8642997131;
+    let code = '';
+    for (let i = 0; i < 8; i += 1) {
+      code = JOIN_ALPHABET[serial % JOIN_ALPHABET.length] + code;
+      serial = Math.floor(serial / JOIN_ALPHABET.length);
+    }
+    store.resetCodes.push({
+      id: newId(),
+      person_id: target.id,
+      code,
+      expires_at: new Date(Date.now() + RESET_CODE_MINUTES * 60 * 1000).toISOString(),
+      used_at: null,
+      revoked_at: null,
+    });
+    return {
+      code: `${code.slice(0, 4)}-${code.slice(4)}`,
+      expires_at: store.resetCodes[store.resetCodes.length - 1].expires_at,
+      person_id: target.id,
+    };
+  },
+
+  async redeemPasswordReset(code, password) {
+    if (!passwordHasLettersAndDigits(password)) throw new Error('weak_password');
+    if (limited('reset_ip', 'fixture', 'reset_global')) throw new Error('reset_rejected');
+    const normalized = normalizeJoinCode(code);
+    const row = isJoinCodeShape(normalized) ? store.resetCodes.find((item) => item.code === normalized) : undefined;
+    const rejected =
+      !row || row.used_at != null || row.revoked_at != null || new Date(row.expires_at).getTime() <= Date.now();
+    if (rejected || !row) {
+      noteFailure('reset_ip', 'fixture');
+      noteFailure('reset_global', 'all');
+      throw new Error('reset_rejected');
+    }
+    const person = store.people.find((item) => item.id === row.person_id && item.role === 'operative');
+    if (!person) {
+      noteFailure('reset_ip', 'fixture');
+      noteFailure('reset_global', 'all');
+      throw new Error('reset_rejected');
+    }
+    row.used_at = now();
+    person.password_reset_at = now();
+    store.passwords[person.id] = password;
+  },
+
+  async acknowledgePasswordReset() {
+    const person = meOrThrow();
+    person.password_reset_at = null;
   },
 
   async getDrawingOpenUrl(drawing) {

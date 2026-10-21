@@ -26,6 +26,7 @@
     "data/companyPeople.test.ts",
     "data/peopleVisibility.test.ts",
     "data/phoneWalk.test.ts",
+    "data/joinCodes.test.ts",
     "lib/inviteGrant.test.ts",
     "lib/inviteRedirect.test.ts"
   ]

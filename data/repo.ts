@@ -9,7 +9,12 @@ import type {
   HomeSite,
   PeopleGroup,
   InviteInput,
+  JoinCodeCreated,
+  JoinCodeRow,
+  JoinWithCodeInput,
+  JoinerRow,
   ManifestItem,
+  PasswordResetIssued,
   Person,
   PulseRow,
   ReplaceDrawingInput,
@@ -75,6 +80,22 @@ export type SitePackRepo = {
   assignGroupToSites(groupId: string, siteIds: string[]): Promise<{ added: number }>;
   removeGroupFromSite(groupId: string, siteId: string): Promise<{ removed: number }>;
   getDrawingOpenUrl(drawing: Drawing): Promise<string>;
+  signInWithUsername(username: string, password: string): Promise<SignInResult>;
+  createJoinCode(input: {
+    siteId: string;
+    label?: string | null;
+    maxUses?: number;
+    hours?: number;
+  }): Promise<JoinCodeCreated>;
+  listJoinCodes(siteId: string): Promise<JoinCodeRow[]>;
+  revokeJoinCode(codeId: string): Promise<void>;
+  listJoiners(siteId: string): Promise<JoinerRow[]>;
+  removeJoiner(personId: string, siteId: string, revokeCode: boolean): Promise<void>;
+  issuePasswordReset(personId: string): Promise<PasswordResetIssued>;
+  redeemPasswordReset(code: string, password: string): Promise<void>;
+  joinWithCode(input: JoinWithCodeInput): Promise<{ person: Person; siteId: string }>;
+  acknowledgePasswordReset(): Promise<void>;
+  companyName(): Promise<string>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -118,6 +139,18 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'email_required',
     'email_in_use',
     'already_has_login',
+    'join_rejected',
+    'username_taken',
+    'invalid_input',
+    'weak_password',
+    'cap_out_of_range',
+    'expiry_out_of_range',
+    'label_too_long',
+    'pepper_not_configured',
+    'rate_limited',
+    'reset_rejected',
+    'sign_in_failed',
+    'email_change_blocked',
   ]) {
     if (text.includes(known)) return known;
   }
