@@ -95,8 +95,18 @@ test('the level migration is only a nullable column and a narrower-or-same RPC',
   assert.ok(filename > securityMigration);
 
   const sql = fs.readFileSync(`supabase/migrations/${filename}`, 'utf8');
-  assert.match(sql, /add column level text;/);
+  assert.match(sql, /add column if not exists level text;/);
   assert.doesNotMatch(sql, /add column level text not null/i);
+  assert.match(sql, /drop constraint if exists drawings_level_len/);
+  assert.match(
+    sql,
+    /add constraint drawings_level_len check \(level is null or char_length\(level\) <= 40\)/
+  );
+  assert.match(sql, /drop constraint if exists drawings_folder_len/);
+  assert.match(
+    sql,
+    /add constraint drawings_folder_len check \(folder is null or char_length\(folder\) <= 40\)/
+  );
   assert.match(sql, /p_level text default null/);
   assert.match(sql, /p_folder text default null/);
   assert.match(sql, /if p_level is null then/);
@@ -121,7 +131,7 @@ test('the level migration is only a nullable column and a narrower-or-same RPC',
   assert.doesNotMatch(sql, /to anon/);
   assert.doesNotMatch(sql, /service_role/);
   assert.doesNotMatch(sql, /create policy/i);
-  assert.doesNotMatch(sql, /create unique index|add constraint/i);
+  assert.doesNotMatch(sql, /create unique index/i);
   assert.doesNotMatch(sql, /alter table public\.people/);
   assert.doesNotMatch(sql, /pre_lad|company_people/);
   assert.doesNotMatch(sql, /uploaded_by,\s*folder,\s*level\s*\) values \([\s\S]*\(select auth\.uid\(\)\)/);

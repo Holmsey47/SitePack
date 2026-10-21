@@ -3,10 +3,16 @@
 -- Does not change who can read or write a drawing. Null is a blank level.
 
 alter table public.drawings
-  add column level text;
+  add column if not exists level text;
 
 comment on column public.drawings.level is
   'Optional free-text level tag. Null means blank. Not part of (site, title, sheet_key).';
+
+alter table public.drawings drop constraint if exists drawings_level_len;
+alter table public.drawings add constraint drawings_level_len check (level is null or char_length(level) <= 40);
+
+alter table public.drawings drop constraint if exists drawings_folder_len;
+alter table public.drawings add constraint drawings_folder_len check (folder is null or char_length(folder) <= 40);
 
 drop function if exists public.replace_drawing(
   uuid, text, text, text, text, date, bigint, text, uuid, uuid, text

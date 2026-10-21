@@ -16,6 +16,16 @@ export const LEVEL_PRESETS = ['Basement', 'Ground', 'L1', 'L2', 'L3', 'L4', 'Roo
 
 export const OTHER_FOLDER = 'Other';
 
+/** Stored folder and level tags. Matches drawings_folder_len and drawings_level_len. */
+export const LABEL_LIMIT = 40;
+
+/** Keep at most 40 characters. Trimming still happens when the sheet is saved. */
+export function limitLabel(value: string): string {
+  const chars = Array.from(value);
+  if (chars.length <= LABEL_LIMIT) return value;
+  return chars.slice(0, LABEL_LIMIT).join('');
+}
+
 export function displayFolder(folder: string | null | undefined): string {
   const trimmed = folder?.trim() ?? '';
   return trimmed.length > 0 ? trimmed : OTHER_FOLDER;

@@ -1,6 +1,14 @@
 import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { FOLDER_PRESETS, LEVEL_PRESETS, OTHER_FOLDER, displayFolder, displayLevel } from '@/data/folders';
+import {
+  FOLDER_PRESETS,
+  LABEL_LIMIT,
+  LEVEL_PRESETS,
+  OTHER_FOLDER,
+  displayFolder,
+  displayLevel,
+  limitLabel,
+} from '@/data/folders';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
@@ -22,6 +30,8 @@ export default function UploadScreen() {
   const [dated, setDated] = useState(new Date().toISOString().slice(0, 10));
   const [folderName, setFolderName] = useState('');
   const [levelName, setLevelName] = useState('');
+  const [folderNote, setFolderNote] = useState('');
+  const [levelNote, setLevelNote] = useState('');
   const [fileName, setFileName] = useState('');
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState('');
@@ -35,8 +45,10 @@ export default function UploadScreen() {
       if (!drawing) return;
       setTitle(drawing.title);
       setSheetNumber(drawing.sheet_number ?? '');
-      setFolderName(displayFolder(drawing.folder));
-      setLevelName(displayLevel(drawing.level) ?? '');
+      setFolderName(limitLabel(displayFolder(drawing.folder)));
+      setLevelName(limitLabel(displayLevel(drawing.level) ?? ''));
+      setFolderNote('');
+      setLevelNote('');
     });
   }, [replaceId, siteId]);
 
@@ -63,6 +75,10 @@ export default function UploadScreen() {
 
   async function onConfirm() {
     if (!siteId || !person || !bytes || !title.trim() || !revision.trim()) return;
+    if (Array.from(folderName).length > LABEL_LIMIT || Array.from(levelName).length > LABEL_LIMIT) {
+      setError('Folder name and level can be at most 40 characters.');
+      return;
+    }
     setLoading(true);
     setError('');
     const drawingId = newId();
@@ -118,17 +134,33 @@ export default function UploadScreen() {
         {FOLDER_PRESETS.map((preset) => {
           const selected = folderName.trim() === preset || (preset === OTHER_FOLDER && folderName.trim() === '');
           return (
-            <ChoiceChip key={preset} label={preset} selected={selected} onPress={() => setFolderName(preset)} />
+            <ChoiceChip
+              key={preset}
+              label={preset}
+              selected={selected}
+              onPress={() => {
+                setFolderName(preset);
+                setFolderNote('');
+              }}
+            />
           );
         })}
       </View>
       <Field
         label="Folder name"
         value={folderName}
-        onChangeText={setFolderName}
+        onChangeText={(value) => {
+          setFolderName(limitLabel(value));
+          setFolderNote(
+            Array.from(value).length > LABEL_LIMIT ? 'Folder name can be at most 40 characters.' : ''
+          );
+        }}
         autoCapitalize="words"
         placeholder="Or type a name. Blank is Other."
       />
+      <Text style={{ color: folderNote ? theme.danger : theme.text, fontWeight: '700' }}>
+        {folderNote || '40 characters at most.'}
+      </Text>
       <Text style={{ color: theme.text, fontWeight: '800' }}>Level</Text>
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         {LEVEL_PRESETS.map((preset) => (
@@ -136,17 +168,26 @@ export default function UploadScreen() {
             key={preset}
             label={preset}
             selected={levelName.trim() === preset}
-            onPress={() => setLevelName(preset)}
+            onPress={() => {
+              setLevelName(preset);
+              setLevelNote('');
+            }}
           />
         ))}
       </View>
       <Field
         label="Level name"
         value={levelName}
-        onChangeText={setLevelName}
+        onChangeText={(value) => {
+          setLevelName(limitLabel(value));
+          setLevelNote(Array.from(value).length > LABEL_LIMIT ? 'Level can be at most 40 characters.' : '');
+        }}
         autoCapitalize="words"
         placeholder="Optional. Blank is fine."
       />
+      <Text style={{ color: levelNote ? theme.danger : theme.text, fontWeight: '700' }}>
+        {levelNote || '40 characters at most. Blank is fine.'}
+      </Text>
       <Button label={fileName ? `PDF: ${fileName}` : 'Pick PDF'} variant="secondary" onPress={() => void pickPdf()} />
       <ErrorText>{error}</ErrorText>
       <Button

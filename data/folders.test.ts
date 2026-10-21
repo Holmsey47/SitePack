@@ -3,8 +3,10 @@ import test from 'node:test';
 import type { Drawing } from './types.ts';
 import {
   FOLDER_PRESETS,
+  LABEL_LIMIT,
   LEVEL_PRESETS,
   OTHER_FOLDER,
+  limitLabel,
   compareFolderNames,
   displayFolder,
   displayLevel,
@@ -140,6 +142,14 @@ test('upload presets are drawing types, and level chips are separate', () => {
   assert.equal((FOLDER_PRESETS as readonly string[]).includes('First floor'), false);
   assert.equal((FOLDER_PRESETS as readonly string[]).includes('Second floor'), false);
   assert.deepEqual([...LEVEL_PRESETS], ['Basement', 'Ground', 'L1', 'L2', 'L3', 'L4', 'Roof']);
+  assert.equal(LABEL_LIMIT, 40);
+  for (const name of [...FOLDER_PRESETS, ...LEVEL_PRESETS, 'Ground floor', 'First floor', 'Second floor']) {
+    assert.ok(Array.from(name).length <= LABEL_LIMIT, name);
+  }
+  assert.equal(limitLabel('L2'), 'L2');
+  assert.equal(limitLabel('a'.repeat(40)).length, 40);
+  assert.equal(limitLabel('a'.repeat(41)), 'a'.repeat(40));
+  assert.equal(Array.from(limitLabel('é'.repeat(41))).length, 40);
 });
 
 test('replace copies the previous level only when level is omitted', () => {
