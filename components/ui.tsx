@@ -164,6 +164,31 @@ export function ErrorText({ children }: { children: ReactNode }) {
   return <Text style={styles.error}>{children}</Text>;
 }
 
+/** Glove-sized choice. At least 48dp, cream on dark or ink on gold. */
+export function ChoiceChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chip,
+        selected ? styles.chipSelected : styles.chipIdle,
+        pressed && styles.btnPressed,
+      ]}>
+      <Text style={[styles.chipText, selected ? styles.chipTextSelected : styles.chipTextIdle]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function HeaderActions(props: PressableProps & { label: string }) {
   const { label, ...rest } = props;
   return (
@@ -223,4 +248,18 @@ const styles = StyleSheet.create({
   },
   error: { color: theme.danger, fontSize: 15, lineHeight: 20 },
   headerLink: { color: theme.current, fontSize: 16, fontWeight: '700' },
+  chip: {
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipIdle: { backgroundColor: theme.surface, borderColor: theme.text },
+  chipSelected: { backgroundColor: theme.current, borderColor: theme.current },
+  chipText: { fontSize: 16, fontWeight: '800' },
+  chipTextIdle: { color: theme.text },
+  chipTextSelected: { color: theme.currentInk },
 });

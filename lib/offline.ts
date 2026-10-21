@@ -16,6 +16,8 @@ export type OfflinePackMeta = {
     title: string;
     localUri?: string;
     fileSizeBytes: number | null;
+    /** Display only. Copied from the manifest. */
+    level: string | null;
   }>;
 };
 
@@ -73,6 +75,7 @@ export async function downloadCurrentPack(
         revision: item.revision,
         title: item.title,
         fileSizeBytes: item.file_size_bytes,
+        level: item.level ?? null,
       });
     }
     writeJson(PACK_KEY(siteId), saved);
@@ -94,6 +97,7 @@ export async function downloadCurrentPack(
       title: item.title,
       localUri: downloaded.uri,
       fileSizeBytes: item.file_size_bytes,
+      level: item.level ?? null,
     });
   }
   writeJson(PACK_KEY(siteId), saved);

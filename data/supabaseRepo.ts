@@ -459,6 +459,7 @@ export const supabaseRepo: SitePackRepo = {
       p_replace_drawing_id: input.replaceDrawingId ?? null,
       p_id: input.id ?? null,
       p_folder: input.folder ?? null,
+      p_level: input.level ?? null,
     });
     if (error) throw new Error(rpcErrorCode(error.message));
     return data as Drawing;

@@ -58,6 +58,8 @@ export type Drawing = {
   updated_at: string;
   /** One-level pack folder. Not part of sheet identity. Blank is Other. */
   folder: string;
+  /** Optional free-text level. Not part of sheet identity. Null is blank. */
+  level: string | null;
 };
 
 export type DrawingRequest = {
@@ -100,6 +102,8 @@ export type ManifestItem = {
   file_size_bytes: number | null;
   content_type: string;
   storage_path?: string;
+  /** Display only. Null when the sheet has no level. */
+  level: string | null;
   signed_url: string;
   signed_url_expires_at: string;
 };
@@ -117,6 +121,8 @@ export type ReplaceDrawingInput = {
   replaceDrawingId?: string | null;
   /** Null or omitted copies the previous current folder. Blank is stored as Other. */
   folder?: string | null;
+  /** Null or omitted copies the previous current level. Blank is stored as null. */
+  level?: string | null;
 };
 
 export type CreateRequestInput = {
