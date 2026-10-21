@@ -14,6 +14,12 @@ export type Person = {
   created_at: string;
 };
 
+export type CompanyContact = {
+  id: string;
+  email: string | null;
+  phone: string | null;
+};
+
 export type Site = {
   id: string;
   company_id: string;

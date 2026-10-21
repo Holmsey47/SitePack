@@ -6,6 +6,7 @@ import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
 import type {
   AddNoLoginOperativeInput,
+  CompanyContact,
   CompanyPerson,
   CreateRequestInput,
   Drawing,
@@ -29,6 +30,46 @@ function unwrap<T>(data: T | null, error: { message: string } | null, fallback?:
 function maybe<T>(data: T | null, error: { message: string } | null): T | null {
   if (error) throw new Error(error.message);
   return data;
+}
+
+// Client list of people. The view has no email or phone. Own contact fields come from my_person().
+const PERSON_DIRECTORY_COLUMNS = 'id, auth_user_id, company_id, role, trade, display_name, created_at';
+
+type DirectoryPerson = Omit<Person, 'email' | 'phone'>;
+
+function listedPerson(row: DirectoryPerson): Person {
+  return { ...row, email: null, phone: null };
+}
+
+function normalizeContacts(data: unknown): CompanyContact[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const record = row as { id?: unknown; email?: unknown; phone?: unknown };
+    if (typeof record.id !== 'string') return [];
+    return [
+      {
+        id: record.id,
+        email: typeof record.email === 'string' && record.email.trim() ? record.email : null,
+        phone: typeof record.phone === 'string' && record.phone.trim() ? record.phone : null,
+      },
+    ];
+  });
+}
+
+async function withCompanyContacts(rows: Person[]): Promise<Person[]> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc('company_contacts');
+  if (error) {
+    if (rpcErrorCode(error.message) === 'not_authorized') return rows;
+    throw new Error(rpcErrorCode(error.message) === 'unknown' ? error.message : rpcErrorCode(error.message));
+  }
+  const byId = new Map(normalizeContacts(data).map((contact) => [contact.id, contact]));
+  return rows.map((person) => {
+    const contact = byId.get(person.id);
+    if (!contact) return person;
+    return { ...person, email: contact.email, phone: contact.phone };
+  });
 }
 
 async function invokeInvite(body: Record<string, unknown>): Promise<void> {
@@ -113,11 +154,7 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return null;
-    const { data, error } = await supabase
-      .from('people')
-      .select('*')
-      .eq('auth_user_id', userData.user.id)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc('my_person');
     if (error) throw new Error(error.message);
     return (data as Person | null) ?? null;
   },
@@ -235,7 +272,7 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('drawing_requests')
-      .select('*, sites(name), people!drawing_requests_requester_id_fkey(display_name, email)')
+      .select('*, sites(name), people!drawing_requests_requester_id_fkey(display_name)')
       .neq('status', 'Closed')
       .order('created_at', { ascending: false });
     if (error) {
@@ -246,15 +283,13 @@ export const supabaseRepo: SitePackRepo = {
         .order('created_at', { ascending: false });
       return unwrap((plain ?? []) as DrawingRequest[], plainError);
     }
-    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null; email: string | null } }>)
+    return ((data ?? []) as Array<DrawingRequest & { sites?: { name: string }; people?: { display_name: string | null } }>)
       .filter((row) => row.status !== 'Closed')
-      .map(
-      (row) => ({
+      .map((row) => ({
         ...row,
         site_name: row.sites?.name,
-        requester_name: row.people?.display_name ?? row.people?.email ?? undefined,
-      })
-    );
+        requester_name: row.people?.display_name?.trim() || undefined,
+      }));
   },
 
   async getRequest(requestId) {
@@ -327,16 +362,19 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('site_assignments')
-      .select('*, people(*)')
+      .select(`id, site_id, person_id, created_at, people(${PERSON_DIRECTORY_COLUMNS})`)
       .eq('site_id', siteId);
     if (error) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      site_id: row.site_id,
-      person_id: row.person_id,
-      created_at: row.created_at,
-      person: row.people as Person,
-    }));
+    return (data ?? []).map((row) => {
+      const embedded = Array.isArray(row.people) ? row.people[0] : row.people;
+      return {
+        id: row.id,
+        site_id: row.site_id,
+        person_id: row.person_id,
+        created_at: row.created_at,
+        person: embedded ? listedPerson(embedded) : undefined,
+      };
+    });
   },
 
   async addAssignment(siteId, personId) {
@@ -353,8 +391,18 @@ export const supabaseRepo: SitePackRepo = {
 
   async listCompanyPeople() {
     const supabase = getSupabase();
-    const { data, error } = await supabase.from('people').select('*').order('display_name');
-    return unwrap((data ?? []) as Person[], error);
+    const { data, error } = await supabase
+      .from('people_directory')
+      .select(PERSON_DIRECTORY_COLUMNS)
+      .order('display_name');
+    return withCompanyContacts(unwrap((data ?? []) as DirectoryPerson[], error).map(listedPerson));
+  },
+
+  async companyContacts() {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('company_contacts');
+    if (error) throw new Error(rpcErrorCode(error.message) === 'unknown' ? error.message : rpcErrorCode(error.message));
+    return normalizeContacts(data);
   },
 
   async companyPeople() {

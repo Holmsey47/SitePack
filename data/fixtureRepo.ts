@@ -1,10 +1,11 @@
 import { normalizeCreateSite } from '@/data/createSite';
 import { newId } from '@/data/newId';
-import { inviteSiteIds } from '@/data/walk';
+import { inviteSiteIds, previewName } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import type {
   AddNoLoginOperativeInput,
+  CompanyContact,
   CompanyPerson,
   CreateRequestInput,
   Drawing,
@@ -250,6 +251,24 @@ function canAccessSite(person: Person, siteId: string): boolean {
   return store.assignments.some((a) => a.site_id === siteId && a.person_id === person.id);
 }
 
+function sharesAssignedSite(caller: Person, target: Person): boolean {
+  const mine = new Set(
+    store.assignments.filter((assignment) => assignment.person_id === caller.id).map((assignment) => assignment.site_id)
+  );
+  return store.assignments.some((assignment) => assignment.person_id === target.id && mine.has(assignment.site_id));
+}
+
+function canSeePerson(caller: Person, target: Person): boolean {
+  if (target.company_id !== caller.company_id) return false;
+  if (caller.role === 'owner' || caller.id === target.id) return true;
+  return sharesAssignedSite(caller, target);
+}
+
+function personForCaller(caller: Person, target: Person): Person {
+  if (caller.role === 'owner') return target;
+  return { ...target, email: null, phone: null };
+}
+
 function assignedSiteIds(person: Person): string[] {
   if (person.role === 'owner') {
     return store.sites.filter((s) => s.company_id === person.company_id).map((s) => s.id);
@@ -272,7 +291,7 @@ function requestView(row: DrawingRequest): DrawingRequest {
   return {
     ...row,
     site_name: site?.name,
-    requester_name: requester?.display_name ?? requester?.email ?? 'Unknown',
+    requester_name: requester?.display_name?.trim() || 'Unknown',
   };
 }
 
@@ -496,10 +515,10 @@ export const fixtureRepo: SitePackRepo = {
           .filter((a) => a.site_id === s.id)
           .map((a) => store.people.find((p) => p.id === a.person_id))
           .filter((personOnSite): personOnSite is Person => Boolean(personOnSite));
-        const names = people.map((personOnSite) => personOnSite.display_name ?? 'Unknown').sort();
+        const names = people.map((personOnSite) => previewName(personOnSite.display_name)).sort();
         const managers = people
           .filter((personOnSite) => personOnSite.role === 'cm')
-          .map((personOnSite) => personOnSite.display_name ?? 'Unknown')
+          .map((personOnSite) => previewName(personOnSite.display_name))
           .sort();
         return {
           site_id: s.id,
@@ -540,7 +559,10 @@ export const fixtureRepo: SitePackRepo = {
     if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
     return store.assignments
       .filter((a) => a.site_id === siteId)
-      .map((a) => ({ ...a, person: store.people.find((p) => p.id === a.person_id) }));
+      .map((a) => {
+        const target = store.people.find((p) => p.id === a.person_id);
+        return { ...a, person: target ? personForCaller(person, target) : undefined };
+      });
   },
 
   async addAssignment(siteId, personId) {
@@ -566,13 +588,24 @@ export const fixtureRepo: SitePackRepo = {
 
   async listCompanyPeople() {
     const person = meOrThrow();
-    return store.people.filter((p) => p.company_id === person.company_id);
+    return store.people
+      .filter((candidate) => canSeePerson(person, candidate))
+      .map((candidate) => personForCaller(person, candidate));
+  },
+
+  async companyContacts(): Promise<CompanyContact[]> {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    return store.people
+      .filter((candidate) => candidate.company_id === person.company_id)
+      .map((candidate) => ({ id: candidate.id, email: candidate.email, phone: candidate.phone }))
+      .sort((a, b) => a.id.localeCompare(b.id));
   },
 
   async companyPeople() {
     const person = requireManager();
     return store.people
-      .filter((p) => p.company_id === person.company_id)
+      .filter((candidate) => canSeePerson(person, candidate))
       .map(companyPersonView)
       .sort((a, b) => (a.display_name ?? '').localeCompare(b.display_name ?? '') || a.id.localeCompare(b.id));
   },

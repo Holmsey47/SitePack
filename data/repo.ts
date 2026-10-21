@@ -4,6 +4,7 @@ import type {
   Drawing,
   DrawingRequest,
   AddNoLoginOperativeInput,
+  CompanyContact,
   CompanyPerson,
   HomeSite,
   InviteInput,
@@ -50,6 +51,7 @@ export type SitePackRepo = {
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;
   listCompanyPeople(): Promise<Person[]>;
+  companyContacts(): Promise<CompanyContact[]>;
   companyPeople(): Promise<CompanyPerson[]>;
   addNoLoginOperative(input: AddNoLoginOperativeInput): Promise<string>;
   removeOperativeFromSite(personId: string, siteId: string): Promise<void>;
