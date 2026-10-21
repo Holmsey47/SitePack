@@ -2,6 +2,7 @@ import { normalizeCreateSite } from '@/data/createSite';
 import { newId } from '@/data/newId';
 import { inviteSiteIds } from '@/data/walk';
 import { inviteFailureMessage } from '@/data/inviteError';
+import { groupCount } from '@/data/peopleGroups';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
 import type {
@@ -14,15 +15,25 @@ import type {
   HomeSite,
   InviteInput,
   ManifestItem,
+  PeopleGroup,
+  PeopleGroupMember,
   Person,
   PulseRow,
   ReplaceDrawingInput,
+  Role,
   Site,
 } from '@/data/types';
 import { getSupabase } from '@/lib/supabase';
 
-function unwrap<T>(data: T | null, error: { message: string } | null, fallback?: string): T {
-  if (error) throw new Error(rpcErrorCode(error.message) === 'unknown' ? error.message : rpcErrorCode(error.message));
+function unwrap<T>(
+  data: T | null,
+  error: { message: string; details?: string | null; code?: string | null } | null,
+  fallback?: string
+): T {
+  if (error) {
+    const mapped = rpcErrorCode(error);
+    throw new Error(mapped === 'unknown' ? error.message : mapped);
+  }
   if (data == null) throw new Error(fallback ?? 'not_found');
   return data;
 }
@@ -39,6 +50,58 @@ type DirectoryPerson = Omit<Person, 'email' | 'phone'>;
 
 function listedPerson(row: DirectoryPerson): Person {
   return { ...row, email: null, phone: null };
+}
+
+type EmbeddedPerson = {
+  id: string;
+  display_name: string | null;
+  role: Role;
+  trade: string | null;
+  auth_user_id: string | null;
+};
+
+type GroupQueryRow = {
+  id: string;
+  company_id: string;
+  name: string;
+  created_at: string;
+  created_by: string | null;
+  people_group_members:
+    | Array<{
+        person_id: string;
+        people: EmbeddedPerson | EmbeddedPerson[] | null;
+      }>
+    | null;
+};
+
+function oneEmbedded(value: EmbeddedPerson | EmbeddedPerson[] | null): EmbeddedPerson | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function mapGroupRow(row: GroupQueryRow): PeopleGroup {
+  const members: PeopleGroupMember[] = (row.people_group_members ?? [])
+    .map((member) => {
+      const person = oneEmbedded(member.people);
+      return {
+        person_id: member.person_id,
+        display_name: person?.display_name ?? null,
+        role: person?.role ?? null,
+        trade: person?.trade ?? null,
+        has_login: person ? person.auth_user_id != null : null,
+      };
+    })
+    .sort(
+      (a, b) => (a.display_name ?? '').localeCompare(b.display_name ?? '') || a.person_id.localeCompare(b.person_id)
+    );
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    name: row.name,
+    created_at: row.created_at,
+    created_by: row.created_by,
+    members,
+  };
 }
 
 function normalizeContacts(data: unknown): CompanyContact[] {
@@ -86,7 +149,7 @@ async function invokeInvite(body: Record<string, unknown>): Promise<void> {
         bodyError = null;
       }
     }
-    throw new Error(inviteFailureMessage(bodyError, error.message));
+    throw new Error(inviteFailureMessage(bodyError, 'The invite did not send. Try again.'));
   }
   const payload = data as { error?: unknown } | null;
   if (payload?.error) throw new Error(inviteFailureMessage(String(payload.error), String(payload.error)));
@@ -461,7 +524,7 @@ export const supabaseRepo: SitePackRepo = {
       p_folder: input.folder ?? null,
       p_level: input.level ?? null,
     });
-    if (error) throw new Error(rpcErrorCode(error.message));
+    if (error) throw new Error(rpcErrorCode(error));
     return data as Drawing;
   },
 
@@ -477,6 +540,69 @@ export const supabaseRepo: SitePackRepo = {
 
   async attachLogin(personId, email) {
     await invokeInvite({ person_id: personId, email });
+  },
+
+  async listPeopleGroups() {
+    const person = await this.me();
+    if (!person || (person.role !== 'owner' && person.role !== 'cm')) throw new Error('not_authorized');
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('people_groups')
+      .select(
+        'id, company_id, name, created_at, created_by, people_group_members(person_id, people(id, display_name, role, trade, auth_user_id))'
+      )
+      .order('name');
+    if (error) throw new Error(rpcErrorCode(error));
+    return ((data ?? []) as GroupQueryRow[]).map(mapGroupRow);
+  },
+
+  async createPeopleGroup(name) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('create_people_group', { p_name: name });
+    if (error) throw new Error(rpcErrorCode(error));
+    if (typeof data !== 'string') throw new Error('not_authorized');
+    return data;
+  },
+
+  async renamePeopleGroup(groupId, name) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('rename_people_group', { p_group_id: groupId, p_name: name });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async deletePeopleGroup(groupId) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('delete_people_group', { p_group_id: groupId });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async setPeopleGroupMembers(groupId, personIds) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('set_people_group_members', {
+      p_group_id: groupId,
+      p_person_ids: personIds,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async assignGroupToSites(groupId, siteIds) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('assign_group_to_sites', {
+      p_group_id: groupId,
+      p_site_ids: siteIds,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+    return { added: groupCount(data, 'added') };
+  },
+
+  async removeGroupFromSite(groupId, siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('remove_group_from_site', {
+      p_group_id: groupId,
+      p_site_id: siteId,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+    return { removed: groupCount(data, 'removed') };
   },
 
   async getDrawingOpenUrl(drawing) {

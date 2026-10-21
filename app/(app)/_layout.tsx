@@ -24,6 +24,8 @@ export default function AppLayout() {
       <Stack.Screen name="requests/[requestId]" options={{ title: 'Request' }} />
       <Stack.Screen name="invite" options={{ title: 'Invite' }} />
       <Stack.Screen name="people" options={{ title: 'People' }} />
+      <Stack.Screen name="groups/index" options={{ title: 'Groups' }} />
+      <Stack.Screen name="groups/[groupId]" options={{ title: 'Group' }} />
     </Stack>
   );
 }

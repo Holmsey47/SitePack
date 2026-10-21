@@ -152,6 +152,25 @@ export type CompanyPerson = {
   site_names: string[];
 };
 
+/** A named crew. Members are existing people. The group is not a site pass. */
+export type PeopleGroupMember = {
+  person_id: string;
+  display_name: string | null;
+  role: Role | null;
+  trade: string | null;
+  /** Null when this caller cannot see that person. */
+  has_login: boolean | null;
+};
+
+export type PeopleGroup = {
+  id: string;
+  company_id: string;
+  name: string;
+  created_at: string;
+  created_by: string | null;
+  members: PeopleGroupMember[];
+};
+
 export type AddNoLoginOperativeInput = {
   displayName: string;
   trade?: string | null;

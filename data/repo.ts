@@ -7,6 +7,7 @@ import type {
   CompanyContact,
   CompanyPerson,
   HomeSite,
+  PeopleGroup,
   InviteInput,
   ManifestItem,
   Person,
@@ -66,6 +67,13 @@ export type SitePackRepo = {
   replaceDrawing(input: ReplaceDrawingInput): Promise<Drawing>;
   invitePerson(input: InviteInput): Promise<void>;
   attachLogin(personId: string, email: string): Promise<void>;
+  listPeopleGroups(): Promise<PeopleGroup[]>;
+  createPeopleGroup(name: string): Promise<string>;
+  renamePeopleGroup(groupId: string, name: string): Promise<void>;
+  deletePeopleGroup(groupId: string): Promise<void>;
+  setPeopleGroupMembers(groupId: string, personIds: string[]): Promise<void>;
+  assignGroupToSites(groupId: string, siteIds: string[]): Promise<{ added: number }>;
+  removeGroupFromSite(groupId: string, siteId: string): Promise<{ removed: number }>;
   getDrawingOpenUrl(drawing: Drawing): Promise<string>;
 };
 
@@ -73,19 +81,45 @@ export function canManageSite(role: Role): boolean {
   return role === 'cm' || role === 'owner';
 }
 
-export function rpcErrorCode(message: string | undefined): string {
-  const text = message ?? '';
-  for (const code of [
+export type RpcErrorLike = {
+  message?: string | null;
+  details?: string | null;
+  code?: string | null;
+};
+
+/**
+ * Turn a Supabase or Postgres error into a short code, or a plain sentence
+ * when a drawing tag is longer than the check constraint allows.
+ */
+export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): string {
+  const message = typeof error === 'string' ? error : (error?.message ?? '');
+  const details = typeof error === 'object' && error ? (error.details ?? '') : '';
+  const code = typeof error === 'object' && error ? (error.code ?? '') : '';
+  const haystack = `${message}\n${details}`;
+  const checkViolation = code === '23514' || /check constraint/i.test(haystack);
+  if ((checkViolation || haystack.includes('drawings_folder_len')) && haystack.includes('drawings_folder_len')) {
+    return 'Folder name must be 40 characters or fewer.';
+  }
+  if ((checkViolation || haystack.includes('drawings_level_len')) && haystack.includes('drawings_level_len')) {
+    return 'Level must be 40 characters or fewer.';
+  }
+
+  const text = haystack;
+  for (const known of [
     'not_authorized',
     'site_not_found',
+    'site_required',
     'replace_target_not_current',
     'storage_path_required',
+    'person_not_in_company',
+    'name_in_use',
+    'name_too_long',
     'name_required',
     'email_required',
     'email_in_use',
     'already_has_login',
   ]) {
-    if (text.includes(code)) return code;
+    if (text.includes(known)) return known;
   }
   return 'unknown';
 }

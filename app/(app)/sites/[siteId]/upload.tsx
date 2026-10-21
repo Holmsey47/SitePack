@@ -157,6 +157,7 @@ export default function UploadScreen() {
         }}
         autoCapitalize="words"
         placeholder="Or type a name. Blank is Other."
+        maxLength={LABEL_LIMIT}
       />
       <Text style={{ color: folderNote ? theme.danger : theme.text, fontWeight: '700' }}>
         {folderNote || '40 characters at most.'}
@@ -184,6 +185,7 @@ export default function UploadScreen() {
         }}
         autoCapitalize="words"
         placeholder="Optional. Blank is fine."
+        maxLength={LABEL_LIMIT}
       />
       <Text style={{ color: levelNote ? theme.danger : theme.text, fontWeight: '700' }}>
         {levelNote || '40 characters at most. Blank is fine.'}

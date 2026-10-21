@@ -101,6 +101,7 @@ export function Field({
   autoCapitalize = 'none',
   multiline,
   keyboardType,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -110,6 +111,7 @@ export function Field({
   autoCapitalize?: 'none' | 'sentences' | 'words';
   multiline?: boolean;
   keyboardType?: 'default' | 'email-address';
+  maxLength?: number;
 }) {
   return (
     <View style={{ gap: 8 }}>
@@ -124,6 +126,7 @@ export function Field({
         autoCorrect={false}
         multiline={multiline}
         keyboardType={keyboardType}
+        maxLength={maxLength}
         style={[styles.input, multiline && { minHeight: 120, textAlignVertical: 'top' }]}
       />
     </View>
@@ -156,6 +159,17 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
     <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.85 }}>
       {body}
     </Pressable>
+  );
+}
+
+const NO_LOGIN = "No login: can't see drawings";
+
+/** Words carry the meaning. The amber fill is only a second cue. */
+export function NoLoginBadge() {
+  return (
+    <View style={styles.noLogin} accessibilityRole="text">
+      <Text style={styles.noLoginText}>{NO_LOGIN}</Text>
+    </View>
   );
 }
 
@@ -262,4 +276,14 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 16, fontWeight: '800' },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.currentInk },
+  noLogin: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.current,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
 });

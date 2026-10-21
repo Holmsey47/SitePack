@@ -51,7 +51,9 @@ test('invite-person asks the helper and has no localhost fallback', () => {
   assert.match(source, /resolveInviteRedirect/);
   assert.match(source, /error: decision\.error \}, 500\)/);
   const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
-  assert.match(repo, /inviteFailureMessage\(bodyError, error\.message\)/);
+  assert.match(repo, /inviteFailureMessage\(bodyError, 'The invite did not send\. Try again\.'\)/);
+  assert.doesNotMatch(repo, /inviteFailureMessage\(bodyError, error\.message\)/);
   const screen = fs.readFileSync('app/(app)/invite.tsx', 'utf8');
-  assert.match(screen, /setError\(err instanceof Error \? err\.message : 'Invite failed'\)/);
+  assert.match(screen, /inviteFailureMessage\(err instanceof Error \? err\.message : null/);
+  assert.doesNotMatch(screen, /setError\(err instanceof Error \? err\.message : 'Invite failed'\)/);
 });
