@@ -58,7 +58,7 @@ test('dirty state counts name and membership changes, and zero stays clean', () 
   assert.match(screen, /footer=\{editor \? saveBar : null\}/);
   assert.match(screen, /NoLoginBadge/);
   assert.match(assignees, /NoLoginBadge/);
-  assert.match(assignees, /Removes people this gang added\. People added by hand stay\./);
+  assert.match(assignees, /Takes off people this gang put on the site\. People you added by hand stay\./);
 });
 
 test('the fixture crew has five people and one has no login', async () => {

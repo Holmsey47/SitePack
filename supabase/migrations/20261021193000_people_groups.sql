@@ -481,6 +481,8 @@ begin
     raise exception 'person_not_in_company';
   end if;
 
+  perform 1 from public.site_assignments a where a.site_id = p_site_id for update;
+
   with doomed as (
     select a.id
     from public.site_assignments a

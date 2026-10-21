@@ -109,7 +109,7 @@ export default function AssignmentsScreen() {
           </Muted>
           <Button label={`Add ${group.name}`} variant="secondary" onPress={() => void onAddGroup(group.id)} />
           {confirmRemove === group.id ? (
-            <Muted>Removes people this gang added. People added by hand stay.</Muted>
+            <Muted>Takes off people this gang put on the site. People you added by hand stay.</Muted>
           ) : null}
           <Button
             label={confirmRemove === group.id ? `Remove ${group.name} from this site` : `Remove ${group.name}`}
