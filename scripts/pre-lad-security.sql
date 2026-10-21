@@ -99,6 +99,25 @@ select pg_temp.ok(
   'people_directory has no email or phone column'
 );
 
+select pg_temp.ok(
+  exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'company_contacts'
+      and p.prosecdef
+      and exists (
+        select 1
+        from unnest(coalesce(p.proconfig, array[]::text[])) cfg
+        where cfg like 'search_path=%'
+      )
+  )
+  and position('p.email' in pg_get_functiondef('public.company_sites_pulse()'::regprocedure)) = 0
+  and position('btrim(p.display_name)' in pg_get_functiondef('public.company_sites_pulse()'::regprocedure)) > 0,
+  'company_contacts is a pinned definer and the pulse no longer reads email'
+);
+
 -- ---------------------------------------------------------------------------
 -- Ben, operative on Oak only.
 -- ---------------------------------------------------------------------------
@@ -166,6 +185,18 @@ exception
       raise;
     end if;
     raise notice 'ok: operative company_people is not_authorized';
+end $$;
+
+do $$
+begin
+  perform public.company_contacts();
+  raise exception 'FAIL: operative read company contacts';
+exception
+  when others then
+    if sqlerrm <> 'not_authorized' then
+      raise;
+    end if;
+    raise notice 'ok: operative company_contacts is not_authorized';
 end $$;
 
 do $$
@@ -289,6 +320,18 @@ select pg_temp.ok(
 
 do $$
 begin
+  perform public.company_contacts();
+  raise exception 'FAIL: contracts manager read company contacts';
+exception
+  when others then
+    if sqlerrm <> 'not_authorized' then
+      raise;
+    end if;
+    raise notice 'ok: contracts manager company_contacts is not_authorized';
+end $$;
+
+do $$
+begin
   update public.sites
   set archived_at = now()
   where id = '66666666-6666-6666-6666-666666666666';
@@ -327,6 +370,73 @@ select pg_temp.ok(
   (public.my_person()->>'email') = 'owner@sitepack.test',
   'owner reads their own email'
 );
+
+select pg_temp.ok(
+  exists (
+    select 1
+    from jsonb_array_elements(public.company_contacts()) contact
+    where contact->>'id' = '44444444-4444-4444-4444-444444444444'
+      and contact->>'email' = 'amy@sitepack.test'
+      and contact->>'phone' = '07000000999'
+  )
+  and exists (
+    select 1
+    from jsonb_array_elements(public.company_contacts()) contact
+    where contact->>'id' = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2'
+      and contact->>'phone' = '07000000002'
+  ),
+  'owner reads company email and phone'
+);
+
+update public.people
+set display_name = '   '
+where id = '44444444-4444-4444-4444-444444444444';
+
+select pg_temp.ok(
+  position('amy@sitepack.test' in public.company_sites_pulse()::text) = 0
+  and exists (
+    select 1
+    from jsonb_array_elements(public.company_sites_pulse()) site
+    where site->>'site_id' = '66666666-6666-6666-6666-666666666666'
+      and site->'assignee_names_preview' ? 'Unknown'
+  ),
+  'owner pulse names a blank display_name Unknown and does not fall back to email'
+);
+
+reset role;
+
+select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', true);
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', '33333333-3333-3333-3333-333333333333', 'role', 'authenticated')::text,
+  true
+);
+set local role authenticated;
+
+select pg_temp.ok(
+  position('amy@sitepack.test' in public.company_sites_pulse()::text) = 0
+  and exists (
+    select 1
+    from jsonb_array_elements(public.company_sites_pulse()) site
+    where site->>'site_id' = '66666666-6666-6666-6666-666666666666'
+      and site->'assignee_names_preview' ? 'Unknown'
+  ),
+  'contracts manager pulse names a blank display_name Unknown and does not fall back to email'
+);
+
+reset role;
+
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', true);
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', '22222222-2222-2222-2222-222222222222', 'role', 'authenticated')::text,
+  true
+);
+set local role authenticated;
+
+update public.people
+set display_name = 'Amy Keane'
+where id = '44444444-4444-4444-4444-444444444444';
 
 insert into public.site_assignments (site_id, person_id)
 values ('66666666-6666-6666-6666-666666666666', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2');
@@ -406,6 +516,32 @@ exception
     raise notice 'ok: anon cannot read people_directory';
 end $$;
 
+do $$
+begin
+  perform public.company_contacts();
+  raise exception 'FAIL: anon read company contacts';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon company_contacts is permission denied';
+end $$;
+
 reset role;
+
+-- Second apply. The file uses create or replace, drop policy if exists, and
+-- privilege checks, so this must not error. \ir is relative to this script.
+\ir ../supabase/migrations/20261021163528_pre_lad_security.sql
+
+select pg_temp.ok(
+  position('p.email' in pg_get_functiondef('public.company_sites_pulse()'::regprocedure)) = 0
+  and exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'company_contacts'
+      and p.prosecdef
+  ),
+  'the pre-lad migration applies a second time'
+);
 
 rollback;

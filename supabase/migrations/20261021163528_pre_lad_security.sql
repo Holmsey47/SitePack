@@ -29,8 +29,14 @@ as $$
   );
 $$;
 
-revoke all on function private.shares_assigned_site(uuid) from public, anon;
-grant execute on function private.shares_assigned_site(uuid) to authenticated, service_role;
+do $acl$
+begin
+  if to_regprocedure('private.shares_assigned_site(uuid)') is not null then
+    revoke all on function private.shares_assigned_site(uuid) from public, anon;
+    grant execute on function private.shares_assigned_site(uuid) to authenticated, service_role;
+  end if;
+end
+$acl$;
 
 -- ---------------------------------------------------------------------------
 -- Row visibility. Owner: the company. Everyone else: self, plus people who
@@ -38,6 +44,7 @@ grant execute on function private.shares_assigned_site(uuid) to authenticated, s
 -- ---------------------------------------------------------------------------
 
 drop policy if exists people_select_same_company on public.people;
+drop policy if exists people_select_visible on public.people;
 
 create policy people_select_visible
   on public.people for select to authenticated
@@ -52,23 +59,28 @@ create policy people_select_visible
 
 -- Table-level select includes email and phone. Drop it, then grant the columns
 -- the client may read. Authenticated cannot select email or phone on any row.
-revoke select on table public.people from public, anon, authenticated;
-
-grant select (
-  id,
-  auth_user_id,
-  company_id,
-  role,
-  trade,
-  display_name,
-  created_at
-) on table public.people to authenticated;
+do $acl$
+begin
+  if to_regclass('public.people') is not null then
+    revoke select on table public.people from public, anon, authenticated;
+    grant select (
+      id,
+      auth_user_id,
+      company_id,
+      role,
+      trade,
+      display_name,
+      created_at
+    ) on table public.people to authenticated;
+  end if;
+end
+$acl$;
 
 -- ---------------------------------------------------------------------------
 -- Client list surface. security_invoker so people_select_visible still applies.
 -- ---------------------------------------------------------------------------
 
-create view public.people_directory
+create or replace view public.people_directory
 with (security_invoker = true, security_barrier = true)
 as
 select
@@ -84,8 +96,14 @@ from public.people;
 comment on view public.people_directory is
   'People the caller may list. No email or phone. Row visibility follows people_select_visible.';
 
-revoke all on table public.people_directory from public, anon, authenticated;
-grant select on table public.people_directory to authenticated;
+do $acl$
+begin
+  if to_regclass('public.people_directory') is not null then
+    revoke all on table public.people_directory from public, anon, authenticated;
+    grant select on table public.people_directory to authenticated;
+  end if;
+end
+$acl$;
 
 -- ---------------------------------------------------------------------------
 -- The signed-in user's own row, including email and phone. No argument, so it
@@ -117,8 +135,14 @@ $$;
 comment on function public.my_person() is
   'The caller''s own people row, including email and phone. Null when the login has no row.';
 
-revoke all on function public.my_person() from public, anon;
-grant execute on function public.my_person() to authenticated;
+do $acl$
+begin
+  if to_regprocedure('public.my_person()') is not null then
+    revoke all on function public.my_person() from public, anon;
+    grant execute on function public.my_person() to authenticated;
+  end if;
+end
+$acl$;
 
 -- ---------------------------------------------------------------------------
 -- Labour list bypasses RLS. Apply the same site rule inside the function.
@@ -187,8 +211,167 @@ comment on function public.company_people() is
 -- Authenticated keeps the app RPC.
 -- ---------------------------------------------------------------------------
 
-revoke all on function public.site_contracts_manager_names(uuid) from public, anon;
-grant execute on function public.site_contracts_manager_names(uuid) to authenticated;
+do $acl$
+begin
+  if to_regprocedure('public.site_contracts_manager_names(uuid)') is not null then
+    revoke all on function public.site_contracts_manager_names(uuid) from public, anon;
+    grant execute on function public.site_contracts_manager_names(uuid) to authenticated;
+  end if;
+end
+$acl$;
+
+-- ---------------------------------------------------------------------------
+-- Site pulse. A blank display name is Unknown. It never falls back to email:
+-- anyone can clear their own name, and a contracts manager can read the pulse.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.company_sites_pulse()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_role text := private.my_role();
+  v_company uuid := private.my_company_id();
+  v_actor uuid := (
+    select p.id from public.people p where p.auth_user_id = (select auth.uid())
+  );
+begin
+  if v_role is null or v_role not in ('cm', 'owner') then
+    raise exception 'not_authorized';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(row_data order by row_data->>'name')
+      from (
+        select jsonb_build_object(
+          'site_id', s.id,
+          'name', s.name,
+          'address_line', s.address_line,
+          'assignee_count', (
+            select count(*)::int from public.site_assignments a where a.site_id = s.id
+          ),
+          'assignee_names_preview', (
+            select coalesce(jsonb_agg(sub.display_name), '[]'::jsonb)
+            from (
+              select coalesce(nullif(btrim(p.display_name), ''), 'Unknown') as display_name
+              from public.site_assignments a
+              join public.people p on p.id = a.person_id
+              where a.site_id = s.id
+              order by p.display_name nulls last
+              limit 3
+            ) sub
+          ),
+          'contracts_manager_names', (
+            select coalesce(jsonb_agg(sub.display_name order by sub.display_name), '[]'::jsonb)
+            from (
+              select coalesce(nullif(btrim(p.display_name), ''), 'Unknown') as display_name
+              from public.site_assignments a
+              join public.people p on p.id = a.person_id
+              where a.site_id = s.id
+                and p.role = 'cm'
+            ) sub
+          ),
+          'operative_count', (
+            select count(*)::int
+            from public.site_assignments a
+            join public.people p on p.id = a.person_id
+            where a.site_id = s.id
+              and p.role = 'operative'
+          ),
+          'archived_at', s.archived_at,
+          'last_pack_update', s.updated_at,
+          'open_request_count', (
+            select count(*)::int
+            from public.drawing_requests r
+            where r.site_id = s.id
+              and r.status = 'Open'
+          )
+        ) as row_data
+        from public.sites s
+        where s.company_id = v_company
+          and (
+            v_role = 'owner'
+            or exists (
+              select 1
+              from public.site_assignments a
+              where a.site_id = s.id
+                and a.person_id = v_actor
+            )
+          )
+        order by s.name
+      ) q
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+comment on function public.company_sites_pulse() is
+  'Site list for the owner and contracts managers. Assignee names use the display name, or Unknown. Never email.';
+
+do $acl$
+begin
+  if to_regprocedure('public.company_sites_pulse()') is not null then
+    revoke all on function public.company_sites_pulse() from public, anon;
+    grant execute on function public.company_sites_pulse() to authenticated;
+  end if;
+end
+$acl$;
+
+-- ---------------------------------------------------------------------------
+-- Owner contact list. Column grants hide email and phone from every direct
+-- select, including the owner's. This is the only read of other people's
+-- contact fields, and only for the owner of that company.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.company_contacts()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_role text := private.my_role();
+  v_company uuid := private.my_company_id();
+begin
+  if v_role is distinct from 'owner' or v_company is null then
+    raise exception 'not_authorized';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', p.id,
+          'email', p.email,
+          'phone', p.phone
+        )
+        order by p.id
+      )
+      from public.people p
+      where p.company_id = v_company
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+comment on function public.company_contacts() is
+  'Email and phone for people in the caller''s company. Owner only. Contracts managers and operatives get not_authorized.';
+
+do $acl$
+begin
+  if to_regprocedure('public.company_contacts()') is not null then
+    revoke all on function public.company_contacts() from public, anon;
+    grant execute on function public.company_contacts() to authenticated;
+  end if;
+end
+$acl$;
 
 -- ---------------------------------------------------------------------------
 -- Pin search_path. Bodies already schema-qualify storage.* and private.*.

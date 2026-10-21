@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Person, SiteAssignment } from '@/data/types';
-import { assignmentRank, occupationLine } from '@/data/walk';
+import { assignmentRank, contactLine, occupationLine, personLabel } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -33,7 +33,7 @@ export default function AssignmentsScreen() {
   const ordered = [...rows].sort(
     (left, right) =>
       assignmentRank(left.person?.role) - assignmentRank(right.person?.role) ||
-      (left.person?.display_name ?? '').localeCompare(right.person?.display_name ?? '')
+      personLabel(left.person).localeCompare(personLabel(right.person))
   );
 
   return (
@@ -42,9 +42,8 @@ export default function AssignmentsScreen() {
       {ordered.length === 0 ? <EmptyState title="Nobody assigned yet" /> : null}
       {ordered.map((row) => (
         <Card key={row.id}>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>
-            {row.person?.display_name ?? row.person?.email}
-          </Text>
+          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{personLabel(row.person)}</Text>
+          {contactLine(row.person) ? <Text style={{ color: theme.muted }}>{contactLine(row.person)}</Text> : null}
           <Text style={{ color: theme.muted }}>
             {row.person ? occupationLine(row.person.role, row.person.trade) : 'Operative'}
           </Text>
@@ -63,7 +62,8 @@ export default function AssignmentsScreen() {
       <Text style={{ color: theme.text, fontWeight: '800' }}>Not on this site</Text>
       {available.map((candidate) => (
         <Card key={candidate.id}>
-          <Text style={{ color: theme.text, fontWeight: '700' }}>{candidate.display_name ?? candidate.email}</Text>
+          <Text style={{ color: theme.text, fontWeight: '700' }}>{personLabel(candidate)}</Text>
+          {contactLine(candidate) ? <Text style={{ color: theme.muted }}>{contactLine(candidate)}</Text> : null}
           <Text style={{ color: theme.muted }}>{occupationLine(candidate.role, candidate.trade)}</Text>
           <Button
             label="Assign to this site"

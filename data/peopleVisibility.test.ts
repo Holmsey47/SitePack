@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
+import { personLabel, previewName } from './walk.ts';
 
 const migrationFile = fs
   .readdirSync('supabase/migrations')
@@ -85,7 +86,10 @@ test('the pre-lad migration locks the people read and the anon RPC', () => {
   assert.equal(grant.includes('email'), false);
   assert.equal(grant.includes('phone'), false);
 
-  const view = sql.slice(sql.indexOf('create view public.people_directory'), sql.indexOf('comment on view public.people_directory'));
+  const view = sql.slice(
+    sql.indexOf('create or replace view public.people_directory'),
+    sql.indexOf('comment on view public.people_directory'),
+  );
   assert.match(view, /security_invoker = true/);
   assert.equal(view.includes('email'), false);
   assert.equal(view.includes('phone'), false);
@@ -103,6 +107,32 @@ test('the pre-lad migration locks the people read and the anon RPC', () => {
   assert.match(labour, /v_role = 'owner'/);
   assert.doesNotMatch(labour, /'email'/);
 
+  assert.match(sql, /drop policy if exists people_select_visible/);
+  assert.match(sql, /to_regclass\('public\.people'\) is not null/);
+  assert.match(sql, /to_regprocedure\('public\.my_person\(\)'\) is not null/);
+
+  const pulse = sql.slice(
+    sql.indexOf('function public.company_sites_pulse'),
+    sql.indexOf('comment on function public.company_sites_pulse'),
+  );
+  assert.match(pulse, /coalesce\(nullif\(btrim\(p\.display_name\), ''\), 'Unknown'\)/);
+  assert.doesNotMatch(pulse, /p\.email/);
+  assert.match(sql, /to_regprocedure\('public\.company_sites_pulse\(\)'\) is not null/);
+
+  const contacts = sql.slice(
+    sql.indexOf('function public.company_contacts'),
+    sql.indexOf('comment on function public.company_contacts'),
+  );
+  assert.match(contacts, /security definer/);
+  assert.match(contacts, /set search_path = ''/);
+  assert.match(contacts, /v_role is distinct from 'owner'/);
+  assert.match(contacts, /not_authorized/);
+  assert.match(contacts, /'email', p\.email/);
+  assert.match(contacts, /'phone', p\.phone/);
+  assert.match(sql, /revoke all on function public\.company_contacts\(\) from public, anon/);
+  assert.match(sql, /grant execute on function public\.company_contacts\(\) to authenticated/);
+  assert.match(sql, /to_regprocedure\('public\.company_contacts\(\)'\) is not null/);
+
   assert.match(sql, /revoke all on function public\.site_contracts_manager_names\(uuid\) from public, anon/);
   assert.match(sql, /grant execute on function public\.site_contracts_manager_names\(uuid\) to authenticated/);
   assert.doesNotMatch(sql, /grant execute on function public\.site_contracts_manager_names\(uuid\) to anon/);
@@ -113,8 +143,75 @@ test('the pre-lad migration locks the people read and the anon RPC', () => {
 
   assert.match(repo, /from\('people_directory'\)/);
   assert.match(repo, /rpc\('my_person'\)/);
+  assert.match(repo, /rpc\('company_contacts'\)/);
   assert.match(repo, /people!drawing_requests_requester_id_fkey\(display_name\)/);
   assert.doesNotMatch(repo, /from\('people'\)/);
   assert.doesNotMatch(repo, /people\(\*\)/);
   assert.doesNotMatch(repo, /display_name, email/);
+
+  const pulseFn = fs
+    .readFileSync('data/fixtureRepo.ts', 'utf8')
+    .slice(
+      fs.readFileSync('data/fixtureRepo.ts', 'utf8').indexOf('async companySitesPulse'),
+      fs.readFileSync('data/fixtureRepo.ts', 'utf8').indexOf('async archiveSite'),
+    );
+  assert.match(pulseFn, /previewName\(/);
+  assert.doesNotMatch(pulseFn, /email/);
+});
+
+test('a contracts manager still gets names when the owner and unassigned staff are hidden', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const sam = await fixtureRepo.addNoLoginOperative({ displayName: 'Sam Cole', siteIds: [] });
+  await fixtureRepo.signOut();
+
+  await fixtureRepo.signIn('cm@sitepack.test', SEED_PASSWORD);
+  const directory = await fixtureRepo.listCompanyPeople();
+  const labour = await fixtureRepo.companyPeople();
+  assert.equal(directory.some((person) => person.id === IDS.owner || person.id === sam), false);
+  assert.equal(labour.some((person) => person.id === IDS.owner || person.id === sam), false);
+  const assignments = await fixtureRepo.listAssignments(IDS.oak);
+  assert.ok(assignments.length > 0);
+  for (const row of [...assignments.map((row) => personLabel(row.person)), ...labour.map((row) => personLabel(row))]) {
+    assert.equal(row.includes('undefined'), false);
+    assert.notEqual(row, '');
+  }
+  assert.equal(personLabel(undefined), 'Unknown');
+  assert.equal(personLabel({ display_name: null, email: null }), 'Unknown');
+  assert.equal(personLabel({ display_name: '   ', email: null }), 'Unknown');
+  assert.equal(personLabel({ display_name: '   ', email: 'amy@sitepack.test' }), 'amy@sitepack.test');
+  assert.equal(personLabel({ display_name: 'Amy Keane', email: null }), 'Amy Keane');
+  assert.equal(personLabel({ display_name: undefined, email: undefined }).includes('undefined'), false);
+  assert.equal(previewName('   '), 'Unknown');
+  assert.equal(previewName(null), 'Unknown');
+  assert.equal(directory.every((person) => person.email === null && person.phone === null), true);
+
+  const assignmentsScreen = fs.readFileSync('app/(app)/sites/[siteId]/assignments.tsx', 'utf8');
+  const peopleScreen = fs.readFileSync('app/(app)/people.tsx', 'utf8');
+  assert.match(assignmentsScreen, /personLabel\(/);
+  assert.match(assignmentsScreen, /contactLine\(/);
+  assert.match(peopleScreen, /personLabel\(/);
+  assert.doesNotMatch(peopleScreen, /\.email/);
+  assert.doesNotMatch(assignmentsScreen, /display_name \?\?/);
+});
+
+test('only the owner can read other peoples contact details', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const contacts = await fixtureRepo.companyContacts();
+  assert.equal(contacts.find((row) => row.id === IDS.amy)?.email, 'amy@sitepack.test');
+  assert.equal(contacts.find((row) => row.id === IDS.ben)?.phone, null);
+  const listed = await fixtureRepo.listCompanyPeople();
+  assert.equal(listed.find((person) => person.id === IDS.amy)?.email, 'amy@sitepack.test');
+  assert.equal(listed.some((person) => person.id === IDS.owner), true);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('cm@sitepack.test', SEED_PASSWORD);
+  await assert.rejects(() => fixtureRepo.companyContacts(), /not_authorized/);
+  assert.equal((await fixtureRepo.listCompanyPeople()).every((person) => person.email === null), true);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('ben@sitepack.test', SEED_PASSWORD);
+  await assert.rejects(() => fixtureRepo.companyContacts(), /not_authorized/);
+  assert.equal((await fixtureRepo.listCompanyPeople()).every((person) => person.phone === null), true);
 });

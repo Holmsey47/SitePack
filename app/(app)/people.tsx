@@ -12,7 +12,7 @@ import {
 import { repo } from '@/data/index';
 import type { CompanyPerson, PulseRow } from '@/data/types';
 import { theme } from '@/lib/theme';
-import { siteLabel } from '@/data/walk';
+import { personLabel, siteLabel } from '@/data/walk';
 import { Redirect, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -131,7 +131,7 @@ export default function PeopleScreen() {
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
         return (
           <Card key={row.id}>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.display_name}</Text>
+            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{personLabel(row)}</Text>
             <Muted>{occupationLine(row.role, row.trade)}</Muted>
             <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
             {mine.length === 1 ? (

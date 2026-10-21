@@ -1,10 +1,11 @@
 import { normalizeCreateSite } from '@/data/createSite';
 import { newId } from '@/data/newId';
-import { inviteSiteIds } from '@/data/walk';
+import { inviteSiteIds, previewName } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import type {
   AddNoLoginOperativeInput,
+  CompanyContact,
   CompanyPerson,
   CreateRequestInput,
   Drawing,
@@ -514,10 +515,10 @@ export const fixtureRepo: SitePackRepo = {
           .filter((a) => a.site_id === s.id)
           .map((a) => store.people.find((p) => p.id === a.person_id))
           .filter((personOnSite): personOnSite is Person => Boolean(personOnSite));
-        const names = people.map((personOnSite) => personOnSite.display_name ?? 'Unknown').sort();
+        const names = people.map((personOnSite) => previewName(personOnSite.display_name)).sort();
         const managers = people
           .filter((personOnSite) => personOnSite.role === 'cm')
-          .map((personOnSite) => personOnSite.display_name ?? 'Unknown')
+          .map((personOnSite) => previewName(personOnSite.display_name))
           .sort();
         return {
           site_id: s.id,
@@ -590,6 +591,15 @@ export const fixtureRepo: SitePackRepo = {
     return store.people
       .filter((candidate) => canSeePerson(person, candidate))
       .map((candidate) => personForCaller(person, candidate));
+  },
+
+  async companyContacts(): Promise<CompanyContact[]> {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    return store.people
+      .filter((candidate) => candidate.company_id === person.company_id)
+      .map((candidate) => ({ id: candidate.id, email: candidate.email, phone: candidate.phone }))
+      .sort((a, b) => a.id.localeCompare(b.id));
   },
 
   async companyPeople() {

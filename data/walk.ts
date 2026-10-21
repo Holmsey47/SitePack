@@ -28,6 +28,32 @@ export function assignmentRank(role: Role | undefined): number {
   return 2;
 }
 
+/** Display name, then email when the caller is allowed to see it, otherwise Unknown. */
+export function personLabel(
+  person: { display_name?: string | null; email?: string | null } | null | undefined,
+): string {
+  const name = person?.display_name?.trim() ?? '';
+  if (name) return name;
+  const email = person?.email?.trim() ?? '';
+  if (email) return email;
+  return 'Unknown';
+}
+
+/** Email and phone the caller is allowed to see. Empty when both are blank. */
+export function contactLine(
+  person: { email?: string | null; phone?: string | null } | null | undefined,
+): string {
+  const email = person?.email?.trim() ?? '';
+  const phone = person?.phone?.trim() ?? '';
+  return [email, phone].filter((part) => part.length > 0).join(' · ');
+}
+
+/** Pulse and other shared name lists. A blank name is Unknown, never an email. */
+export function previewName(displayName: string | null | undefined): string {
+  const name = displayName?.trim() ?? '';
+  return name || 'Unknown';
+}
+
 export function siteLabel(names: string[]): string {
   if (names.length === 0) return 'Unassigned';
   return names.join(', ');
