@@ -1,6 +1,6 @@
-import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { FOLDER_PRESETS, OTHER_FOLDER, displayFolder } from '@/data/folders';
+import { FOLDER_PRESETS, LEVEL_PRESETS, OTHER_FOLDER, displayFolder, displayLevel } from '@/data/folders';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
@@ -9,7 +9,7 @@ import { theme } from '@/lib/theme';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 export default function UploadScreen() {
   const { siteId, replace } = useLocalSearchParams<{ siteId: string; replace?: string }>();
@@ -21,6 +21,7 @@ export default function UploadScreen() {
   const [revision, setRevision] = useState('');
   const [dated, setDated] = useState(new Date().toISOString().slice(0, 10));
   const [folderName, setFolderName] = useState('');
+  const [levelName, setLevelName] = useState('');
   const [fileName, setFileName] = useState('');
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState('');
@@ -35,6 +36,7 @@ export default function UploadScreen() {
       setTitle(drawing.title);
       setSheetNumber(drawing.sheet_number ?? '');
       setFolderName(displayFolder(drawing.folder));
+      setLevelName(displayLevel(drawing.level) ?? '');
     });
   }, [replaceId, siteId]);
 
@@ -85,6 +87,7 @@ export default function UploadScreen() {
         contentType: 'application/pdf',
         replaceDrawingId: replaceId,
         folder: folderName,
+        level: levelName,
       });
       setDoneRev(revision.trim());
     } catch (err) {
@@ -110,26 +113,12 @@ export default function UploadScreen() {
       <Field label="Sheet number" value={sheetNumber} onChangeText={setSheetNumber} placeholder="A-101" />
       <Field label="Revision" value={revision} onChangeText={setRevision} placeholder="D" />
       <Field label="Dated" value={dated} onChangeText={setDated} placeholder="YYYY-MM-DD" />
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Folder</Text>
+      <Text style={{ color: theme.text, fontWeight: '800' }}>Folder</Text>
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         {FOLDER_PRESETS.map((preset) => {
           const selected = folderName.trim() === preset || (preset === OTHER_FOLDER && folderName.trim() === '');
           return (
-            <Pressable
-              key={preset}
-              accessibilityRole="button"
-              onPress={() => setFolderName(preset)}
-              style={{
-                minHeight: 44,
-                justifyContent: 'center',
-                paddingHorizontal: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: selected ? theme.current : theme.line,
-                backgroundColor: theme.surface,
-              }}>
-              <Text style={{ color: theme.text, fontWeight: selected ? '800' : '600' }}>{preset}</Text>
-            </Pressable>
+            <ChoiceChip key={preset} label={preset} selected={selected} onPress={() => setFolderName(preset)} />
           );
         })}
       </View>
@@ -139,6 +128,24 @@ export default function UploadScreen() {
         onChangeText={setFolderName}
         autoCapitalize="words"
         placeholder="Or type a name. Blank is Other."
+      />
+      <Text style={{ color: theme.text, fontWeight: '800' }}>Level</Text>
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {LEVEL_PRESETS.map((preset) => (
+          <ChoiceChip
+            key={preset}
+            label={preset}
+            selected={levelName.trim() === preset}
+            onPress={() => setLevelName(preset)}
+          />
+        ))}
+      </View>
+      <Field
+        label="Level name"
+        value={levelName}
+        onChangeText={setLevelName}
+        autoCapitalize="words"
+        placeholder="Optional. Blank is fine."
       />
       <Button label={fileName ? `PDF: ${fileName}` : 'Pick PDF'} variant="secondary" onPress={() => void pickPdf()} />
       <ErrorText>{error}</ErrorText>

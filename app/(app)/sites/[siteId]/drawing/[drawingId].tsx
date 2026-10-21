@@ -1,6 +1,7 @@
 import { DrawingFrame } from '@/components/drawing-frame';
 import { Button, Muted, RevBadge, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { displayLevel } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing } from '@/data/types';
@@ -103,6 +104,9 @@ export default function DrawingViewerScreen() {
             <Muted>
               {drawing.is_current ? 'Current' : 'Superseded'} · {formatDate(drawing.dated)}
             </Muted>
+            {displayLevel(drawing.level) ? (
+              <Text style={{ color: theme.text, fontWeight: '800' }}>{displayLevel(drawing.level)}</Text>
+            ) : null}
           </View>
         ) : null}
         {canReplace && drawing ? (

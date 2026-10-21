@@ -20,7 +20,7 @@ import type {
   SiteAssignment,
   Site,
 } from '@/data/types';
-import { resolveFolder } from '@/data/folders';
+import { resolveFolder, resolveLevel } from '@/data/folders';
 import { pdfObjectUrl } from '@/lib/pdf';
 
 type Store = {
@@ -33,6 +33,34 @@ type Store = {
 };
 
 const now = () => new Date().toISOString();
+
+/** Four current set-out sheets so fixture mode can show the level filter. */
+function setOutSheets(): Drawing[] {
+  const rows: Array<{ id: string; title: string; sheet: string; level: string }> = [
+    { id: '99999999-9999-9999-9999-999999999995', title: 'Set out Ground', sheet: 'SO-00', level: 'Ground' },
+    { id: '99999999-9999-9999-9999-999999999996', title: 'Set out L1', sheet: 'SO-01', level: 'L1' },
+    { id: '99999999-9999-9999-9999-999999999997', title: 'Set out L2', sheet: 'SO-02', level: 'L2' },
+    { id: '99999999-9999-9999-9999-999999999998', title: 'Set out L3', sheet: 'SO-03', level: 'L3' },
+  ];
+  return rows.map((row) => ({
+    id: row.id,
+    site_id: IDS.oak,
+    title: row.title,
+    sheet_number: row.sheet,
+    revision: 'A',
+    dated: '2026-10-01',
+    folder: 'Set out plans',
+    level: row.level,
+    is_current: true,
+    supersedes_id: null,
+    storage_path: `${IDS.company}/${IDS.oak}/${row.id}.pdf`,
+    file_size_bytes: 4000,
+    content_type: 'application/pdf',
+    uploaded_by: IDS.cm,
+    created_at: '2026-10-01T09:00:00.000Z',
+    updated_at: '2026-10-01T09:00:00.000Z',
+  }));
+}
 
 function seed(): Store {
   const people: Person[] = [
@@ -135,6 +163,7 @@ function seed(): Store {
       revision: 'B',
       dated: '2026-08-02',
       folder: 'Ground floor',
+      level: 'Ground',
       is_current: false,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.gfRevB}.pdf`,
@@ -152,6 +181,7 @@ function seed(): Store {
       revision: 'C',
       dated: '2026-09-10',
       folder: 'Ground floor',
+      level: 'Ground',
       is_current: true,
       supersedes_id: IDS.gfRevB,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.gfRevC}.pdf`,
@@ -169,6 +199,7 @@ function seed(): Store {
       revision: 'A',
       dated: '2026-09-04',
       folder: 'First floor',
+      level: 'L1',
       is_current: true,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.oak}/${IDS.ffRevA}.pdf`,
@@ -186,6 +217,7 @@ function seed(): Store {
       revision: 'A',
       dated: '2026-09-12',
       folder: 'Other',
+      level: null,
       is_current: true,
       supersedes_id: null,
       storage_path: `${IDS.company}/${IDS.warehouse}/${IDS.yard}.pdf`,
@@ -195,6 +227,7 @@ function seed(): Store {
       created_at: '2026-09-12T09:00:00.000Z',
       updated_at: '2026-09-12T09:00:00.000Z',
     },
+    ...setOutSheets(),
   ];
 
   const requests: DrawingRequest[] = [
@@ -407,6 +440,7 @@ export const fixtureRepo: SitePackRepo = {
           file_size_bytes: d.file_size_bytes,
           content_type: d.content_type,
           storage_path: d.storage_path,
+          level: d.level,
           signed_url: pdfObjectUrl(d.id, d.title, d.revision, d.dated ?? ''),
           signed_url_expires_at: expires,
         };
@@ -707,6 +741,7 @@ export const fixtureRepo: SitePackRepo = {
       created_at: now(),
       updated_at: now(),
       folder: resolveFolder(input.folder, old?.folder),
+      level: resolveLevel(input.level, old?.level),
     };
     store.drawings.push(created);
     const site = store.sites.find((s) => s.id === input.siteId);

@@ -18,6 +18,7 @@
     "supabase/functions",
     "node_modules",
     "data/folders.test.ts",
+    "data/drawingLevel.test.ts",
     "data/createSite.test.ts",
     "data/inviteError.test.ts",
     "data/seatShape.test.ts",
