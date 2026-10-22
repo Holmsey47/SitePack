@@ -1,9 +1,12 @@
-import { Button, Card, EmptyState, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen } from '@/lib/drawingSeenQueue';
+import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
@@ -32,6 +35,9 @@ export default function SitePackScreen() {
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [newJoiners, setNewJoiners] = useState(0);
+  const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
+  const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -50,6 +56,14 @@ export default function SitePackScreen() {
       setError('');
       const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
       setReady(isPackReady(siteId, currentIds));
+      const manageNow = person ? canManageSite(person.role) : false;
+      const seen = await refreshDrawingSeen(manageNow).catch(() => null);
+      if (seen) {
+        setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
+        setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+      }
+      if (manageNow) setSeenSummary(await loadSiteSeenSummary(siteId));
+      else setSeenSummary(null);
     } catch {
       const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
       const meta = readPackMeta(siteId);
@@ -185,6 +199,26 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      {seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
+        <Text
+          accessibilityRole="text"
+          style={{ color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 }}>
+          {siteUnseenLine(seenSummary.not_seen_by_everyone)}
+        </Text>
+      ) : null}
+      {unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision)).length > 0 ||
+      queuedSeen.some((row) => row.kind === 'confirm') ? (
+        <View style={{ gap: 8 }}>
+          {unseen
+            .filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision))
+            .map((row) => (
+              <NewRevBadge key={row.drawing_id} sheet={row.sheet} revision={row.revision} />
+            ))}
+          {queuedSeen.some((row) => row.kind === 'confirm') ? (
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+          ) : null}
+        </View>
+      ) : null}
       {phoneRows.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>

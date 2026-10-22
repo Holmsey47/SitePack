@@ -22,6 +22,7 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/request" options={{ title: 'Request a drawing' }} />
       <Stack.Screen name="sites/[siteId]/upload" options={{ title: 'Upload' }} />
       <Stack.Screen name="sites/[siteId]/drawing/[drawingId]" options={{ title: 'Drawing' }} />
+      <Stack.Screen name="sites/[siteId]/seen/[drawingId]" options={{ title: 'Who has seen this' }} />
       <Stack.Screen name="sites/[siteId]/assignments" options={{ title: 'Assigned people' }} />
       <Stack.Screen name="sites/[siteId]/invite-code" options={{ title: 'Invite to site' }} />
       <Stack.Screen name="sites/[siteId]/joined" options={{ title: 'Who joined' }} />

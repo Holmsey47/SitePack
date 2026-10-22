@@ -43,6 +43,16 @@ import type { JoinCodeCreated, JoinCodeRow, JoinWithCodeInput, JoinerRow, Passwo
 import { pdfObjectUrl } from '@/lib/pdf';
 import type { CreateVariationInput, VariationDetail, VariationList } from '@/data/variations';
 import {
+  buildRoster,
+  buildSiteSummary,
+  confirmSeen,
+  managerGaps,
+  recordOpen,
+  unseenForPerson,
+  type ProofOpen,
+  type ProofSeen,
+} from '@/data/drawingSeen';
+import {
   fixtureCreateVariation,
   fixtureListVariations,
   fixturePhotoUrl,
@@ -128,6 +138,8 @@ type Store = {
   companyName: string;
   codeSerial: number;
   variations: FixtureVariationBucket;
+  drawingOpens: ProofOpen[];
+  drawingSeen: ProofSeen[];
 };
 
 const now = () => new Date().toISOString();
@@ -410,6 +422,8 @@ function seed(): Store {
     banned: [],
     companyName: 'Ashfield Finishes',
     codeSerial: 0,
+    drawingOpens: [],
+    drawingSeen: [],
     variations: seedFixtureVariations({
       companyId: IDS.company,
       oakId: IDS.oak,
@@ -1491,6 +1505,82 @@ export const fixtureRepo: SitePackRepo = {
       removed += 1;
     }
     return { removed };
+  },
+
+  async listMyUnseenDrawings() {
+    const person = meOrThrow();
+    const names = new Map(store.sites.map((site) => [site.id, site.name]));
+    return unseenForPerson(person.id, store.drawings, store.assignments, store.drawingSeen, names);
+  },
+
+  async myDrawingProof(drawingId) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    const seen = store.drawingSeen.find(
+      (row) => row.drawing_id === drawing.id && row.person_id === person.id && row.revision === drawing.revision
+    );
+    return {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      revision: drawing.revision,
+      is_current: drawing.is_current,
+      assigned: store.assignments.some((row) => row.site_id === drawing.site_id && row.person_id === person.id),
+      opened: store.drawingOpens.some(
+        (row) => row.drawing_id === drawing.id && row.person_id === person.id && row.revision === drawing.revision
+      ),
+      seen_at: seen?.seen_at ?? null,
+    };
+  },
+
+  async siteDrawingSeen(siteId) {
+    const person = requireManager();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return buildSiteSummary(siteId, store.drawings, store.assignments, store.drawingSeen);
+  },
+
+  async drawingSeenRoster(drawingId) {
+    const person = requireManager();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    return buildRoster(drawing, store.assignments, store.people, store.drawingSeen);
+  },
+
+  async managerDrawingGaps() {
+    const person = requireManager();
+    const sites = store.sites.filter((site) => canAccessSite(person, site.id)).map((site) => site.id);
+    return managerGaps(store.drawings, store.assignments, store.drawingSeen, sites);
+  },
+
+  async recordDrawingOpen(drawingId) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    if (!drawing.is_current) throw new Error('not_current');
+    recordOpen(store.drawingOpens, {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      person_id: person.id,
+      revision: drawing.revision,
+    });
+  },
+
+  async confirmDrawingSeen(drawingId) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    if (!drawing.is_current) throw new Error('not_current');
+    const row = confirmSeen(store.drawingOpens, store.drawingSeen, {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      person_id: person.id,
+      revision: drawing.revision,
+    });
+    return { seenAt: row.seen_at };
   },
 };
 

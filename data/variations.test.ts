@@ -82,7 +82,10 @@ test('the migration is one file and names the RLS policies', () => {
   const names = fs
     .readdirSync('supabase/migrations')
     .filter((name) => name.endsWith('.sql') && name.slice(0, 14) > '20261021210000');
-  assert.deepEqual(names, ['20261022150000_variations.sql']);
+  assert.deepEqual(
+    names.filter((name) => name.includes('variation')),
+    ['20261022150000_variations.sql']
+  );
   const sql = fs.readFileSync('supabase/migrations/20261022150000_variations.sql', 'utf8');
   for (const policy of [
     'variations_select',

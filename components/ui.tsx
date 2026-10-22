@@ -181,6 +181,38 @@ export function NoLoginBadge() {
   );
 }
 
+/** Current sheet the signed-in person has not confirmed. A label, not a control. */
+export function NewRevBadge({ sheet, revision }: { sheet: string; revision: string }) {
+  const label = `New: ${sheet} rev ${revision}`;
+  return (
+    <View style={styles.newRev} accessibilityRole="text" accessibilityLabel={label}>
+      <Text style={styles.newRevText}>{label}</Text>
+    </View>
+  );
+}
+
+/** Owner or contracts manager count. Tap opens who has and has not seen it. */
+export function SeenCountChip({
+  seen,
+  total,
+  onPress,
+}: {
+  seen: number;
+  total: number;
+  onPress: () => void;
+}) {
+  const label = `${seen} of ${total} seen`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.seenChip, pressed && styles.btnPressed]}>
+      <Text style={styles.seenChipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 /** The copy on this phone is out of date. A label, not a control. */
 export function OutOfDateBadge() {
   return (
@@ -318,4 +350,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   outOfDateText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
+  newRev: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.current,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    justifyContent: 'center',
+  },
+  newRevText: { color: theme.currentInk, fontSize: 15, fontWeight: '800' },
+  seenChip: {
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.current,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  seenChipText: { color: theme.text, fontSize: 16, fontWeight: '800', textAlign: 'center' },
 });

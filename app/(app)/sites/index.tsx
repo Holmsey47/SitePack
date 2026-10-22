@@ -1,6 +1,7 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, NewRevBadge, Screen, OutOfDateBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
@@ -8,6 +9,8 @@ import { archivedRows, contractsManagerLine, operativesLine, workingRows } from 
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen } from '@/lib/drawingSeenQueue';
+import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -26,6 +29,9 @@ export default function SitesScreen() {
   const [showArchived, setShowArchived] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
+  const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
+  const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
+  const [queued, setQueued] = useState<QueuedSeen[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -66,6 +72,34 @@ export default function SitesScreen() {
       };
     }, [person])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person) return;
+      let active = true;
+      refreshDrawingSeen(manager)
+        .then((next) => {
+          if (!active) return;
+          setUnseen(next.unseen);
+          setGaps(next.gaps);
+          setQueued(next.queued);
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, [manager, person])
+  );
+
+  function seenNotes(siteId: string) {
+    const badges = unseen.filter(
+      (row) => row.site_id === siteId && !confirmQueued(queued, row.drawing_id, row.revision)
+    );
+    const waiting = queued.some((item) => item.kind === 'confirm' && item.siteId === siteId);
+    const gap = gaps.find((row) => row.site_id === siteId);
+    const line = manager && gap ? siteUnseenLine(gap.not_seen_by_everyone) : null;
+    return { badges, waiting, line };
+  }
 
   const working = useMemo(() => workingRows(rows), [rows]);
   const archived = useMemo(() => archivedRows(rows), [rows]);
@@ -131,6 +165,7 @@ export default function SitesScreen() {
                   {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
                 </Text>
               ) : null}
+              <SeenNotes notes={seenNotes(site.id)} />
             </Card>
           ))
         )}
@@ -196,6 +231,7 @@ export default function SitesScreen() {
             <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
             <Muted>{operativesLine(row.operative_count)}</Muted>
             <Muted>{formatWhen(row.last_pack_update)}</Muted>
+            <SeenNotes notes={seenNotes(row.site_id)} />
             <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
               {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
             </Text>
@@ -217,5 +253,28 @@ export default function SitesScreen() {
           ))
         : null}
     </Screen>
+  );
+}
+
+function SeenNotes({
+  notes,
+}: {
+  notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null };
+}) {
+  if (notes.badges.length === 0 && !notes.waiting && !notes.line) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      {notes.line ? (
+        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', lineHeight: 22 }} accessibilityRole="text">
+          {notes.line}
+        </Text>
+      ) : null}
+      {notes.badges.map((badge) => (
+        <NewRevBadge key={badge.drawing_id} sheet={badge.sheet} revision={badge.revision} />
+      ))}
+      {notes.waiting ? (
+        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+      ) : null}
+    </View>
   );
 }
