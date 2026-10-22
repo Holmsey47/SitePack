@@ -160,7 +160,11 @@ stable
 security definer
 set search_path = ''
 as $fn$
-  select case when private.can_see_variation_value() then v.value_pence end
+  select case
+    when private.can_see_variation_value()
+     and private.can_access_site(v.site_id)
+    then v.value_pence
+  end
   from public.variation_versions v
   where v.id = p_version_id;
 $fn$;
@@ -175,8 +179,13 @@ stable
 security definer
 set search_path = ''
 as $fn$
-  select case when private.can_see_variation_value() then s.shown_value_pence end
+  select case
+    when private.can_see_variation_value()
+     and private.can_access_site(v.site_id)
+    then s.shown_value_pence
+  end
   from public.variation_signatures s
+  join public.variation_versions v on v.id = s.version_id
   where s.version_id = p_version_id;
 $fn$;
 
