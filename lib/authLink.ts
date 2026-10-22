@@ -390,3 +390,36 @@ export async function settleAuthLink(deps: SettleAuthLinkDeps): Promise<AuthLink
   }
   return { status: 'applied', purpose: parsed.purpose };
 }
+
+/** PKCE `code` on an allow-listed auth path. Hash session tokens win. The query string is not a session. */
+export function pkceCodeFromAuthLink(url: string | null): string | null {
+  if (!url || sessionTokensFromUrl(url)) return null;
+  const parsed = parseUrl(url);
+  if (!parsed || !originAllowsAuthLink(parsed) || !authLinkPurpose(parsed.pathname)) return null;
+  const code = parsed.searchParams.get('code') ?? '';
+  return code ? code : null;
+}
+
+/**
+ * Native deep-link intake. Hash links go through settleAuthLink.
+ * A PKCE code is exchanged only when that guard finds no hash session.
+ */
+export async function settleNativeDeepLink(
+  deps: SettleAuthLinkDeps & {
+    exchangeCode: (code: string) => Promise<{ error: string | null }>;
+  }
+): Promise<AuthLinkOutcome> {
+  const outcome = await settleAuthLink(deps);
+  if (outcome.status !== 'none') return outcome;
+  const code = pkceCodeFromAuthLink(deps.url);
+  if (!code) return { status: 'none' };
+  let exchanged: { error: string | null };
+  try {
+    exchanged = await deps.exchangeCode(code);
+  } catch {
+    return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false };
+  }
+  if (exchanged.error) return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false };
+  const purpose = authLinkPurpose(parseUrl(deps.url ?? '')?.pathname ?? '') ?? 'invite';
+  return { status: 'applied', purpose };
+}

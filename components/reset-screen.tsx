@@ -1,30 +1,41 @@
 import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { formatJoinCode, publicCodePath, resetFailureMessage } from '@/data/joinCodes';
+import { clearStagedResetCode, peekStagedResetCode, stageResetCode } from '@/lib/appLinks';
 import { theme } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 
 export function ResetScreen({ routeCode }: { routeCode?: string }) {
   const { redeemPasswordReset } = useAuth();
   const router = useRouter();
-  const [code, setCode] = useState(routeCode ? formatJoinCode(routeCode) : '');
+  const [code, setCode] = useState(() => formatJoinCode(routeCode || peekStagedResetCode()));
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!routeCode || typeof window === 'undefined') return;
-    const strip = () => {
-      const next = publicCodePath(window.location.pathname);
-      if (next) window.history.replaceState(window.history.state, '', next);
-    };
-    strip();
-    const id = window.setTimeout(strip, 0);
-    return () => window.clearTimeout(id);
-  }, [routeCode]);
+    if (Platform.OS === 'web') {
+      if (!routeCode || typeof window === 'undefined') return;
+      const strip = () => {
+        const next = publicCodePath(window.location.pathname);
+        if (next) window.history.replaceState(window.history.state, '', next);
+      };
+      strip();
+      const id = window.setTimeout(strip, 0);
+      return () => window.clearTimeout(id);
+    }
+    if (routeCode) {
+      stageResetCode(routeCode);
+      router.replace('/reset');
+      return;
+    }
+    const staged = peekStagedResetCode();
+    if (staged) setCode(formatJoinCode(staged));
+    clearStagedResetCode();
+  }, [routeCode, router]);
 
   async function onSubmit() {
     setError('');

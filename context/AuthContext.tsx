@@ -2,16 +2,21 @@ import {
   ensureWebAuthUrlStripped,
   INVALID_AUTH_LINK,
   settleAuthLink,
+  settleNativeDeepLink,
   takeWebAuthUrl,
   accountIdentityFromUser,
   type ConfirmAccounts,
+  type SettleAuthLinkDeps,
 } from '@/lib/authLink';
+import { captureIncomingLink } from '@/lib/appLinks';
 import { repo, useFixtures } from '@/data/index';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
 import { AuthLinkConfirm } from '@/components/auth-link-confirm';
 import * as Linking from 'expo-linking';
+import { router } from 'expo-router';
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 type AuthState = {
   ready: boolean;
@@ -65,72 +70,105 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const seen = new Set<string>();
+
+    function confirm(accounts: ConfirmAccounts) {
+      return new Promise<boolean>((resolve) => {
+        if (cancelled) {
+          resolve(false);
+          return;
+        }
+        confirmResolve.current = resolve;
+        setConfirmAccounts(accounts);
+      });
+    }
+
+    function linkDeps(url: string): SettleAuthLinkDeps {
+      const supabase = getSupabase();
+      return {
+        url,
+        now: Math.floor(Date.now() / 1000),
+        getExisting: async () => {
+          try {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) return { state: 'unknown' };
+            const identity = accountIdentityFromUser(data.session?.user);
+            if (!identity) return { state: 'none' };
+            return { state: 'signed-in', identity };
+          } catch {
+            return { state: 'unknown' };
+          }
+        },
+        verifyToken: async (accessToken) => {
+          try {
+            const { data, error } = await supabase.auth.getUser(accessToken);
+            if (error || !data.user) return null;
+            return accountIdentityFromUser(data.user);
+          } catch {
+            return null;
+          }
+        },
+        setSession: async (tokens) => {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: tokens.accessToken,
+            refresh_token: tokens.refreshToken,
+          });
+          return {
+            error: error ? error.message : null,
+            accessToken: error ? null : data.session?.access_token ?? null,
+          };
+        },
+        signOut: async () => {
+          await supabase.auth.signOut();
+        },
+        confirm,
+      };
+    }
+
+    async function accept(url: string | null, native: boolean) {
+      if (!url || seen.has(url) || useFixtures || !hasSupabaseConfig) return;
+      seen.add(url);
+      const supabase = getSupabase();
+      const outcome = native
+        ? await settleNativeDeepLink({
+            ...linkDeps(url),
+            exchangeCode: async (code) => {
+              const { error } = await supabase.auth.exchangeCodeForSession(code);
+              return { error: error ? error.message : null };
+            },
+          })
+        : await settleAuthLink(linkDeps(url));
+      if (cancelled) return;
+      if (outcome.status === 'applied') {
+        writePending(true);
+        setLinkError(null);
+        setNeedsPassword(true);
+        try {
+          const me = await repo.me();
+          if (!cancelled) setPerson(me);
+        } catch {
+          if (!cancelled) setPerson(null);
+        }
+      } else if (outcome.status === 'rejected') {
+        if (outcome.signedOut) {
+          writePending(false);
+          setNeedsPassword(false);
+          setPerson(null);
+        }
+        setLinkError(outcome.message);
+      }
+      if (!cancelled) setConfirmAccounts(null);
+    }
 
     async function boot() {
       const captured = takeWebAuthUrl();
       let linkUrl = captured;
-      if (!linkUrl && typeof window === 'undefined') {
-        linkUrl = await Linking.getInitialURL();
+      if (Platform.OS !== 'web') {
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl) linkUrl = initialUrl;
       }
       try {
-        if (linkUrl && !useFixtures && hasSupabaseConfig) {
-          const supabase = getSupabase();
-          const outcome = await settleAuthLink({
-            url: linkUrl,
-            now: Math.floor(Date.now() / 1000),
-            getExisting: async () => {
-              try {
-                const { data, error } = await supabase.auth.getSession();
-                if (error) return { state: 'unknown' };
-                const identity = accountIdentityFromUser(data.session?.user);
-                if (!identity) return { state: 'none' };
-                return { state: 'signed-in', identity };
-              } catch {
-                return { state: 'unknown' };
-              }
-            },
-            verifyToken: async (accessToken) => {
-              try {
-                const { data, error } = await supabase.auth.getUser(accessToken);
-                if (error || !data.user) return null;
-                return accountIdentityFromUser(data.user);
-              } catch {
-                return null;
-              }
-            },
-            setSession: async (tokens) => {
-              const { data, error } = await supabase.auth.setSession({
-                access_token: tokens.accessToken,
-                refresh_token: tokens.refreshToken,
-              });
-              return {
-                error: error ? error.message : null,
-                accessToken: error ? null : data.session?.access_token ?? null,
-              };
-            },
-            signOut: async () => {
-              await supabase.auth.signOut();
-            },
-            confirm: (accounts) =>
-              new Promise((resolve) => {
-                if (cancelled) {
-                  resolve(false);
-                  return;
-                }
-                confirmResolve.current = resolve;
-                setConfirmAccounts(accounts);
-              }),
-          });
-          if (!cancelled) {
-            if (outcome.status === 'applied') {
-              writePending(true);
-              setLinkError(null);
-            } else if (outcome.status === 'rejected') {
-              if (outcome.signedOut) writePending(false);
-              setLinkError(outcome.message);
-            }
-          }
-        }
+        await accept(linkUrl, Platform.OS !== 'web');
         if (!useFixtures && hasSupabaseConfig) {
           const supabase = getSupabase();
           supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -162,10 +200,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void boot();
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      if (Platform.OS === 'web') return;
+      const next = captureIncomingLink(url);
+      try {
+        router.replace(next as never);
+      } catch {
+        // Navigation is not mounted yet. +native-intent already returned this path.
+      }
+      void accept(url, true);
+    });
     return () => {
       cancelled = true;
       confirmResolve.current?.(false);
       confirmResolve.current = null;
+      sub.remove();
     };
   }, []);
 

@@ -14,7 +14,9 @@ import {
   planBrowserUrl,
   sessionTokensFromUrl,
   settleAuthLink,
+  settleNativeDeepLink,
   type ExistingSession,
+  type SettleAuthLinkDeps,
 } from './authLink.ts';
 
 const NOW = 1_700_000_000;
@@ -389,7 +391,7 @@ test('the address bar is cleared before boot awaits the network', () => {
   const source = fs.readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
   const stripAt = source.indexOf('ensureWebAuthUrlStripped()');
   const bootAt = source.indexOf('async function boot');
-  const boot = source.slice(bootAt, source.indexOf('settleAuthLink', bootAt));
+  const boot = source.slice(bootAt, source.indexOf('void boot()'));
   assert.ok(stripAt !== -1 && bootAt !== -1 && stripAt < bootAt);
   assert.ok(boot.includes('takeWebAuthUrl()'));
   assert.ok(boot.indexOf('takeWebAuthUrl()') < boot.indexOf('await'));
@@ -414,4 +416,181 @@ test('the address bar is cleared before boot awaits the network', () => {
   const setPassword = fs.readFileSync(new URL('../app/(auth)/set-password.tsx', import.meta.url), 'utf8');
   assert.match(setPassword, /Setting a password for /);
   assert.match(setPassword, /Not you\? Sign out/);
+});
+
+function nativeDeps(
+  url: string,
+  hooks?: Partial<SettleAuthLinkDeps> & { exchangeCode?: (code: string) => Promise<{ error: string | null }> }
+): SettleAuthLinkDeps & { exchangeCode: (code: string) => Promise<{ error: string | null }> } {
+  return {
+    url,
+    now: NOW,
+    getExisting: async () => ({ state: 'none' }),
+    verifyToken: async () => {
+      throw new Error('no open session, so the token is not pre-verified');
+    },
+    setSession: async (tokens) => ({ error: null, accessToken: tokens.accessToken }),
+    signOut: async () => undefined,
+    confirm: async () => {
+      throw new Error('must not confirm');
+    },
+    exchangeCode: async () => {
+      throw new Error('hash intake must not exchange a code');
+    },
+    ...hooks,
+  };
+}
+
+test('native deep links are accepted only through the auth link guard', async () => {
+  const accessToken = freshInvite();
+  const applied = await settleNativeDeepLink(nativeDeps(hashUrl('/set-password', accessToken)));
+  assert.equal(applied.status, 'applied');
+
+  const resetCode = token({ amr: [{ method: 'recovery' }] });
+  const reset = await settleNativeDeepLink(nativeDeps(hashUrl('/reset/AB12', resetCode)));
+  assert.equal(reset.status, 'applied');
+  if (reset.status === 'applied') assert.equal(reset.purpose, 'recovery');
+
+  const refused = [
+    `sitepack://set-password#access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1`,
+    `sitepack:///set-password#access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1`,
+    `http://sitepack-preview.vercel.app/set-password#access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1`,
+    `https://evil.example/set-password#access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1`,
+    `https://sitepack-preview.vercel.app/set-password?access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1&type=invite`,
+    `https://sitepack-preview.vercel.app/sites#access_token=${encodeURIComponent(accessToken)}&refresh_token=refresh-1`,
+  ];
+  for (const url of refused) {
+    let setCalls = 0;
+    const outcome = await settleNativeDeepLink(
+      nativeDeps(url, {
+        setSession: async (tokens) => {
+          setCalls += 1;
+          return { error: null, accessToken: tokens.accessToken };
+        },
+        exchangeCode: async () => {
+          throw new Error('a refused link must not exchange a code');
+        },
+      })
+    );
+    assert.equal(outcome.status, 'none', url);
+    assert.equal(setCalls, 0, url);
+  }
+});
+
+test('native intake refuses magiclink, a stale iat, and an open session', async () => {
+  for (const accessToken of [
+    token({ amr: [{ method: 'magiclink' }] }),
+    token({ amr: [{ method: 'otp' }], iat: NOW - AUTH_LINK_MAX_AGE_SECONDS - 5 }),
+  ]) {
+    let setCalls = 0;
+    const outcome = await settleNativeDeepLink(
+      nativeDeps(hashUrl('/set-password', accessToken), {
+        verifyToken: async () => {
+          throw new Error('bad claims must not be verified');
+        },
+        setSession: async (tokens) => {
+          setCalls += 1;
+          return { error: null, accessToken: tokens.accessToken };
+        },
+        confirm: async () => {
+          throw new Error('bad claims must not ask');
+        },
+      })
+    );
+    assert.equal(outcome.status, 'rejected');
+    assert.equal(setCalls, 0);
+  }
+
+  const calls: string[] = [];
+  const open = await settleNativeDeepLink(
+    nativeDeps(hashUrl('/reset', token({ amr: [{ method: 'recovery' }], email: 'forged@site.test', sub: 'forged' })), {
+      getExisting: async () => {
+        calls.push('getExisting');
+        return { state: 'signed-in', identity: { id: 'victim', email: 'victim@site.test' } };
+      },
+      verifyToken: async () => {
+        calls.push('verify');
+        return { id: 'other', email: 'other@site.test' };
+      },
+      confirm: async (accounts) => {
+        calls.push('confirm');
+        assert.equal(accounts.currentAccount, 'victim@site.test');
+        assert.equal(accounts.linkAccount, 'other@site.test');
+        assert.equal(JSON.stringify(accounts).includes('forged@site.test'), false);
+        return false;
+      },
+      setSession: async () => {
+        calls.push('setSession');
+        return { error: null, accessToken: freshInvite() };
+      },
+    })
+  );
+  assert.equal(open.status, 'declined');
+  assert.deepEqual(calls, ['getExisting', 'verify', 'confirm']);
+});
+
+test('native PKCE stays on the allow-listed https paths and sitepack is refused', async () => {
+  const codes: string[] = [];
+  const exchanged = await settleNativeDeepLink(
+    nativeDeps('https://sitepack-preview.vercel.app/set-password?code=pkce-code', {
+      exchangeCode: async (code) => {
+        codes.push(code);
+        return { error: null };
+      },
+      setSession: async () => {
+        throw new Error('pkce must not call setSession');
+      },
+    })
+  );
+  assert.equal(exchanged.status, 'applied');
+  assert.deepEqual(codes, ['pkce-code']);
+
+  const resetCodes: string[] = [];
+  const resetExchanged = await settleNativeDeepLink(
+    nativeDeps('https://sitepack-preview.vercel.app/reset/AB12?code=reset-code', {
+      exchangeCode: async (code) => {
+        resetCodes.push(code);
+        return { error: null };
+      },
+    })
+  );
+  assert.equal(resetExchanged.status, 'applied');
+  assert.deepEqual(resetCodes, ['reset-code']);
+
+  for (const url of [
+    'sitepack://set-password?code=abc',
+    'http://sitepack-preview.vercel.app/reset?code=abc',
+    'https://evil.example/set-password?code=abc',
+  ]) {
+    const outcome = await settleNativeDeepLink(
+      nativeDeps(url, {
+        exchangeCode: async () => {
+          throw new Error('refused pkce');
+        },
+      })
+    );
+    assert.equal(outcome.status, 'none', url);
+  }
+});
+
+test('the native listener strips the route before the guard and does not touch window history', () => {
+  const source = fs.readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
+  assert.match(source, /Linking\.getInitialURL/);
+  assert.match(source, /addEventListener\('url'/);
+  assert.match(source, /settleNativeDeepLink/);
+  assert.match(source, /settleAuthLink/);
+  const listenerAt = source.indexOf("addEventListener('url'");
+  const listener = source.slice(listenerAt);
+  assert.ok(listener.indexOf('captureIncomingLink') !== -1);
+  assert.ok(listener.indexOf('captureIncomingLink') < listener.indexOf('accept('));
+  const acceptAt = source.indexOf('async function accept');
+  const accept = source.slice(acceptAt, listenerAt);
+  assert.ok(accept.indexOf('settleNativeDeepLink') !== -1);
+  assert.ok(accept.indexOf('settleAuthLink') !== -1);
+  assert.doesNotMatch(source, /window\.history/);
+  assert.doesNotMatch(source, /stashAuthCallback|nativeSessionFromUrl|peekAuthCallback|applyStashedAuth/);
+  const links = fs.readFileSync(new URL('./appLinks.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(links, /nativeSessionFromUrl|stashAuthCallback/);
+  const intent = fs.readFileSync(new URL('../app/+native-intent.tsx', import.meta.url), 'utf8');
+  assert.match(intent, /captureIncomingLink/);
 });

@@ -14,6 +14,41 @@
     },
     "android": {
       "package": "uk.sitepack.app",
+      "blockedPermissions": [
+        "SYSTEM_ALERT_WINDOW",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "sitepack-preview.vercel.app",
+              "pathPrefix": "/join/"
+            },
+            {
+              "scheme": "https",
+              "host": "sitepack-preview.vercel.app",
+              "path": "/set-password"
+            },
+            {
+              "scheme": "https",
+              "host": "sitepack-preview.vercel.app",
+              "path": "/reset"
+            },
+            {
+              "scheme": "https",
+              "host": "sitepack-preview.vercel.app",
+              "pathPrefix": "/reset/"
+            }
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#121820",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

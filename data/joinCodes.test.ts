@@ -147,15 +147,26 @@ test('the migration locks the code, hides the hash, and does not commit a pepper
     'utf8'
   );
   assert.match(invite, /createJoinCode[\s\S]*revokeJoinCode\(row\.id\)/);
-  const vercel = fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8');
-  assert.match(vercel, /\/assets\/node_modules\/\(\.\*\)/);
-  assert.match(vercel, /\/assets\/vendor_modules\/\$1/);
-  assert.match(vercel, /"destination": "\/index.html"/);
-  assert.match(vercel, /"source": "\/\(\.\*\)"/);
-  assert.match(vercel, /Referrer-Policy/);
-  assert.match(vercel, /no-referrer/);
+  const vercelText = fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8');
+  const vercelJson = JSON.parse(vercelText);
+  const spa = vercelJson.rewrites.find((rule) => rule.destination === '/index.html');
+  assert.equal(spa.source, '/((?!\\.well-known/).*)');
+  assert.equal(vercelJson.rewrites.some((rule) => rule.source === '/(.*)'), false);
+  assert.match(vercelText, /\/assets\/node_modules\/\(\.\*\)/);
+  assert.match(vercelText, /\/assets\/vendor_modules\/\$1/);
+  assert.match(vercelText, /Referrer-Policy/);
+  assert.match(vercelText, /no-referrer/);
+  assert.equal(
+    vercelJson.headers.some(
+      (rule) =>
+        rule.source === '/.well-known/assetlinks.json' &&
+        rule.headers.some((header) => header.key === 'Content-Type' && header.value === 'application/json')
+    ),
+    true
+  );
   const exporter = fs.readFileSync(new URL('../scripts/export-web.mjs', import.meta.url), 'utf8');
   assert.match(exporter, /dist\/vercel\.json/);
+  assert.match(exporter, /dist\/\.well-known\/assetlinks\.json/);
   const example = fs.readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
   assert.match(example, /SUPABASE_SECRET_KEYS/);
   assert.match(example, /sb_secret_/);

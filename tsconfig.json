@@ -30,6 +30,7 @@
     "data/phoneWalk.test.ts",
     "data/joinCodes.test.ts",
     "data/inviteEntry.test.ts",
+    "lib/appLinks.test.ts",
     "lib/format.test.ts",
     "lib/inviteGrant.test.ts",
     "lib/authLink.test.ts",
