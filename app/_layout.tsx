@@ -3,8 +3,8 @@ import { theme } from '@/lib/theme';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import 'expo-sqlite/localStorage/install';
 
 export default function RootLayout() {
@@ -19,7 +19,7 @@ export default function RootLayout() {
 }
 
 function Gate() {
-  const { ready, person, needsPassword } = useAuth();
+  const { ready, person, needsPassword, linkError } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -44,7 +44,7 @@ function Gate() {
       router.replace('/login');
       return;
     }
-    if (person && needsPassword && screen !== 'set-password' && screen !== 'login') {
+    if (person && needsPassword && screen !== 'set-password') {
       router.replace('/set-password');
       return;
     }
@@ -62,18 +62,27 @@ function Gate() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: theme.bg },
-        headerTintColor: theme.text,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: theme.bg },
-      }}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(app)" options={{ headerShown: false }} />
-      <Stack.Screen name="join" options={{ title: 'Join a site' }} />
-      <Stack.Screen name="reset" options={{ title: 'New password' }} />
-    </Stack>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {linkError ? (
+        <SafeAreaView edges={['top']} style={{ backgroundColor: theme.bg }}>
+          <View accessibilityRole="alert" style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+            <Text style={{ color: theme.danger, fontSize: 16, lineHeight: 22 }}>{linkError}</Text>
+          </View>
+        </SafeAreaView>
+      ) : null}
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.bg },
+          headerTintColor: theme.text,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: theme.bg },
+        }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(app)" options={{ headerShown: false }} />
+        <Stack.Screen name="join" options={{ title: 'Join a site' }} />
+        <Stack.Screen name="reset" options={{ title: 'New password' }} />
+      </Stack>
+    </View>
   );
 }
