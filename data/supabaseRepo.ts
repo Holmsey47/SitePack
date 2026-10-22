@@ -18,6 +18,7 @@ import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhot
 import {
   parseDrawingProof,
   parseDrawingRoster,
+  parseNotSeenPeople,
   parseSeenAt,
   parseSiteSeenGaps,
   parseSiteSeenSummary,
@@ -864,8 +865,8 @@ export const supabaseRepo: SitePackRepo = {
         p_signer_name: input.signerName,
         p_role: input.role,
         p_company: input.company,
-        p_confirmation: input.confirmationText,
         p_signature_png: input.signaturePng,
+        p_expected_pence: input.expectedPence,
       }),
       null
     );
@@ -916,6 +917,10 @@ export const supabaseRepo: SitePackRepo = {
 
   async siteDrawingSeen(siteId) {
     return parseSiteSeenSummary(await rpcJson('site_drawing_seen', { p_site_id: siteId }));
+  },
+
+  async siteNotSeen(siteId) {
+    return parseNotSeenPeople(await rpcJson('site_not_seen', { p_site_id: siteId }));
   },
 
   async drawingSeenRoster(drawingId) {

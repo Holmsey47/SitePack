@@ -1,4 +1,5 @@
 import { DrawingFrame } from '@/components/drawing-frame';
+import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
 import { Button, Muted, NewRevBadge, RevBadge, Screen, OutOfDateBadge, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -336,6 +337,13 @@ export default function DrawingViewerScreen() {
             </Pressable>
           ) : null}
         </View>
+        <FixtureOfflineSwitch />
+        {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
+          <FixtureReplaceRev
+            drawingId={drawing.id}
+            onReplaced={() => router.replace('/sites')}
+          />
+        ) : null}
         {drawing || revision ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}

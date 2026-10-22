@@ -1,4 +1,4 @@
-/** Current-revision seen proof. Superseded confirmations stay, and only people still assigned count. */
+/** Current-revision seen proof. Superseded confirmations stay. Only operatives still assigned count. */
 
 export type ProofOpen = {
   drawing_id: string;
@@ -113,6 +113,21 @@ export type SeenSheet = {
 export type SeenAssignment = {
   site_id: string;
   person_id: string;
+  role: 'operative' | 'cm' | 'owner';
+};
+
+export type NotSeenSheet = {
+  drawing_id: string;
+  title: string;
+  sheet_number: string | null;
+  sheet: string;
+  revision: string;
+};
+
+export type NotSeenPerson = {
+  person_id: string;
+  display_name: string | null;
+  sheets: NotSeenSheet[];
 };
 
 export type SeenName = {
@@ -137,11 +152,27 @@ export function seenButtonLabel(revision: string): string {
   return `I've seen rev ${revision}`;
 }
 
-/** Site-level line. Zero means everyone assigned has seen every current sheet. */
+/** Site-level line. Zero means every operative has seen every current sheet. */
 export function siteUnseenLine(count: number): string | null {
   if (count <= 0) return null;
   if (count === 1) return '1 drawing not seen by everyone';
   return `${count} drawings not seen by everyone`;
+}
+
+/** One row for the lad's unseen sheets. Zero means there is nothing to check. */
+export function newDrawingsLine(count: number): string | null {
+  if (count <= 0) return null;
+  if (count === 1) return '1 new drawing to check';
+  return `${count} new drawings to check`;
+}
+
+export function notSeenYetHeading(count: number): string {
+  return `Not seen yet (${count})`;
+}
+
+export function notSeenPersonLine(name: string, count: number): string {
+  const sheets = count === 1 ? '1 sheet' : `${count} sheets`;
+  return `${name}: ${sheets}`;
 }
 
 export function personLabel(name: string | null | undefined): string {
@@ -150,7 +181,13 @@ export function personLabel(name: string | null | undefined): string {
 }
 
 export function assignedPersonIds(assignments: SeenAssignment[], siteId: string): string[] {
-  return [...new Set(assignments.filter((row) => row.site_id === siteId).map((row) => row.person_id))];
+  return [
+    ...new Set(
+      assignments
+        .filter((row) => row.site_id === siteId && row.role === 'operative')
+        .map((row) => row.person_id)
+    ),
+  ];
 }
 
 export function countSeen(
@@ -269,6 +306,43 @@ export function buildRoster(
       .map((personId) => ({ person_id: personId, display_name: nameOf.get(personId) ?? null }))
       .sort((a, b) => personLabel(a.display_name).localeCompare(personLabel(b.display_name))),
   };
+}
+
+export function notSeenByOperative(
+  siteId: string,
+  drawings: SeenSheet[],
+  assignments: SeenAssignment[],
+  names: SeenName[],
+  seen: ProofSeen[]
+): NotSeenPerson[] {
+  const people = assignedPersonIds(assignments, siteId);
+  const nameOf = new Map(names.map((person) => [person.id, person.display_name]));
+  const current = drawings.filter((drawing) => drawing.site_id === siteId && drawing.is_current);
+  return people
+    .map((personId) => {
+      const sheets = current
+        .filter(
+          (drawing) =>
+            !seen.some(
+              (row) => row.drawing_id === drawing.id && row.person_id === personId && row.revision === drawing.revision
+            )
+        )
+        .map((drawing) => ({
+          drawing_id: drawing.id,
+          title: drawing.title,
+          sheet_number: drawing.sheet_number,
+          sheet: sheetLabel(drawing),
+          revision: drawing.revision,
+        }))
+        .sort((a, b) => a.sheet.localeCompare(b.sheet) || a.title.localeCompare(b.title));
+      return {
+        person_id: personId,
+        display_name: nameOf.get(personId) ?? null,
+        sheets,
+      };
+    })
+    .filter((person) => person.sheets.length > 0)
+    .sort((a, b) => personLabel(a.display_name).localeCompare(personLabel(b.display_name)));
 }
 
 export function unseenForPerson(
@@ -410,6 +484,37 @@ export function parseDrawingRoster(data: unknown): DrawingRoster {
       return [{ person_id: asString(person.person_id) ?? '', display_name: asString(person.display_name) }];
     }),
   };
+}
+
+export function parseNotSeenPeople(data: unknown): NotSeenPerson[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((row) => {
+    const person = asRecord(row);
+    const personId = asString(person?.person_id);
+    if (!person || !personId) return [];
+    const sheets = Array.isArray(person.sheets) ? person.sheets : [];
+    return [
+      {
+        person_id: personId,
+        display_name: asString(person.display_name),
+        sheets: sheets.flatMap((sheetRow) => {
+          const sheet = asRecord(sheetRow);
+          const drawingId = asString(sheet?.drawing_id);
+          const revision = asString(sheet?.revision);
+          if (!sheet || !drawingId || !revision) return [];
+          return [
+            {
+              drawing_id: drawingId,
+              title: asString(sheet.title) ?? '',
+              sheet_number: asString(sheet.sheet_number),
+              sheet: asString(sheet.sheet) ?? asString(sheet.title) ?? '',
+              revision,
+            },
+          ];
+        }),
+      },
+    ];
+  });
 }
 
 export function parseSiteSeenGaps(data: unknown): SiteSeenGap[] {

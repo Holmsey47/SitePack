@@ -26,6 +26,7 @@ import type {
 import type {
   DrawingProof,
   DrawingRoster,
+  NotSeenPerson,
   SiteSeenGap,
   SiteSeenSummary,
   UnseenDrawing,
@@ -121,7 +122,7 @@ export type SitePackRepo = {
   setVariationValue(versionId: string, valuePence: number | null): Promise<void>;
   signVariation(
     versionId: string,
-    input: { signerName: string; role: string; company: string; confirmationText: string; signaturePng: string }
+    input: { signerName: string; role: string; company: string; expectedPence: number | null; signaturePng: string }
   ): Promise<void>;
   sendVariation(versionId: string): Promise<void>;
   reviseVariation(versionId: string): Promise<{ versionId: string }>;
@@ -144,6 +145,7 @@ export type SitePackRepo = {
   listMyUnseenDrawings(): Promise<UnseenDrawing[]>;
   myDrawingProof(drawingId: string): Promise<DrawingProof>;
   siteDrawingSeen(siteId: string): Promise<SiteSeenSummary>;
+  siteNotSeen(siteId: string): Promise<NotSeenPerson[]>;
   drawingSeenRoster(drawingId: string): Promise<DrawingRoster>;
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;

@@ -47,10 +47,12 @@ import {
   buildSiteSummary,
   confirmSeen,
   managerGaps,
+  notSeenByOperative,
   recordOpen,
   unseenForPerson,
   type ProofOpen,
   type ProofSeen,
+  type SeenAssignment,
 } from '@/data/drawingSeen';
 import {
   fixtureCreateVariation,
@@ -491,6 +493,34 @@ function noteFailure(bucket: string, subject: string) {
 
 function usernameLimited(username: string): boolean {
   return recentFailures('login_user', username, JOIN_IP_WINDOW_MINUTES) >= JOIN_USERNAME_FAILURE_LIMIT;
+}
+
+function seenAssignments(): SeenAssignment[] {
+  return store.assignments.flatMap((row) => {
+    const person = store.people.find((item) => item.id === row.person_id);
+    if (!person) return [];
+    return [{ site_id: row.site_id, person_id: row.person_id, role: person.role }];
+  });
+}
+
+/** Fixture-only. Marks the current sheet superseded and adds the next revision. */
+export function devSupersedeCurrent(drawingId: string): { id: string; revision: string } | null {
+  const old = store.drawings.find((row) => row.id === drawingId && row.is_current);
+  if (!old) return null;
+  const letter = old.revision.trim().slice(-1).toUpperCase();
+  const revision = letter >= 'A' && letter < 'Z' ? String.fromCharCode(letter.charCodeAt(0) + 1) : `${old.revision}2`;
+  old.is_current = false;
+  const created: Drawing = {
+    ...old,
+    id: newId(),
+    revision,
+    is_current: true,
+    supersedes_id: old.id,
+    created_at: now(),
+    updated_at: now(),
+  };
+  store.drawings.push(created);
+  return { id: created.id, revision };
 }
 
 function meOrThrow(): Person {
@@ -1618,7 +1648,7 @@ export const fixtureRepo: SitePackRepo = {
   async listMyUnseenDrawings() {
     const person = meOrThrow();
     const names = new Map(store.sites.map((site) => [site.id, site.name]));
-    return unseenForPerson(person.id, store.drawings, store.assignments, store.drawingSeen, names);
+    return unseenForPerson(person.id, store.drawings, seenAssignments(), store.drawingSeen, names);
   },
 
   async myDrawingProof(drawingId) {
@@ -1645,7 +1675,7 @@ export const fixtureRepo: SitePackRepo = {
   async siteDrawingSeen(siteId) {
     const person = requireManager();
     if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
-    return buildSiteSummary(siteId, store.drawings, store.assignments, store.drawingSeen);
+    return buildSiteSummary(siteId, store.drawings, seenAssignments(), store.drawingSeen);
   },
 
   async drawingSeenRoster(drawingId) {
@@ -1653,13 +1683,19 @@ export const fixtureRepo: SitePackRepo = {
     const drawing = store.drawings.find((row) => row.id === drawingId);
     if (!drawing) throw new Error('drawing_not_found');
     if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
-    return buildRoster(drawing, store.assignments, store.people, store.drawingSeen);
+    return buildRoster(drawing, seenAssignments(), store.people, store.drawingSeen);
   },
 
   async managerDrawingGaps() {
     const person = requireManager();
     const sites = store.sites.filter((site) => canAccessSite(person, site.id)).map((site) => site.id);
-    return managerGaps(store.drawings, store.assignments, store.drawingSeen, sites);
+    return managerGaps(store.drawings, seenAssignments(), store.drawingSeen, sites);
+  },
+
+  async siteNotSeen(siteId) {
+    const person = requireManager();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return notSeenByOperative(siteId, store.drawings, seenAssignments(), store.people, store.drawingSeen);
   },
 
   async recordDrawingOpen(drawingId) {
