@@ -4,8 +4,10 @@ import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import {
+  canSeeVariationValue,
   filterVariations,
   formatPounds,
+  OPERATIVES_SEE_VARIATION_VALUE,
   parsePounds,
   variationCounts,
   variationPdfFilename,
@@ -62,7 +64,7 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
     signerName: 'Dave Moran',
     role: 'Site manager',
     company: 'Northbuild',
-    confirmationText: variationConfirmation('Northbuild', false),
+    expectedPence: null,
     signaturePng: 'data:image/png;base64,' + 'A'.repeat(40),
   });
   await assert.rejects(
@@ -75,6 +77,9 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
   assert.equal(locked?.current.signature?.signer_role, 'Site manager');
   assert.equal(locked?.current.signature?.signer_company, 'Northbuild');
   assert.equal(locked?.current.signature?.confirmation_text, variationConfirmation('Northbuild', false));
+  assert.equal(locked?.current.signature?.shown_value_pence, null);
+  await assert.rejects(() => fixtureRepo.reviseVariation(draft.version_id), /not_authorized/);
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
   const revised = await fixtureRepo.reviseVariation(draft.version_id);
   const after = await fixtureRepo.getVariation(draft.variation_id);
   assert.equal(after?.current.version_id, revised.versionId);
@@ -83,6 +88,85 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
   assert.equal(after?.history[0]?.status, 'Signed');
   assert.equal(after?.history[0]?.signature?.signer_name, 'Dave Moran');
   assert.equal(after?.history[0]?.title, before?.current.title);
+});
+
+test('an operative read hides the pound amount and a mismatched sign-off is rejected', async () => {
+  assert.equal(OPERATIVES_SEE_VARIATION_VALUE, false);
+  assert.equal(canSeeVariationValue('operative'), false);
+  assert.equal(canSeeVariationValue('owner'), true);
+  assert.equal(canSeeVariationValue('cm'), true);
+
+  resetFixtureStore();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const oak = await fixtureRepo.listVariations(IDS.oak);
+  const mastic = oak.rows.find((row) => row.title === 'Additional mastic');
+  assert.ok(mastic);
+  assert.equal(mastic.value_pence, null);
+  const hidden = await fixtureRepo.getVariation(mastic.variation_id);
+  assert.equal(hidden?.current.value_pence, null);
+  assert.equal(hidden?.current.signature?.shown_value_pence, null);
+  assert.equal(hidden?.current.signature?.confirmation_text, variationConfirmation('Northbuild', true));
+
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const visible = await fixtureRepo.getVariation(mastic.variation_id);
+  assert.equal(visible?.current.value_pence, 18000);
+  assert.equal(visible?.current.signature?.shown_value_pence, 18000);
+
+  const created = await fixtureRepo.createVariation({
+    siteId: IDS.oak,
+    title: 'Priced beads',
+    description: 'Shown amount',
+    photos: [{ storagePath: `${IDS.company}/${IDS.oak}/variations/priced.jpg`, contentType: 'image/jpeg', fileSizeBytes: 1200 }],
+    valuePence: 14550,
+  });
+  await assert.rejects(
+    () =>
+      fixtureRepo.signVariation(created.versionId, {
+        signerName: 'Dave Moran',
+        role: 'Site manager',
+        company: 'Northbuild',
+        expectedPence: 1,
+        signaturePng: 'data:image/png;base64,' + 'A'.repeat(40),
+      }),
+    /value_mismatch/
+  );
+  await fixtureRepo.signVariation(created.versionId, {
+    signerName: 'Dave Moran',
+    role: 'Site manager',
+    company: 'Northbuild',
+    expectedPence: 14550,
+    signaturePng: 'data:image/png;base64,' + 'A'.repeat(40),
+  });
+  const priced = await fixtureRepo.getVariation(created.variationId);
+  assert.equal(priced?.current.signature?.confirmation_text, variationConfirmation('Northbuild', true));
+  assert.equal(priced?.current.signature?.shown_value_pence, 14550);
+
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const asOperative = await fixtureRepo.getVariation(created.variationId);
+  assert.equal(asOperative?.current.value_pence, null);
+  assert.equal(asOperative?.current.signature?.shown_value_pence, null);
+  assert.equal(asOperative?.current.signature?.confirmation_text, variationConfirmation('Northbuild', true));
+
+  await assert.rejects(
+    () =>
+      fixtureRepo.createVariation({
+        siteId: IDS.oak,
+        title: 'Bad path',
+        description: 'Note',
+        photos: [{ storagePath: `${IDS.company}/${IDS.oak}/../bad.jpg`, contentType: 'image/jpeg', fileSizeBytes: 10 }],
+      }),
+    /invalid_path/
+  );
+  await assert.rejects(
+    () =>
+      fixtureRepo.createVariation({
+        siteId: IDS.oak,
+        title: 'Slash path',
+        description: 'Note',
+        photos: [{ storagePath: '/variations/bad.jpg', contentType: 'image/jpeg', fileSizeBytes: 10 }],
+      }),
+    /invalid_path/
+  );
 });
 
 test('the migration is one file and names the RLS policies', () => {
@@ -107,13 +191,30 @@ test('the migration is one file and names the RLS policies', () => {
   }
   assert.match(sql, /variation_locked/);
   assert.match(sql, /value_not_allowed/);
+  assert.match(sql, /value_mismatch/);
+  assert.match(sql, /shown_value_pence/);
+  assert.match(sql, /private\.can_see_variation_value/);
+  assert.match(sql, /revoke select \(value_pence\)/);
+  assert.match(sql, /from public, anon, authenticated/);
   assert.match(sql, /site-photos/);
   assert.match(sql, /set search_path = ''/);
   assert.match(sql, /private\.can_access_site/);
+  assert.match(sql, /strpos\(v_path, '\.\.'\)/);
   assert.doesNotMatch(sql, /service_role/);
   const probe = fs.readFileSync('scripts/variations-rls.sql', 'utf8');
   assert.match(probe, /operative cannot set the pound value/);
   assert.match(probe, /cannot be edited in place/);
   assert.match(probe, /firm X cannot read firm Y/);
   assert.match(probe, /site B variations or photos/);
+  assert.match(probe, /anon cannot execute any variation function/);
+  assert.match(probe, /operative list, detail and version json return a null pound amount/);
+  assert.match(probe, /an operative cannot revise a signed variation/);
+  assert.match(probe, /a sign-off rejects an amount that is not the stored value/);
+  const detail = fs.readFileSync('app/(app)/sites/[siteId]/variations/[variationId].tsx', 'utf8');
+  assert.match(detail, /canSeeVariationValue/);
+  assert.match(detail, /expectedPence: seeValue \? current\.value_pence : null/);
+  assert.match(detail, /shown_value_pence/);
+  const queue = fs.readFileSync('app/(app)/sites/[siteId]/variations/new.tsx', 'utf8');
+  assert.match(queue, /ownerUserId: userId/);
+  assert.match(queue, /auth_user_id/);
 });
