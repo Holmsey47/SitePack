@@ -259,9 +259,40 @@ export function accountLabel(identity: AccountIdentity): string {
   return 'your account';
 }
 
-export function confirmSessionMessage(current: AccountIdentity, targetEmail: string | null): string {
-  const target = targetEmail?.trim() || 'another account';
-  return `You're signed in as ${accountLabel(current)}. This link is for ${target}. Sign out and continue?`;
+/** Label for the link account. Uses the verified user only, never token claims. */
+export function linkAccountLabel(identity: AccountIdentity): string {
+  const email = identity.email?.trim();
+  if (email) return email;
+  const username = identity.username?.trim();
+  if (username) return username;
+  return 'another account';
+}
+
+export type ConfirmAccounts = {
+  currentAccount: string;
+  linkAccount: string;
+};
+
+export function confirmAccounts(current: AccountIdentity, verified: AccountIdentity): ConfirmAccounts {
+  return {
+    currentAccount: accountLabel(current),
+    linkAccount: linkAccountLabel(verified),
+  };
+}
+
+export function staySignedInLabel(account: string): string {
+  return `Stay signed in as ${account}`;
+}
+
+export function signOutAndUseLabel(account: string): string {
+  return `Sign out and use ${account}`;
+}
+
+export const AUTH_LINK_STAY_HINT = "Didn't ask for this link? Stay signed in.";
+
+export function confirmSessionMessage(current: AccountIdentity, verified: AccountIdentity): string {
+  const accounts = confirmAccounts(current, verified);
+  return `You're signed in as ${accounts.currentAccount}. This link is for ${accounts.linkAccount}.`;
 }
 
 export function accountIdentityFromUser(user: {
@@ -290,7 +321,7 @@ export type SettleAuthLinkDeps = {
     accessToken: string | null;
   }>;
   signOut: () => Promise<void>;
-  confirm: (message: string) => Promise<boolean>;
+  confirm: (accounts: ConfirmAccounts) => Promise<boolean>;
 };
 
 export type AuthLinkOutcome =
@@ -331,7 +362,7 @@ export async function settleAuthLink(deps: SettleAuthLinkDeps): Promise<AuthLink
     const same = existing.state === 'signed-in' && sameAccount(existing.identity, verified);
     if (!same) {
       const current = existing.state === 'signed-in' ? existing.identity : {};
-      const accepted = await deps.confirm(confirmSessionMessage(current, verified.email ?? null));
+      const accepted = await deps.confirm(confirmAccounts(current, verified));
       if (!accepted) return { status: 'declined' };
       await signOutQuietly(deps.signOut);
     }

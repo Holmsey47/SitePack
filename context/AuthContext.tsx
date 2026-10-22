@@ -1,4 +1,11 @@
-import { ensureWebAuthUrlStripped, INVALID_AUTH_LINK, settleAuthLink, takeWebAuthUrl, accountIdentityFromUser } from '@/lib/authLink';
+import {
+  ensureWebAuthUrlStripped,
+  INVALID_AUTH_LINK,
+  settleAuthLink,
+  takeWebAuthUrl,
+  accountIdentityFromUser,
+  type ConfirmAccounts,
+} from '@/lib/authLink';
 import { repo, useFixtures } from '@/data/index';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
@@ -49,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [person, setPerson] = useState<Person | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [confirmAccounts, setConfirmAccounts] = useState<ConfirmAccounts | null>(null);
   const confirmResolve = useRef<((accepted: boolean) => void) | null>(null);
 
   useLayoutEffect(() => {
@@ -104,14 +111,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             signOut: async () => {
               await supabase.auth.signOut();
             },
-            confirm: (message) =>
+            confirm: (accounts) =>
               new Promise((resolve) => {
                 if (cancelled) {
                   resolve(false);
                   return;
                 }
                 confirmResolve.current = resolve;
-                setConfirmMessage(message);
+                setConfirmAccounts(accounts);
               }),
           });
           if (!cancelled) {
@@ -148,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setLinkError(INVALID_AUTH_LINK);
       } finally {
         if (!cancelled) {
-          setConfirmMessage(null);
+          setConfirmAccounts(null);
           setReady(true);
         }
       }
@@ -226,11 +233,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {confirmMessage ? (
+      {confirmAccounts ? (
         <AuthLinkConfirm
-          message={confirmMessage}
-          onContinue={() => chooseConfirm(true)}
+          currentAccount={confirmAccounts.currentAccount}
+          linkAccount={confirmAccounts.linkAccount}
           onStay={() => chooseConfirm(false)}
+          onUseLink={() => chooseConfirm(true)}
         />
       ) : (
         children

@@ -44,7 +44,7 @@ function Gate() {
       router.replace('/login');
       return;
     }
-    if (person && needsPassword && screen !== 'set-password' && screen !== 'login') {
+    if (person && needsPassword && screen !== 'set-password') {
       router.replace('/set-password');
       return;
     }

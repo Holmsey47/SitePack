@@ -2,6 +2,7 @@ import { theme } from '@/lib/theme';
 import { ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -84,8 +85,11 @@ export function Button({
         <ActivityIndicator color={variant === 'primary' ? theme.currentInk : theme.text} />
       ) : (
         <Text
+          numberOfLines={3}
+          ellipsizeMode="tail"
           style={[
             styles.btnText,
+            Platform.OS === 'web' ? ({ overflowWrap: 'anywhere' } as object) : null,
             variant === 'primary' && { color: theme.currentInk },
             variant === 'ghost' && { color: theme.current },
           ]}>
@@ -227,7 +231,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'stretch',
     paddingHorizontal: 18,
+    paddingVertical: 12,
   },
   btnPrimary: { backgroundColor: theme.current },
   btnSecondary: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.line },
@@ -235,7 +241,7 @@ const styles = StyleSheet.create({
   btnDanger: { backgroundColor: theme.danger },
   btnDisabled: { opacity: 0.5 },
   btnPressed: { transform: [{ scale: 0.99 }] },
-  btnText: { color: theme.text, fontSize: 17, fontWeight: '700' },
+  btnText: { color: theme.text, fontSize: 17, fontWeight: '700', textAlign: 'center', width: '100%' },
   fieldLabel: { color: theme.muted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
   input: {
     backgroundColor: theme.surface,

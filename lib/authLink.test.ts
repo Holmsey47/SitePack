@@ -7,7 +7,10 @@ import {
   AUTH_LINK_MAX_AGE_SECONDS,
   INVALID_AUTH_LINK,
   assessAuthLinkClaims,
+  confirmAccounts,
   confirmSessionMessage,
+  signOutAndUseLabel,
+  staySignedInLabel,
   planBrowserUrl,
   sessionTokensFromUrl,
   settleAuthLink,
@@ -144,21 +147,20 @@ test('an existing session is not replaced until the person confirms', async () =
     signOut: async () => {
       calls.push('signOut');
     },
-    confirm: async (message) => {
+    confirm: async (accounts) => {
       calls.push('confirm');
-      assert.equal(
-        message,
-        confirmSessionMessage(
-          { id: 'victim', email: 'victim@site.test' },
-          'attacker@site.test'
-        )
-      );
-      assert.equal(message, "You're signed in as victim@site.test. This link is for attacker@site.test. Sign out and continue?");
+      assert.deepEqual(accounts, confirmAccounts({ id: 'victim', email: 'victim@site.test' }, { id: 'attacker', email: 'attacker@site.test' }));
+      assert.equal(accounts.currentAccount, 'victim@site.test');
+      assert.equal(accounts.linkAccount, 'attacker@site.test');
+      assert.equal(staySignedInLabel(accounts.currentAccount), 'Stay signed in as victim@site.test');
+      assert.equal(signOutAndUseLabel(accounts.linkAccount), 'Sign out and use attacker@site.test');
       return false;
     },
   });
   assert.equal(outcome.status, 'declined');
   assert.deepEqual(calls, ['getExisting', 'verify', 'confirm']);
+  assert.equal(calls.includes('setSession'), false);
+  assert.equal(calls.includes('signOut'), false);
 });
 
 test('confirming signs out before setSession, and the same account does not ask', async () => {
@@ -196,11 +198,12 @@ test('confirming signs out before setSession, and the same account does not ask'
     signOut: async () => {
       order.push('signOut');
     },
-    confirm: async (message) => {
+    confirm: async (accounts) => {
       order.push('confirm');
-      assert.match(message, /You're signed in as victim@site\.test/);
-      assert.match(message, /This link is for other@site\.test/);
-      assert.equal(message.includes('forged@site.test'), false);
+      assert.equal(accounts.currentAccount, 'victim@site.test');
+      assert.equal(accounts.linkAccount, 'other@site.test');
+      assert.equal(confirmSessionMessage({ email: 'victim@site.test' }, { email: 'other@site.test' }).includes('forged@site.test'), false);
+      assert.equal(JSON.stringify(accounts).includes('forged@site.test'), false);
       return true;
     },
   });
@@ -229,8 +232,8 @@ test('a failed getUser rejects the link and never shows an unverified email', as
       signOut: async () => {
         calls.push('signOut');
       },
-      confirm: async (message) => {
-        calls.push(`confirm:${message}`);
+      confirm: async (accounts) => {
+        calls.push(`confirm:${accounts.currentAccount}:${accounts.linkAccount}`);
         return true;
       },
     });
@@ -394,9 +397,20 @@ test('the address bar is cleared before boot awaits the network', () => {
   assert.doesNotMatch(source, /sessionStorage/);
   assert.doesNotMatch(source, /localStorage[\s\S]{0,80}accessToken/);
   const confirm = fs.readFileSync(new URL('../components/auth-link-confirm.tsx', import.meta.url), 'utf8');
-  assert.match(confirm, /Sign out and continue/);
-  assert.match(confirm, /Stay signed in/);
+  const confirmBody = confirm.slice(confirm.indexOf('return ('));
+  const stayAt = confirmBody.indexOf('staySignedInLabel');
+  const useAt = confirmBody.indexOf('signOutAndUseLabel');
+  assert.ok(stayAt !== -1 && useAt !== -1 && stayAt < useAt);
+  assert.ok(confirmBody.indexOf('AUTH_LINK_STAY_HINT') !== -1 && confirmBody.indexOf('AUTH_LINK_STAY_HINT') < stayAt);
+  assert.equal(confirmBody.indexOf('variant="secondary"') > stayAt, true);
   assert.match(confirm, /minHeight=\{theme\.thumb\}/);
+  const authLink = fs.readFileSync(new URL('./authLink.ts', import.meta.url), 'utf8');
+  assert.match(authLink, /Didn't ask for this link\? Stay signed in\./);
+  assert.match(authLink, /Stay signed in as \$\{account\}/);
+  assert.match(authLink, /Sign out and use \$\{account\}/);
+  const gate = fs.readFileSync(new URL('../app/_layout.tsx', import.meta.url), 'utf8');
+  assert.match(gate, /person && needsPassword && screen !== 'set-password'/);
+  assert.doesNotMatch(gate, /needsPassword && screen !== 'set-password' && screen !== 'login'/);
   const setPassword = fs.readFileSync(new URL('../app/(auth)/set-password.tsx', import.meta.url), 'utf8');
   assert.match(setPassword, /Setting a password for /);
   assert.match(setPassword, /Not you\? Sign out/);
