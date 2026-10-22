@@ -334,6 +334,9 @@ test('hash tokens are accepted only for https://sitepack-preview.vercel.app or t
   assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app.evil.com/set-password${fragment}`), null);
   assert.equal(planBrowserUrl(`sitepack:///set-password${fragment}`).sessionUrl, null);
   assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app/set-password${fragment}`)?.purpose, 'invite');
+  assert.equal(sessionTokensFromUrl(`https://user@sitepack-preview.vercel.app/set-password${fragment}`), null);
+  assert.equal(sessionTokensFromUrl(`https://user:pass@sitepack-preview.vercel.app/set-password${fragment}`), null);
+  assert.equal(planBrowserUrl(`https://user:pass@sitepack-preview.vercel.app/set-password${fragment}`).sessionUrl, null);
 
   const previous = (globalThis as { window?: unknown }).window;
   Object.defineProperty(globalThis, 'window', {
@@ -345,6 +348,8 @@ test('hash tokens are accepted only for https://sitepack-preview.vercel.app or t
   });
   try {
     assert.equal(sessionTokensFromUrl(`http://127.0.0.1:8081/set-password${fragment}`)?.purpose, 'invite');
+    assert.equal(sessionTokensFromUrl(`http://user@127.0.0.1:8081/set-password${fragment}`), null);
+    assert.equal(sessionTokensFromUrl(`http://user:pass@127.0.0.1:8081/reset${fragment}`), null);
     assert.equal(sessionTokensFromUrl(`http://127.0.0.1:8081/reset/AB12${fragment}`)?.purpose, 'recovery');
     assert.equal(sessionTokensFromUrl(`https://evil.example/set-password${fragment}`), null);
     assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app/reset${fragment}`)?.purpose, 'recovery');
@@ -535,7 +540,7 @@ test('native PKCE stays on the allow-listed https paths and sitepack is refused'
     nativeDeps('https://sitepack-preview.vercel.app/set-password?code=pkce-code', {
       exchangeCode: async (code) => {
         codes.push(code);
-        return { error: null };
+        return { error: null, accessToken: freshInvite() };
       },
       setSession: async () => {
         throw new Error('pkce must not call setSession');
@@ -550,7 +555,7 @@ test('native PKCE stays on the allow-listed https paths and sitepack is refused'
     nativeDeps('https://sitepack-preview.vercel.app/reset/AB12?code=reset-code', {
       exchangeCode: async (code) => {
         resetCodes.push(code);
-        return { error: null };
+        return { error: null, accessToken: token({ amr: [{ method: 'recovery' }] }) };
       },
     })
   );
@@ -571,6 +576,82 @@ test('native PKCE stays on the allow-listed https paths and sitepack is refused'
     );
     assert.equal(outcome.status, 'none', url);
   }
+
+  for (const url of [
+    'https://user@sitepack-preview.vercel.app/set-password?code=abc',
+    'https://user:pass@sitepack-preview.vercel.app/reset?code=abc',
+    'https://user:secret@sitepack-preview.vercel.app/set-password#access_token=a&refresh_token=b',
+  ]) {
+    const calls: string[] = [];
+    const outcome = await settleNativeDeepLink(
+      nativeDeps(url, {
+        exchangeCode: async () => {
+          calls.push('exchange');
+          return { error: null, accessToken: freshInvite() };
+        },
+        setSession: async () => {
+          calls.push('setSession');
+          return { error: null, accessToken: freshInvite() };
+        },
+      })
+    );
+    assert.equal(outcome.status, 'none', url);
+    assert.deepEqual(calls, [], url);
+  }
+});
+
+test('native PKCE checks amr and iat on the session token and signs out on failure', async () => {
+  const url = 'https://sitepack-preview.vercel.app/set-password?code=pkce-code';
+  for (const accessToken of [
+    token({ amr: [{ method: 'password' }] }),
+    token({ amr: [{ method: 'magiclink' }] }),
+    token({ amr: [{ method: 'otp' }], iat: NOW - AUTH_LINK_MAX_AGE_SECONDS - 5 }),
+    '',
+  ]) {
+    const calls: string[] = [];
+    const outcome = await settleNativeDeepLink(
+      nativeDeps(url, {
+        exchangeCode: async () => {
+          calls.push('exchange');
+          return { error: null, accessToken };
+        },
+        signOut: async () => {
+          calls.push('signOut');
+        },
+        setSession: async () => {
+          throw new Error('pkce must not call setSession');
+        },
+      })
+    );
+    assert.deepEqual(outcome, { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true });
+    assert.deepEqual(calls, ['exchange', 'signOut']);
+  }
+
+  const calls: string[] = [];
+  const accepted = await settleNativeDeepLink(
+    nativeDeps(url, {
+      exchangeCode: async () => {
+        calls.push('exchange');
+        return { error: null, accessToken: freshInvite() };
+      },
+      signOut: async () => {
+        calls.push('signOut');
+      },
+    })
+  );
+  assert.equal(accepted.status, 'applied');
+  assert.deepEqual(calls, ['exchange']);
+
+  const failed = await settleNativeDeepLink(
+    nativeDeps(url, {
+      exchangeCode: async () => ({ error: 'bad code', accessToken: null }),
+      signOut: async () => {
+        calls.push('signOut');
+      },
+    })
+  );
+  assert.deepEqual(failed, { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false });
+  assert.deepEqual(calls, ['exchange']);
 });
 
 test('the native listener strips the route before the guard and does not touch window history', () => {

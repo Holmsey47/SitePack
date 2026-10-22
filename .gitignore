@@ -6,6 +6,8 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-apk/
+dist-android/
 web-build/
 expo-env.d.ts
 
@@ -14,6 +16,10 @@ expo-env.d.ts
 *.orig.*
 *.jks
 *.keystore
+keystore.env
+*.keystore.env
+release.env
+/secrets/
 *.p8
 *.p12
 *.key

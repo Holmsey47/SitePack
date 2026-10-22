@@ -1,3 +1,4 @@
+import { useBackOverlay } from '@/components/useBackOverlay';
 import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -13,17 +14,23 @@ import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
 import { revisionCurrentLine } from '@/data/walk';
+import { setUploadBackGuard } from '@/lib/backRegistry';
 import { theme } from '@/lib/theme';
+import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
-import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Text, View } from 'react-native';
 
 export default function UploadScreen() {
   const { siteId, replace } = useLocalSearchParams<{ siteId: string; replace?: string }>();
   const replaceId = typeof replace === 'string' && replace.length > 0 ? replace : null;
   const { person } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
+  const [leaveAsk, setLeaveAsk] = useState(false);
+  const [allowLeave, setAllowLeave] = useState(false);
+  const pendingAction = useRef<NavigationAction | null>(null);
   const [title, setTitle] = useState('');
   const [sheetNumber, setSheetNumber] = useState('');
   const [revision, setRevision] = useState('');
@@ -51,6 +58,34 @@ export default function UploadScreen() {
       setLevelNote('');
     });
   }, [replaceId, siteId]);
+
+  usePreventRemove(loading && !allowLeave, ({ data }) => {
+    pendingAction.current = data.action;
+    setLeaveAsk(true);
+  });
+
+  useEffect(() => {
+    if (!loading) {
+      setUploadBackGuard(false, null);
+      setLeaveAsk(false);
+      return;
+    }
+    setUploadBackGuard(true, () => setLeaveAsk(true));
+    return () => setUploadBackGuard(false, null);
+  }, [loading]);
+
+  useBackOverlay(leaveAsk, () => {
+    pendingAction.current = null;
+    setLeaveAsk(false);
+  });
+
+  useEffect(() => {
+    if (!allowLeave) return;
+    const action = pendingAction.current;
+    pendingAction.current = null;
+    if (action) navigation.dispatch(action);
+    else router.back();
+  }, [allowLeave, navigation, router]);
 
   if (person && !canManageSite(person.role)) return <Redirect href={`/sites/${siteId}`} />;
 
@@ -123,6 +158,7 @@ export default function UploadScreen() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <Screen>
       <Title>Upload</Title>
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="words" placeholder="Ground Floor GA" />
@@ -199,5 +235,29 @@ export default function UploadScreen() {
         disabled={!bytes || !title.trim() || !revision.trim()}
       />
     </Screen>
+    <Modal visible={leaveAsk} transparent animationType="fade" onRequestClose={() => setLeaveAsk(false)}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(8, 10, 14, 0.86)', justifyContent: 'flex-end', padding: 16, gap: 12 }}>
+        <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>This upload is still going.</Text>
+        <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+          The upload keeps going. It becomes current when it finishes.
+        </Text>
+        <Button
+          label="Stay"
+          onPress={() => {
+            pendingAction.current = null;
+            setLeaveAsk(false);
+          }}
+        />
+        <Button
+          label="Leave"
+          variant="secondary"
+          onPress={() => {
+            setLeaveAsk(false);
+            setAllowLeave(true);
+          }}
+        />
+      </View>
+    </Modal>
+    </View>
   );
 }

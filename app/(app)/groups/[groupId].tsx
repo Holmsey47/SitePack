@@ -1,3 +1,4 @@
+import { useBackOverlay } from '@/components/useBackOverlay';
 import { Button, Card, ErrorText, Field, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { occupationLine } from '@/data/companyPeople';
@@ -86,6 +87,12 @@ export default function GroupScreen() {
     pendingAction.current = data.action;
     setPromptOpen(true);
   });
+
+  useBackOverlay(promptOpen, () => {
+    pendingAction.current = null;
+    setPromptOpen(false);
+  });
+  useBackOverlay(assigning, () => setAssigning(false));
 
   useEffect(() => {
     if (!allowLeave) return;

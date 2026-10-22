@@ -1,4 +1,5 @@
 // Production web export. Fails closed when the hosted Supabase env is missing.
+import { clientKeyMessage } from './anonKey.mjs';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +17,12 @@ if (!url || !key) {
 
 if (process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
   console.error('Production web build must not set EXPO_PUBLIC_USE_FIXTURES.');
+  process.exit(1);
+}
+
+const keyMessage = clientKeyMessage(process.env);
+if (keyMessage) {
+  console.error(keyMessage);
   process.exit(1);
 }
 

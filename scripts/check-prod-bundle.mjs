@@ -1,6 +1,7 @@
 // Fails if a production web export still contains fixture seed secrets.
 import fs from 'node:fs';
 import path from 'node:path';
+import { scanDirectory } from './check-js-bundle.mjs';
 
 const root = path.resolve('dist');
 const forbidden = [
@@ -118,6 +119,13 @@ walkRoles(root);
 if (roleHits.length > 0) {
   console.error('Production bundle contains service_role:');
   for (const hit of roleHits) console.error(hit);
+  process.exit(1);
+}
+
+const secretHits = scanDirectory(root);
+if (secretHits.length > 0) {
+  console.error('JS bundle contains a secret or a seed login:');
+  for (const hit of secretHits) console.error(hit);
   process.exit(1);
 }
 

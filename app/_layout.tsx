@@ -1,3 +1,4 @@
+import { HardwareBackHandler } from '@/components/HardwareBackHandler';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { theme } from '@/lib/theme';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -14,6 +15,7 @@ export default function RootLayout() {
         <StatusBar style="light" />
         <Gate />
       </AuthProvider>
+      <HardwareBackHandler />
     </SafeAreaProvider>
   );
 }

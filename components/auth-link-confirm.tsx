@@ -1,3 +1,4 @@
+import { useBackOverlay } from '@/components/useBackOverlay';
 import { Button, Screen } from '@/components/ui';
 import { AUTH_LINK_STAY_HINT, signOutAndUseLabel, staySignedInLabel } from '@/lib/authLink';
 import { theme } from '@/lib/theme';
@@ -16,6 +17,7 @@ export function AuthLinkConfirm({
   onStay: () => void;
 }) {
   const [pressed, setPressed] = useState<'stay' | 'use' | null>(null);
+  useBackOverlay(true, onStay);
 
   function choose(next: 'stay' | 'use') {
     if (pressed) return;

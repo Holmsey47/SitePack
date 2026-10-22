@@ -85,7 +85,18 @@ function browserOrigin(): string | null {
   }
 }
 
+/** `user@host` and `user:pass@host` are rejected. The URL origin drops userinfo, so this is separate. */
+function hasUserInfo(url: URL): boolean {
+  return url.username.length > 0 || url.password.length > 0;
+}
+
+function rawAuthorityHasUserInfo(value: string): boolean {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(value.trim());
+  return Boolean(match && match[1].includes('@'));
+}
+
 function originAllowsAuthLink(url: URL): boolean {
+  if (hasUserInfo(url)) return false;
   if (url.protocol === 'https:' && url.host === PREVIEW_HOST) return true;
   const origin = browserOrigin();
   return origin !== null && url.origin === origin;
@@ -93,7 +104,7 @@ function originAllowsAuthLink(url: URL): boolean {
 
 /** Hash only. Query tokens are ignored, including when a hash is also present. */
 export function sessionTokensFromUrl(url: string | null): SessionTokens | null {
-  if (!url) return null;
+  if (!url || rawAuthorityHasUserInfo(url)) return null;
   const parsed = parseUrl(url);
   if (!parsed || !originAllowsAuthLink(parsed)) return null;
   const purpose = authLinkPurpose(parsed.pathname);
@@ -393,7 +404,7 @@ export async function settleAuthLink(deps: SettleAuthLinkDeps): Promise<AuthLink
 
 /** PKCE `code` on an allow-listed auth path. Hash session tokens win. The query string is not a session. */
 export function pkceCodeFromAuthLink(url: string | null): string | null {
-  if (!url || sessionTokensFromUrl(url)) return null;
+  if (!url || rawAuthorityHasUserInfo(url) || sessionTokensFromUrl(url)) return null;
   const parsed = parseUrl(url);
   if (!parsed || !originAllowsAuthLink(parsed) || !authLinkPurpose(parsed.pathname)) return null;
   const code = parsed.searchParams.get('code') ?? '';
@@ -406,20 +417,27 @@ export function pkceCodeFromAuthLink(url: string | null): string | null {
  */
 export async function settleNativeDeepLink(
   deps: SettleAuthLinkDeps & {
-    exchangeCode: (code: string) => Promise<{ error: string | null }>;
+    exchangeCode: (code: string) => Promise<{ error: string | null; accessToken: string | null }>;
   }
 ): Promise<AuthLinkOutcome> {
   const outcome = await settleAuthLink(deps);
   if (outcome.status !== 'none') return outcome;
   const code = pkceCodeFromAuthLink(deps.url);
   if (!code) return { status: 'none' };
-  let exchanged: { error: string | null };
+  let exchanged: { error: string | null; accessToken: string | null };
   try {
     exchanged = await deps.exchangeCode(code);
   } catch {
     return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false };
   }
   if (exchanged.error) return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false };
-  const purpose = authLinkPurpose(parseUrl(deps.url ?? '')?.pathname ?? '') ?? 'invite';
+  const purpose = authLinkPurpose(parseUrl(deps.url ?? '')?.pathname ?? '');
+  const claims = purpose
+    ? assessAuthLinkClaims(exchanged.accessToken ?? '', purpose, deps.now)
+    : { ok: false as const };
+  if (!purpose || !claims.ok) {
+    await signOutQuietly(deps.signOut);
+    return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true };
+  }
   return { status: 'applied', purpose };
 }

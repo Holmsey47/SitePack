@@ -181,6 +181,19 @@ export function NoLoginBadge() {
   );
 }
 
+/** The copy on this phone is out of date. A label, not a control. */
+export function OutOfDateBadge() {
+  return (
+    <View
+      pointerEvents="none"
+      style={styles.outOfDate}
+      accessibilityRole="text"
+      accessibilityLabel="Out of date">
+      <Text style={styles.outOfDateText}>Out of date</Text>
+    </View>
+  );
+}
+
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <Text style={styles.error}>{children}</Text>;
@@ -296,4 +309,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
+  outOfDate: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.open,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    justifyContent: 'center',
+  },
+  outOfDateText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
 });
