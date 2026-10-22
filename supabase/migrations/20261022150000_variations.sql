@@ -1020,14 +1020,14 @@ begin
 end;
 $fn$;
 
-revoke all on function public.create_variation(uuid, text, text, text, text, integer, jsonb) from public;
-revoke all on function public.update_variation_draft(uuid, text, text, text, text, jsonb) from public;
-revoke all on function public.set_variation_value(uuid, integer) from public;
-revoke all on function public.sign_variation(uuid, text, text, text, text, text) from public;
-revoke all on function public.send_variation(uuid) from public;
-revoke all on function public.revise_variation(uuid) from public;
-revoke all on function public.list_variations(uuid) from public;
-revoke all on function public.variation_detail(uuid) from public;
+revoke all on function public.create_variation(uuid, text, text, text, text, integer, jsonb) from public, anon;
+revoke all on function public.update_variation_draft(uuid, text, text, text, text, jsonb) from public, anon;
+revoke all on function public.set_variation_value(uuid, integer) from public, anon;
+revoke all on function public.sign_variation(uuid, text, text, text, text, text) from public, anon;
+revoke all on function public.send_variation(uuid) from public, anon;
+revoke all on function public.revise_variation(uuid) from public, anon;
+revoke all on function public.list_variations(uuid) from public, anon;
+revoke all on function public.variation_detail(uuid) from public, anon;
 
 grant execute on function public.create_variation(uuid, text, text, text, text, integer, jsonb) to authenticated;
 grant execute on function public.update_variation_draft(uuid, text, text, text, text, jsonb) to authenticated;
