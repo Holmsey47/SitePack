@@ -37,7 +37,7 @@ Or put those same keys in a file that is not in the repo, one `KEY=value` per li
 
 Values may be wrapped in single or double quotes. Lines starting with `#` are ignored.
 
-The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1` or if a `SERVICE_ROLE` variable is set.
+The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1`, if a `SERVICE_ROLE` variable is set, or if `EXPO_PUBLIC_SUPABASE_ANON_KEY` is not an `sb_publishable_` key or a JWT whose role is `anon`. The refusal names the variable and does not print the key.
 
 It runs a clean Android prebuild, then `gradlew assembleRelease`. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project. A release build fails if any of those four is missing. It does not fall back to the debug keystore. Debug builds are unchanged and do not need the keystore.
 
@@ -45,7 +45,7 @@ It runs a clean Android prebuild, then `gradlew assembleRelease`. Gradle reads t
 
 The signed APK is `dist-apk/sitepack-<version>.apk`. The version comes from `app.json`.
 
-After the build, the script runs `apksigner verify --print-certs` and checks the certificate SHA-256 against the fingerprint above. It then unpacks the APK and fails if the JS bundle contains `service_role` or a fixture seed login.
+After the build, the script runs `apksigner verify --print-certs` and checks the certificate SHA-256 against the fingerprint above. It then unpacks the APK and fails if the JS bundle contains a non-anon JWT, an `sb_secret_` key, a PEM private key, `service_role`, or a fixture seed login. The failure names the file and offset and does not print the matched secret.
 
 ## Install
 
@@ -53,4 +53,4 @@ Copy the APK to the phone and open it. Allow install from that source. There is 
 
 ## CI
 
-CI does not sign and does not have the keystore. The Android job exports the JS bundle, greps it for `service_role` and seed logins, and runs the manifest checks: App Link paths, blocked permissions, `android:allowBackup="false"`, and release signing that reads those four environment variables and fails the release build when any of them is missing.
+CI does not sign and does not have the keystore. The Android job exports the JS bundle and scans it for a non-anon JWT, an `sb_secret_` key, a PEM private key, `service_role`, and seed logins. It also runs the manifest checks: App Link paths, blocked permissions, `android:allowBackup="false"`, and release signing that reads those four environment variables and fails the release build when any of them is missing.

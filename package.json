@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-alias.mjs --test data/folders.test.ts data/drawingLevel.test.ts data/createSite.test.ts data/inviteError.test.ts data/peopleGroups.test.ts data/joinCodes.test.ts data/inviteEntry.test.ts data/seatShape.test.ts data/companyPeople.test.ts data/peopleVisibility.test.ts data/phoneWalk.test.ts lib/appLinks.test.ts lib/format.test.ts lib/inviteGrant.test.ts lib/authLink.test.ts lib/inviteRedirect.test.ts lib/hardwareBack.test.ts lib/offlinePack.test.ts lib/secureChunks.test.ts scripts/live-company.test.mjs scripts/build-apk.test.mjs scripts/release-signing.test.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./scripts/register-alias.mjs --test data/folders.test.ts data/drawingLevel.test.ts data/createSite.test.ts data/inviteError.test.ts data/peopleGroups.test.ts data/joinCodes.test.ts data/inviteEntry.test.ts data/seatShape.test.ts data/companyPeople.test.ts data/peopleVisibility.test.ts data/phoneWalk.test.ts lib/appLinks.test.ts lib/format.test.ts lib/inviteGrant.test.ts lib/authLink.test.ts lib/inviteRedirect.test.ts lib/hardwareBack.test.ts lib/offlinePack.test.ts lib/secureChunks.test.ts lib/contrast.test.ts lib/offlineGuard.test.ts scripts/live-company.test.mjs scripts/build-apk.test.mjs scripts/release-signing.test.mjs scripts/bundleSecrets.test.mjs",
     "live:company": "node scripts/live-company.mjs",
     "seed:pdfs": "node ./scripts/write-sample-pdfs.mjs"
   },

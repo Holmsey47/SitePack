@@ -81,6 +81,8 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   fail "Missing required environment: ${missing[*]}. Pass them in the environment or as ./scripts/build-apk.sh path/to/release.env"
 fi
 
+node scripts/check-anon-key.mjs
+
 if [[ "${EXPO_PUBLIC_USE_FIXTURES:-}" == "1" ]]; then
   fail "EXPO_PUBLIC_USE_FIXTURES must not be 1 for a release APK."
 fi

@@ -9,7 +9,7 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
-import { deleteAllDrawingCaches } from '@/lib/offline';
+import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
 import { repo, useFixtures } from '@/data/index';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
@@ -38,6 +38,15 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null);
 
 const PENDING_KEY = 'sitepack.pendingPassword';
+
+async function bindCache(userId: string | null) {
+  try {
+    if (userId) await adoptCacheOwner(userId);
+    else await deleteAllDrawingCaches();
+  } catch {
+    // A failed wipe must not keep the previous owner's drawings readable.
+  }
+}
 
 function readPending(): boolean {
   try {
@@ -120,11 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         },
         signOut: async () => {
-          try {
-            await deleteAllDrawingCaches();
-          } catch {
-            // A failed wipe must not keep the session.
-          }
+          await bindCache(null);
           await supabase.auth.signOut();
         },
         confirm,
@@ -154,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setNeedsPassword(true);
         try {
           const me = await repo.me();
+          if (me?.auth_user_id) await bindCache(me.auth_user_id);
           if (!cancelled) setPerson(me);
         } catch {
           if (!cancelled) setPerson(null);
@@ -181,10 +187,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!useFixtures && hasSupabaseConfig) {
           const supabase = getSupabase();
           supabase.auth.onAuthStateChange(async (_event, session) => {
-            if (!session) {
-              setPerson(null);
+            if (!session?.user?.id) {
+              await bindCache(null);
+              if (!cancelled) setPerson(null);
               return;
             }
+            await bindCache(session.user.id);
             try {
               const me = await repo.me();
               if (!cancelled) setPerson(me);
@@ -195,8 +203,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const me = await repo.restoreSession();
         if (!cancelled) {
-          setPerson(me);
-          setNeedsPassword(Boolean(me) && readPending());
+          await bindCache(me?.auth_user_id ?? null);
+          if (!cancelled) {
+            setPerson(me);
+            setNeedsPassword(Boolean(me) && readPending());
+          }
         }
       } catch {
         if (!cancelled) setLinkError(INVALID_AUTH_LINK);
@@ -243,18 +254,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn: async (email, password) => {
         setLinkError(null);
         const result = await repo.signIn(email, password);
+        await bindCache(result.person.auth_user_id);
         setPerson(result.person);
         setNeedsPassword(result.needsPassword || readPending());
       },
       signInWithUsername: async (username, password) => {
         setLinkError(null);
         const result = await repo.signInWithUsername(username, password);
+        await bindCache(result.person.auth_user_id);
         setPerson(result.person);
         setNeedsPassword(false);
       },
       joinWithCode: async (input) => {
         setLinkError(null);
         const result = await repo.joinWithCode(input);
+        await bindCache(result.person.auth_user_id);
         setPerson(result.person);
         setNeedsPassword(false);
         return result.siteId;
@@ -265,14 +279,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       acknowledgePasswordReset: async () => {
         await repo.acknowledgePasswordReset();
         const me = await repo.me();
+        if (me?.auth_user_id) await bindCache(me.auth_user_id);
         setPerson(me);
       },
       signOut: async () => {
-        try {
-          await deleteAllDrawingCaches();
-        } catch {
-          // A failed wipe must not keep the session.
-        }
+        await bindCache(null);
         await repo.signOut();
         writePending(false);
         setLinkError(null);
@@ -284,10 +295,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         writePending(false);
         setNeedsPassword(false);
         const me = await repo.me();
+        if (me?.auth_user_id) await bindCache(me.auth_user_id);
         setPerson(me);
       },
       refresh: async () => {
         const me = await repo.me();
+        if (me?.auth_user_id) await bindCache(me.auth_user_id);
         setPerson(me);
       },
     }),

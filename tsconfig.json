@@ -38,6 +38,7 @@
     "lib/hardwareBack.test.ts",
     "lib/offlinePack.test.ts",
     "lib/secureChunks.test.ts",
-    "lib/contrast.test.ts"
+    "lib/contrast.test.ts",
+    "lib/offlineGuard.test.ts"
   ]
 }
