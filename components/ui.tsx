@@ -181,6 +181,15 @@ export function NoLoginBadge() {
   );
 }
 
+/** The copy on this phone is older than the last sync. */
+export function StaleBadge() {
+  return (
+    <View style={styles.stale} accessibilityRole="text" accessibilityLabel="Offline copy is older than the last sync">
+      <Text style={styles.staleText}>Stale</Text>
+    </View>
+  );
+}
+
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <Text style={styles.error}>{children}</Text>;
@@ -296,4 +305,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
+  stale: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.open,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  staleText: { color: theme.text, fontSize: 14, fontWeight: '800' },
 });

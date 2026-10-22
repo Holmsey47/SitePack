@@ -34,6 +34,9 @@
     "lib/format.test.ts",
     "lib/inviteGrant.test.ts",
     "lib/authLink.test.ts",
-    "lib/inviteRedirect.test.ts"
+    "lib/inviteRedirect.test.ts",
+    "lib/hardwareBack.test.ts",
+    "lib/offlinePack.test.ts",
+    "lib/secureChunks.test.ts"
   ]
 }

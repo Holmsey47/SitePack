@@ -116,6 +116,34 @@ if (roleHits.length > 0) {
   process.exit(1);
 }
 
+const gradlePath = path.resolve('android/app/build.gradle');
+if (!fs.existsSync(gradlePath)) {
+  console.error('android/app/build.gradle is missing. Run expo prebuild first.');
+  process.exit(1);
+}
+const gradle = fs.readFileSync(gradlePath, 'utf8');
+for (const name of [
+  'SITEPACK_KEYSTORE_PATH',
+  'SITEPACK_KEYSTORE_PASSWORD',
+  'SITEPACK_KEY_ALIAS',
+  'SITEPACK_KEY_PASSWORD',
+]) {
+  if (!gradle.includes(`System.getenv("${name}")`)) {
+    console.error(`Release signing must read ${name} from the environment.`);
+    process.exit(1);
+  }
+}
+const releaseLine =
+  'signingConfig System.getenv("SITEPACK_KEYSTORE_PATH") ? signingConfigs.release : signingConfigs.debug';
+if (!gradle.includes(releaseLine)) {
+  console.error('Release builds must use the env signing config when the keystore path is set.');
+  process.exit(1);
+}
+if (gradle.includes('storePassword "') || gradle.includes("storePassword 'upload'")) {
+  console.error('Release store password must not be written into build.gradle.');
+  process.exit(1);
+}
+
 const autoStart = xml.indexOf('android:autoVerify="true"');
 const start = xml.lastIndexOf('<intent-filter', autoStart);
 const end = xml.indexOf('</intent-filter>', autoStart) + '</intent-filter>'.length;
@@ -123,3 +151,4 @@ console.log(xml.slice(start, end));
 console.log('AndroidManifest autoVerify intent-filter matches uk.sitepack.app App Links.');
 console.log('Blocked permissions are present only as tools:node="remove".');
 console.log('service_role grep: clean.');
+console.log('Release signing reads SITEPACK_KEYSTORE_* from the environment.');

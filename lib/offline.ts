@@ -3,6 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import type { HomeSite, ManifestItem } from '@/data/types';
+import { drawingIdsToDelete, siteIdsFromPackKeys } from '@/lib/offlinePack';
 
 const SITES_KEY = 'sitepack.offline.sites';
 const PACK_KEY = (siteId: string) => `sitepack.offline.pack.${siteId}`;
@@ -50,6 +51,105 @@ export function readPackMeta(siteId: string): OfflinePackMeta | null {
   return readJson<OfflinePackMeta>(PACK_KEY(siteId));
 }
 
+export function cachedPackSiteIds(): string[] {
+  try {
+    const store = globalThis.localStorage;
+    if (!store) return [];
+    const keys: string[] = [];
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index);
+      if (key) keys.push(key);
+    }
+    return siteIdsFromPackKeys(keys);
+  } catch {
+    return [];
+  }
+}
+
+async function removeDrawingFiles(siteId: string, dropIds: readonly string[], currentIds: readonly string[]): Promise<void> {
+  if (Platform.OS === 'web') {
+    try {
+      const cache = await caches.open('sitepack-drawings');
+      for (const id of dropIds) await cache.delete(id);
+    } catch {
+      // The meta write still drops the superseded rows.
+    }
+    return;
+  }
+  try {
+    const folder = new Directory(Paths.document, 'sitepack', siteId);
+    if (!folder.exists) return;
+    const keep = new Set(currentIds);
+    for (const id of dropIds) {
+      const file = new File(folder, `${id}.pdf`);
+      if (file.exists) file.delete();
+    }
+    for (const entry of folder.list()) {
+      if (entry instanceof Directory) continue;
+      const name = decodeURIComponent(entry.uri.split('/').pop() ?? '');
+      if (!name.endsWith('.pdf')) continue;
+      const id = name.slice(0, -'.pdf'.length);
+      if (!keep.has(id) && entry.exists) entry.delete();
+    }
+  } catch {
+    // A missing folder is already clean.
+  }
+}
+
+/** Drop cached files for one site. Used on sign-out and when the person is removed. */
+export async function deleteSiteCache(siteId: string): Promise<void> {
+  const ids = readPackMeta(siteId)?.items.map((item) => item.drawingId) ?? [];
+  try {
+    globalThis.localStorage?.removeItem(PACK_KEY(siteId));
+  } catch {
+    // The files still go.
+  }
+  await removeDrawingFiles(siteId, ids, []);
+  if (Platform.OS === 'web') return;
+  try {
+    const folder = new Directory(Paths.document, 'sitepack', siteId);
+    if (folder.exists) folder.delete();
+  } catch {
+    // Already gone.
+  }
+}
+
+export async function deleteAllDrawingCaches(): Promise<void> {
+  const siteIds = cachedPackSiteIds();
+  for (const siteId of siteIds) await deleteSiteCache(siteId);
+  try {
+    globalThis.localStorage?.removeItem(SITES_KEY);
+  } catch {
+    // Files are the part that must go.
+  }
+  if (Platform.OS === 'web') {
+    try {
+      await caches.delete('sitepack-drawings');
+    } catch {
+      // Already gone.
+    }
+    return;
+  }
+  try {
+    const root = new Directory(Paths.document, 'sitepack');
+    if (root.exists) root.delete();
+  } catch {
+    // Already gone.
+  }
+}
+
+/** Delete superseded revisions that are still on disk after a sync that did not re-download. */
+export async function deleteSupersededDrawings(siteId: string, currentIds: readonly string[]): Promise<void> {
+  const meta = readPackMeta(siteId);
+  const dropIds = drawingIdsToDelete(meta?.items.map((item) => item.drawingId) ?? [], currentIds);
+  await removeDrawingFiles(siteId, dropIds, currentIds);
+  if (!meta) return;
+  const keep = new Set(currentIds);
+  const items = meta.items.filter((item) => keep.has(item.drawingId));
+  if (items.length === meta.items.length) return;
+  writeJson(PACK_KEY(siteId), { ...meta, items });
+}
+
 export async function downloadCurrentPack(
   siteId: string,
   items: ManifestItem[],
@@ -60,6 +160,9 @@ export async function downloadCurrentPack(
     downloadedAt: new Date().toISOString(),
     items: [],
   };
+  const previousIds = readPackMeta(siteId)?.items.map((item) => item.drawingId) ?? [];
+  const currentIds = items.map((item) => item.drawing_id);
+  const dropIds = drawingIdsToDelete(previousIds, currentIds);
 
   if (Platform.OS === 'web') {
     const cache = await caches.open('sitepack-drawings');
@@ -78,6 +181,7 @@ export async function downloadCurrentPack(
         level: item.level ?? null,
       });
     }
+    await removeDrawingFiles(siteId, dropIds, currentIds);
     writeJson(PACK_KEY(siteId), saved);
     return saved;
   }
@@ -100,6 +204,7 @@ export async function downloadCurrentPack(
       level: item.level ?? null,
     });
   }
+  await removeDrawingFiles(siteId, dropIds, currentIds);
   writeJson(PACK_KEY(siteId), saved);
   return saved;
 }

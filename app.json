@@ -24,7 +24,10 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
           "data": [
             {
               "scheme": "https",
@@ -83,7 +86,9 @@
           "photosPermission": "SitePack only uses a photo if you attach one to a drawing request."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-secure-store",
+      "./plugins/withReleaseSigning.js"
     ],
     "experiments": {
       "typedRoutes": true,

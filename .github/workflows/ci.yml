@@ -60,6 +60,17 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Export Android JS bundle
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-not-a-secret
+          EXPO_PUBLIC_USE_FIXTURES: ""
+          EXPO_NO_DOTENV: "1"
+        run: npx expo export --platform android --output-dir dist-android
+
+      - name: service_role and seed login grep
+        run: node scripts/check-js-bundle.mjs dist-android
+
       - name: Prebuild Android
         run: npx expo prebuild --platform android --no-install --clean
 

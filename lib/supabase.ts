@@ -1,5 +1,6 @@
 import 'expo-sqlite/localStorage/install';
 
+import { authStorage } from '@/lib/secureSession';
 import { AppState, Platform } from 'react-native';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
@@ -22,7 +23,7 @@ export function getSupabase(): SupabaseClient {
   if (!client) {
     client = createClient(supabaseUrl, supabaseKey, {
       auth: {
-        storage: globalThis.localStorage,
+        storage: authStorage(),
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: Platform.OS === 'web',

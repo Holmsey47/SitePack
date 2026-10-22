@@ -9,6 +9,7 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
+import { deleteAllDrawingCaches } from '@/lib/offline';
 import { repo, useFixtures } from '@/data/index';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
@@ -119,6 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         },
         signOut: async () => {
+          try {
+            await deleteAllDrawingCaches();
+          } catch {
+            // A failed wipe must not keep the session.
+          }
           await supabase.auth.signOut();
         },
         confirm,
@@ -133,8 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ? await settleNativeDeepLink({
             ...linkDeps(url),
             exchangeCode: async (code) => {
-              const { error } = await supabase.auth.exchangeCodeForSession(code);
-              return { error: error ? error.message : null };
+              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+              return {
+                error: error ? error.message : null,
+                accessToken: error ? null : data.session?.access_token ?? null,
+              };
             },
           })
         : await settleAuthLink(linkDeps(url));
@@ -259,6 +268,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPerson(me);
       },
       signOut: async () => {
+        try {
+          await deleteAllDrawingCaches();
+        } catch {
+          // A failed wipe must not keep the session.
+        }
         await repo.signOut();
         writePending(false);
         setLinkError(null);

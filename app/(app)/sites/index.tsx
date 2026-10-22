@@ -1,15 +1,17 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, StaleBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
-import { cacheAssignedSites, readCachedSites } from '@/lib/offline';
+import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
+import { packIsStale } from '@/lib/offlinePack';
+import { syncAssignedPacks } from '@/lib/syncPacks';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitesScreen() {
@@ -81,6 +83,15 @@ export default function SitesScreen() {
     });
   }, [working, query, staleOnly, openOnly]);
 
+  useEffect(() => {
+    if (!person) return;
+    let active = true;
+    void syncAssignedPacks(() => active).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [person]);
+
   const footer = person ? <AppTabs role={person.role} /> : null;
 
   function acknowledge() {
@@ -109,7 +120,10 @@ export default function SitesScreen() {
         ) : (
           workingRows(mine).map((site) => (
             <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{site.name}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
+                {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <StaleBadge /> : null}
+              </View>
               {site.address_line ? <Muted>{site.address_line}</Muted> : null}
               <Muted>{formatWhen(site.updated_at)}</Muted>
               {(site.my_open_request_count ?? 0) > 0 ? (
@@ -166,6 +180,7 @@ export default function SitesScreen() {
           <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
+              {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <StaleBadge /> : null}
               {(row.new_joiner_count ?? 0) > 0 ? (
                 <Text
                   style={{

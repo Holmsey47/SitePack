@@ -1,4 +1,4 @@
-import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, Muted, Screen, StaleBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
@@ -6,7 +6,8 @@ import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
-import { downloadCurrentPack, isPackReady, readPackMeta } from '@/lib/offline';
+import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
+import { packIsStale } from '@/lib/offlinePack';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -26,20 +27,46 @@ export default function SitePackScreen() {
 
   const load = useCallback(async () => {
     if (!siteId) return;
-    const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
-    setSite(nextSite);
-    setDrawings(nextDrawings);
-    if (person && canManageSite(person.role)) {
-      const joiners = await repo.listJoiners(siteId).catch(() => []);
-      const week = 7 * 24 * 60 * 60 * 1000;
-      setNewJoiners(
-        joiners.filter((row) => !row.removed_at && Date.now() - new Date(row.joined_at).getTime() < week).length
+    try {
+      const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
+      setSite(nextSite);
+      setDrawings(nextDrawings);
+      if (person && canManageSite(person.role)) {
+        const joiners = await repo.listJoiners(siteId).catch(() => []);
+        const week = 7 * 24 * 60 * 60 * 1000;
+        setNewJoiners(
+          joiners.filter((row) => !row.removed_at && Date.now() - new Date(row.joined_at).getTime() < week).length
+        );
+      }
+      setLoaded(true);
+      setError('');
+      const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
+      setReady(isPackReady(siteId, currentIds));
+    } catch {
+      const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
+      const meta = readPackMeta(siteId);
+      if (!cached && !meta) {
+        setError('Could not load the pack.');
+        return;
+      }
+      setSite(
+        cached ?? {
+          id: siteId,
+          company_id: '',
+          name: 'Site',
+          address_line: null,
+          main_contractor: null,
+          what_it_is: null,
+          archived_at: null,
+          created_at: meta?.downloadedAt ?? '',
+          updated_at: meta?.downloadedAt ?? '',
+        }
       );
+      setDrawings([]);
+      setLoaded(true);
+      setError('');
+      setReady(Boolean(meta && meta.items.length > 0));
     }
-    setLoaded(true);
-    setError('');
-    const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
-    setReady(isPackReady(siteId, currentIds));
   }, [siteId, person]);
 
   useFocusEffect(
@@ -51,6 +78,14 @@ export default function SitePackScreen() {
   const folders = packFolders(drawings);
   const manage = person ? canManageSite(person.role) : false;
   const meta = siteId ? readPackMeta(siteId) : null;
+  const currentRevisions = drawings.filter((drawing) => drawing.is_current).map((drawing) => ({
+    drawingId: drawing.id,
+    revision: drawing.revision,
+  }));
+  const stale = packIsStale(meta, {
+    updatedAt: site?.updated_at,
+    current: drawings.length > 0 ? currentRevisions : null,
+  });
 
   async function onDownload() {
     if (!siteId) return;
@@ -109,6 +144,20 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      {meta && meta.items.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>ON THIS PHONE</Text>
+            {stale ? <StaleBadge /> : null}
+          </View>
+          {meta.items.map((item) => (
+            <Card key={item.drawingId} onPress={() => router.push(`/sites/${siteId}/drawing/${item.drawingId}`)}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{item.title}</Text>
+              <Muted>Rev {item.revision}</Muted>
+            </Card>
+          ))}
+        </View>
+      ) : null}
       {manage ? (
         <View style={{ gap: 8 }}>
           <Button
@@ -159,7 +208,7 @@ export default function SitePackScreen() {
       ) : null}
 
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>
-      {folders.length === 0 ? (
+      {folders.length === 0 && !(meta && meta.items.length > 0) ? (
         <EmptyState
           title="No drawings yet"
           action={
