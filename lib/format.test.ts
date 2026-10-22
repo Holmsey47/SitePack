@@ -42,6 +42,8 @@ test('the share panel and the active code list use the same expiry helper', () =
   const invite = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/invite-code.tsx', import.meta.url), 'utf8');
   assert.match(panel, /formatCodeExpiry\(expiresAt\)/);
   assert.match(invite, /formatCodeExpiry\(row\.expires_at\)/);
+  assert.match(panel, /uses > 0/);
+  assert.match(invite, /row\.uses > 0/);
   assert.match(invite, /Share again/);
   assert.doesNotMatch(panel, /formatDate\(expiresAt\)/);
   assert.doesNotMatch(invite, /formatDate\(row\.expires_at\)/);

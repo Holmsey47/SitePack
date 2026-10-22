@@ -151,7 +151,8 @@ export default function InviteCodeScreen() {
         <Card key={row.id}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.label || 'No label'}</Text>
           <Muted>
-            {row.uses} of {row.max_uses} used · {formatCodeExpiry(row.expires_at)}
+            {row.uses > 0 ? `${row.uses} of ${row.max_uses} joined · ` : ''}
+            {formatCodeExpiry(row.expires_at)}
           </Muted>
           <Button label="Share again" variant="secondary" onPress={() => void onShareAgain(row)} />
           <Button label="Revoke" variant="danger" onPress={() => setPendingRevoke(row)} />

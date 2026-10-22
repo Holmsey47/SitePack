@@ -110,9 +110,11 @@ export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: Joi
         {displayCode}
       </Text>
       <Muted>{formatCodeExpiry(expiresAt)}</Muted>
-      <Muted>
-        {uses} of {maxUses} joined
-      </Muted>
+      {uses > 0 ? (
+        <Muted>
+          {uses} of {maxUses} joined
+        </Muted>
+      ) : null}
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
