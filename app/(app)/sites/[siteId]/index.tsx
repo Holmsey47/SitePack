@@ -201,7 +201,7 @@ export default function SitePackScreen() {
           {outOfDate ? (
             <Button
               label="Update phone copy"
-              minHeight={52}
+              minHeight={56}
               loading={downloading}
               onPress={() => void onDownload()}
             />
@@ -245,6 +245,7 @@ export default function SitePackScreen() {
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
+      <Button label="Variations" variant="secondary" onPress={() => router.push(`/sites/${siteId}/variations`)} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
       {manage ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>

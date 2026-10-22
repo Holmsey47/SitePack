@@ -39,6 +39,10 @@
     "lib/offlinePack.test.ts",
     "lib/secureChunks.test.ts",
     "lib/contrast.test.ts",
-    "lib/offlineGuard.test.ts"
+    "lib/offlineGuard.test.ts",
+    "data/variations.test.ts",
+    "lib/photoPrep.test.ts",
+    "lib/variationQueue.test.ts",
+    "lib/variationPdf.test.ts"
   ]
 }

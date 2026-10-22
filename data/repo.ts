@@ -23,6 +23,7 @@ import type {
   Site,
   SiteAssignment,
 } from '@/data/types';
+import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 
 export type SignInResult = {
   person: Person;
@@ -96,6 +97,33 @@ export type SitePackRepo = {
   joinWithCode(input: JoinWithCodeInput): Promise<{ person: Person; siteId: string }>;
   acknowledgePasswordReset(): Promise<void>;
   companyName(): Promise<string>;
+  listVariations(siteId: string): Promise<VariationList>;
+  getVariation(variationId: string): Promise<VariationDetail | null>;
+  createVariation(input: CreateVariationInput): Promise<{ variationId: string; versionId: string; voSeq: number }>;
+  updateVariationDraft(
+    versionId: string,
+    input: {
+      title: string;
+      description: string;
+      levelArea?: string | null;
+      quantityText?: string | null;
+      photos: VariationPhotoInput[];
+    }
+  ): Promise<void>;
+  setVariationValue(versionId: string, valuePence: number | null): Promise<void>;
+  signVariation(
+    versionId: string,
+    input: { signerName: string; roleCompany: string; signaturePng: string }
+  ): Promise<void>;
+  sendVariation(versionId: string): Promise<void>;
+  reviseVariation(versionId: string): Promise<{ versionId: string }>;
+  uploadSitePhoto(params: {
+    companyId: string;
+    siteId: string;
+    bytes: Uint8Array;
+    contentType: string;
+  }): Promise<{ storagePath: string; fileSizeBytes: number; contentType: string }>;
+  signSitePhotoUrl(storagePath: string): Promise<{ url: string; expiresAt: string }>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -151,6 +179,14 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'reset_rejected',
     'sign_in_failed',
     'email_change_blocked',
+    'variation_locked',
+    'value_not_allowed',
+    'photo_count',
+    'photo_too_large',
+    'invalid_path',
+    'signature_required',
+    'invalid_status',
+    'invalid_input',
   ]) {
     if (text.includes(known)) return known;
   }

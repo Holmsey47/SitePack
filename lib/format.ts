@@ -86,6 +86,16 @@ export function formatCodeExpiry(expiresAt: string, now: Date | string | number 
   return `Ends ${end.weekday} ${end.day} ${end.month}, ${end.time}`;
 }
 
+/** UK wall time for a variation PDF and a signature. Example: 22 Oct 2026, 2:05pm. */
+export function formatUkDateTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const clock = londonClock(date);
+  const year = new Intl.DateTimeFormat('en-GB', { timeZone: LONDON, year: 'numeric' }).format(date);
+  return `${clock.day} ${clock.month} ${year}, ${clock.time}`;
+}
+
 export function timeAgo(iso: string): string {
   const delta = Date.now() - new Date(iso).getTime();
   const hours = Math.round(delta / (1000 * 60 * 60));

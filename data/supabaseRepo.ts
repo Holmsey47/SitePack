@@ -6,6 +6,15 @@ import { groupCount } from '@/data/peopleGroups';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
 import type {
+  CreateVariationInput,
+  VariationDetail,
+  VariationList,
+  VariationPhoto,
+  VariationStatus,
+  VariationVersion,
+} from '@/data/variations';
+import { PHOTO_URL_SECONDS } from '@/data/variations';
+import type {
   AddNoLoginOperativeInput,
   CompanyContact,
   CompanyPerson,
@@ -46,6 +55,27 @@ function unwrap<T>(
 function maybe<T>(data: T | null, error: { message: string } | null): T | null {
   if (error) throw new Error(error.message);
   return data;
+}
+
+async function rpcJson(name: string, args: Record<string, unknown>) {
+  const { data, error } = await getSupabase().rpc(name, args);
+  return unwrap(data, error);
+}
+
+async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
+  const supabase = getSupabase();
+  const photos: VariationPhoto[] = await Promise.all(
+    (version.photos ?? []).map(async (photo) => {
+      const { data, error } = await supabase.storage.from('site-photos').createSignedUrl(photo.storage_path, PHOTO_URL_SECONDS);
+      if (error || !data?.signedUrl) return { ...photo, signed_url: null, signed_url_expires_at: null };
+      return {
+        ...photo,
+        signed_url: data.signedUrl,
+        signed_url_expires_at: new Date(Date.now() + PHOTO_URL_SECONDS * 1000).toISOString(),
+      };
+    })
+  );
+  return { ...version, photos, status: version.status as VariationStatus };
 }
 
 // Client list of people. The view has no email or phone. Own contact fields come from my_person().
@@ -757,6 +787,104 @@ export const supabaseRepo: SitePackRepo = {
   async acknowledgePasswordReset() {
     const { error } = await getSupabase().rpc('acknowledge_password_reset');
     if (error) throw new Error(rpcErrorCode(error));
+  },
+
+  async listVariations(siteId) {
+    const data = unwrap(await rpcJson('list_variations', { p_site_id: siteId }), null) as VariationList;
+    return data;
+  },
+
+  async getVariation(variationId) {
+    try {
+      const data = unwrap(await rpcJson('variation_detail', { p_variation_id: variationId }), null) as VariationDetail;
+      data.current = await withPhotoUrls(data.current);
+      data.history = await Promise.all(data.history.map((version) => withPhotoUrls(version)));
+      return data;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_authorized') return null;
+      throw err;
+    }
+  },
+
+  async createVariation(input: CreateVariationInput) {
+    const data = unwrap(
+      await rpcJson('create_variation', {
+        p_site_id: input.siteId,
+        p_title: input.title,
+        p_description: input.description,
+        p_level_area: input.levelArea ?? null,
+        p_quantity_text: input.quantityText ?? null,
+        p_value_pence: input.valuePence ?? null,
+        p_photos: input.photos.map((photo) => ({
+          storage_path: photo.storagePath,
+          content_type: photo.contentType,
+          file_size_bytes: photo.fileSizeBytes,
+        })),
+      }),
+      null
+    ) as { variation_id: string; version_id: string; vo_seq: number };
+    return { variationId: data.variation_id, versionId: data.version_id, voSeq: data.vo_seq };
+  },
+
+  async updateVariationDraft(versionId, input) {
+    unwrap(
+      await rpcJson('update_variation_draft', {
+        p_version_id: versionId,
+        p_title: input.title,
+        p_description: input.description,
+        p_level_area: input.levelArea ?? null,
+        p_quantity_text: input.quantityText ?? null,
+        p_photos: input.photos.map((photo) => ({
+          storage_path: photo.storagePath,
+          content_type: photo.contentType,
+          file_size_bytes: photo.fileSizeBytes,
+        })),
+      }),
+      null
+    );
+  },
+
+  async setVariationValue(versionId, valuePence) {
+    unwrap(await rpcJson('set_variation_value', { p_version_id: versionId, p_value_pence: valuePence }), null);
+  },
+
+  async signVariation(versionId, input) {
+    unwrap(
+      await rpcJson('sign_variation', {
+        p_version_id: versionId,
+        p_signer_name: input.signerName,
+        p_role_company: input.roleCompany,
+        p_signature_png: input.signaturePng,
+      }),
+      null
+    );
+  },
+
+  async sendVariation(versionId) {
+    unwrap(await rpcJson('send_variation', { p_version_id: versionId }), null);
+  },
+
+  async reviseVariation(versionId) {
+    const data = unwrap(await rpcJson('revise_variation', { p_version_id: versionId }), null) as { version_id: string };
+    return { versionId: data.version_id };
+  },
+
+  async uploadSitePhoto(params) {
+    const supabase = getSupabase();
+    const storagePath = `${params.companyId}/${params.siteId}/variations/${newId()}`;
+    const { error } = await supabase.storage.from('site-photos').upload(storagePath, params.bytes, {
+      contentType: params.contentType,
+      upsert: false,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+    return { storagePath, fileSizeBytes: params.bytes.byteLength, contentType: params.contentType };
+  },
+
+  async signSitePhotoUrl(storagePath) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.storage.from('site-photos').createSignedUrl(storagePath, PHOTO_URL_SECONDS);
+    if (error || !data?.signedUrl) throw new Error(error?.message ?? 'Could not sign photo URL');
+    return { url: data.signedUrl, expiresAt: new Date(Date.now() + PHOTO_URL_SECONDS * 1000).toISOString() };
   },
 
   async getDrawingOpenUrl(drawing) {
