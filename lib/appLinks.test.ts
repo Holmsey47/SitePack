@@ -141,6 +141,8 @@ test('assetlinks names the package and the release fingerprint', () => {
 test('app.json opens only the join, set-password, and reset https paths', () => {
   const app = JSON.parse(fs.readFileSync(new URL('../app.json', import.meta.url), 'utf8'));
   assert.equal(app.expo.android.package, 'uk.sitepack.app');
+  assert.equal(Number.isInteger(app.expo.android.versionCode), true);
+  assert.equal(app.expo.android.versionCode >= 2, true);
   assert.deepEqual(app.expo.android.blockedPermissions, [
     'SYSTEM_ALERT_WINDOW',
     'RECORD_AUDIO',
