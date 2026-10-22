@@ -1,9 +1,11 @@
 import { repo, useFixtures } from '@/data/index';
+import { browserPathWithoutAuth, consumePasswordSetup, stashAuthCallback, takeAuthCallback } from '@/lib/appLinks';
 import { inviteGrantFromUrl } from '@/lib/inviteGrant';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
 import * as Linking from 'expo-linking';
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 type AuthState = {
   ready: boolean;
@@ -45,11 +47,39 @@ function urlLooksLikeInvite(url: string | null): boolean {
   return inviteGrantFromUrl(url) !== null;
 }
 
-function clearInviteHash() {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  url.hash = '';
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+function stripBrowserAuth(url: string | null) {
+  if (typeof window === 'undefined' || !url) return;
+  const next = browserPathWithoutAuth(url);
+  if (!next) return;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next === current) return;
+  window.history.replaceState(window.history.state, '', next);
+}
+
+/** setSession for hash/query tokens. exchangeCodeForSession for a native PKCE code. */
+async function applyStashedAuth(): Promise<boolean> {
+  const pending = takeAuthCallback();
+  if (!pending) return false;
+  const pageUrl = typeof window !== 'undefined' ? window.location.href : null;
+  if (useFixtures || !hasSupabaseConfig) {
+    stripBrowserAuth(pageUrl);
+    return false;
+  }
+  if (pending.kind === 'session') {
+    const { error } = await getSupabase().auth.setSession({
+      access_token: pending.accessToken,
+      refresh_token: pending.refreshToken,
+    });
+    stripBrowserAuth(pageUrl);
+    return !error;
+  }
+  if (Platform.OS === 'web') {
+    await getSupabase().auth.getSession();
+    stripBrowserAuth(pageUrl);
+    return false;
+  }
+  const { error } = await getSupabase().auth.exchangeCodeForSession(pending.code);
+  return !error;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -63,23 +93,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function boot() {
       const initialUrl = await Linking.getInitialURL();
       const pageUrl = typeof window !== 'undefined' ? window.location.href : initialUrl;
-      const grant = inviteGrantFromUrl(pageUrl) ?? inviteGrantFromUrl(initialUrl);
-      if (grant && !useFixtures && hasSupabaseConfig) {
-        const { error } = await getSupabase().auth.setSession({
-          access_token: grant.accessToken,
-          refresh_token: grant.refreshToken,
-        });
-        if (!error) {
-          writePending(true);
-          clearInviteHash();
-        }
-      }
+      stashAuthCallback(pageUrl);
+      if (initialUrl && initialUrl !== pageUrl) stashAuthCallback(initialUrl);
       if (!useFixtures && hasSupabaseConfig) {
         const supabase = getSupabase();
         supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
-            if (urlLooksLikeInvite(typeof window !== 'undefined' ? window.location.href : initialUrl)) {
+            const page = typeof window !== 'undefined' ? window.location.href : initialUrl;
+            if (urlLooksLikeInvite(page) || consumePasswordSetup()) {
               writePending(true);
+              if (!cancelled) setNeedsPassword(true);
             }
           }
           if (!session) {
@@ -94,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         });
       }
+      const accepted = await applyStashedAuth();
+      if (accepted) writePending(true);
       try {
         const me = await repo.restoreSession();
         if (!cancelled) {
@@ -107,10 +132,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void boot();
     const sub = Linking.addEventListener('url', ({ url }) => {
-      if (urlLooksLikeInvite(url)) {
+      stashAuthCallback(url);
+      void (async () => {
+        const accepted = await applyStashedAuth();
+        if (!accepted) return;
         writePending(true);
-        setNeedsPassword(true);
-      }
+        if (!cancelled) setNeedsPassword(true);
+        try {
+          const me = await repo.me();
+          if (!cancelled) setPerson(me);
+        } catch {
+          if (!cancelled) setPerson(null);
+        }
+      })();
     });
     return () => {
       cancelled = true;
@@ -125,11 +159,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       needsPassword,
       usingFixtures: useFixtures,
       signIn: async (email, password) => {
+        consumePasswordSetup();
         const result = await repo.signIn(email, password);
         setPerson(result.person);
         setNeedsPassword(result.needsPassword || readPending());
       },
       signInWithUsername: async (username, password) => {
+        consumePasswordSetup();
         const result = await repo.signInWithUsername(username, password);
         setPerson(result.person);
         setNeedsPassword(false);

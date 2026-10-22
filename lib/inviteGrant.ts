@@ -1,26 +1,18 @@
+import { authTokensFromUrl } from './appLinks.ts';
+
 export type InviteGrant = {
   accessToken: string;
   refreshToken: string;
 };
 
-/** Invite emails land with the new person's session in the URL hash.
+/** Invite emails land with the new person's session in the URL hash or query.
  * Password login uses PKCE, which ignores that hash and keeps whoever is already signed in.
+ * A bare `?code=` is not this grant.
  */
 export function inviteGrantFromUrl(url: string | null): InviteGrant | null {
-  if (!url) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  const hash = new URLSearchParams(parsed.hash.replace(/^#/, ''));
-  const type = hash.get('type') ?? '';
-  if (type !== 'invite' && type !== 'recovery') return null;
-  const accessToken = hash.get('access_token') ?? '';
-  const refreshToken = hash.get('refresh_token') ?? '';
-  if (!accessToken || !refreshToken) return null;
-  return { accessToken, refreshToken };
+  const tokens = authTokensFromUrl(url);
+  if (!tokens) return null;
+  return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
 }
 
 /** The invite email is one-time. A second click does not issue another session. */

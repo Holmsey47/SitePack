@@ -1,10 +1,11 @@
 import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { joinFailureMessage, publicCodePath, formatJoinCode } from '@/data/joinCodes';
+import { clearStagedJoinCode, peekStagedJoinCode, stageJoinCode } from '@/lib/appLinks';
 import { theme } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 
 /**
  * The form is the only check. Opening the link does not call the server.
@@ -13,7 +14,9 @@ import { Text } from 'react-native';
 export function JoinScreen({ routeCode }: { routeCode?: string }) {
   const { joinWithCode } = useAuth();
   const router = useRouter();
-  const [code, setCode] = useState(routeCode ? formatJoinCode(routeCode) : '');
+  const [code, setCode] = useState(() =>
+    formatJoinCode(routeCode || peekStagedJoinCode())
+  );
   const [name, setName] = useState('');
   const [trade, setTrade] = useState('');
   const [username, setUsername] = useState('');
@@ -22,17 +25,27 @@ export function JoinScreen({ routeCode }: { routeCode?: string }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!routeCode || typeof window === 'undefined') return;
-    // The router writes the code into the address bar after this effect.
-    // Strip again on the next turn so the code does not stay in the URL.
-    const strip = () => {
-      const next = publicCodePath(window.location.pathname);
-      if (next) window.history.replaceState(window.history.state, '', next);
-    };
-    strip();
-    const id = window.setTimeout(strip, 0);
-    return () => window.clearTimeout(id);
-  }, [routeCode]);
+    if (Platform.OS === 'web') {
+      if (!routeCode || typeof window === 'undefined') return;
+      // The router writes the code into the address bar after this effect.
+      // Strip again on the next turn so the code does not stay in the URL.
+      const strip = () => {
+        const next = publicCodePath(window.location.pathname);
+        if (next) window.history.replaceState(window.history.state, '', next);
+      };
+      strip();
+      const id = window.setTimeout(strip, 0);
+      return () => window.clearTimeout(id);
+    }
+    if (routeCode) {
+      stageJoinCode(routeCode);
+      router.replace('/join');
+      return;
+    }
+    const staged = peekStagedJoinCode();
+    if (staged) setCode(formatJoinCode(staged));
+    clearStagedJoinCode();
+  }, [routeCode, router]);
 
   async function onSubmit() {
     setError('');

@@ -35,3 +35,15 @@ const target = path.resolve('dist/vercel.json');
 fs.mkdirSync(path.dirname(target), { recursive: true });
 fs.copyFileSync(source, target);
 console.log('Wrote dist/vercel.json from vercel.json.');
+
+// Expo export copies public/ into dist, including dot directories. Copy
+// assetlinks again so a later export change cannot drop Digital Asset Links.
+const assetLinks = path.resolve('public/.well-known/assetlinks.json');
+if (!fs.existsSync(assetLinks)) {
+  console.error('public/.well-known/assetlinks.json is missing.');
+  process.exit(1);
+}
+const distWellKnown = path.resolve('dist/.well-known');
+fs.mkdirSync(distWellKnown, { recursive: true });
+fs.copyFileSync(assetLinks, path.join(distWellKnown, 'assetlinks.json'));
+console.log('Wrote dist/.well-known/assetlinks.json from public/.well-known/assetlinks.json.');

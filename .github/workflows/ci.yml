@@ -42,3 +42,26 @@ jobs:
 
       - name: Production bundle and dist/vercel.json
         run: node scripts/check-prod-bundle.mjs
+
+  android-app-links:
+    name: android app links manifest
+    runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ""
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prebuild Android
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Intent filters and service_role grep
+        run: node scripts/check-android-manifest.mjs
