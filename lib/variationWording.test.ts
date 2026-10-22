@@ -7,15 +7,23 @@ import { variationConfirmation, variationHandoverSummary, variationLockLine } fr
 const WITH_AMOUNT = 'I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown.';
 const WITHOUT_AMOUNT = 'I confirm I instructed this extra work on behalf of Northbuild. The price is still to be agreed.';
 
-test('the confirmation names the typed company, and a blank company stays a placeholder', () => {
+test('a blank company reads as your company until the field has text', () => {
   assert.equal(variationConfirmation('Northbuild', true), WITH_AMOUNT);
   assert.equal(variationConfirmation('  Northbuild  ', false), WITHOUT_AMOUNT);
   assert.equal(
     variationConfirmation('', true),
-    'I confirm I instructed this extra work on behalf of [company] and agree the amount shown.'
+    'I confirm I instructed this extra work on behalf of your company and agree the amount shown.'
+  );
+  assert.equal(
+    variationConfirmation('   ', false),
+    'I confirm I instructed this extra work on behalf of your company. The price is still to be agreed.'
   );
   assert.equal(variationConfirmation('Otherbuild', false).includes('Otherbuild'), true);
   assert.equal(variationConfirmation('Otherbuild', false).includes('agree the amount shown'), false);
+  const sql = fs.readFileSync('supabase/migrations/20261022150000_variations.sql', 'utf8');
+  assert.doesNotMatch(sql, /your company/);
+  assert.match(sql, /on behalf of ' \|\| v_company \|\| ' and agree the amount shown/);
+  assert.match(sql, /on behalf of ' \|\| v_company \|\| '\. The price is still to be agreed/);
 });
 
 test('the handover summary formats the amount ex VAT and a single photo', () => {
@@ -41,6 +49,7 @@ test('handover hides the amount editor, and the screen and PDF share the wording
   const pdf = fs.readFileSync('lib/variationPdf.ts', 'utf8');
   const wording = fs.readFileSync('lib/variationWording.ts', 'utf8');
   assert.match(screen, /variationConfirmation\(/);
+  assert.match(screen, /disabled=\{!signerCompany\.trim\(\)\}/);
   assert.match(screen, /variationHandoverSummary\(/);
   assert.match(screen, /variationAmountEditorOpen\(/);
   assert.match(screen, /label="£ ex VAT"/);
