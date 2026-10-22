@@ -38,6 +38,8 @@ export type VariationSignature = {
   signer_role: string;
   signer_company: string;
   confirmation_text: string;
+  /** The £ the signer was shown. Null when that phone was not shown a price. */
+  shown_value_pence: number | null;
   signature_png: string;
   signed_at: string;
 };
@@ -95,6 +97,16 @@ export function canSetVariationValue(role: Role): boolean {
   return role === 'owner' || role === 'cm';
 }
 
+/**
+ * v0 hides £ from operatives. The same switch is private.can_see_variation_value()
+ * in the 6.1 migration. Flip both together if operatives should see prices.
+ */
+export const OPERATIVES_SEE_VARIATION_VALUE = false;
+
+export function canSeeVariationValue(role: Role): boolean {
+  return OPERATIVES_SEE_VARIATION_VALUE || role === 'owner' || role === 'cm';
+}
+
 export function formatPounds(pence: number): string {
   const negative = pence < 0;
   const abs = Math.abs(pence);
@@ -132,6 +144,8 @@ export function filterVariations(rows: VariationSummary[], filter: VariationFilt
 
 export function variationError(code: string): string {
   switch (code) {
+    case 'value_mismatch':
+      return 'The amount changed. Check it and sign again.';
     case 'value_not_allowed':
       return 'Only the owner or contracts manager can set the amount.';
     case 'variation_locked':

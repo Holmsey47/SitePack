@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 
 import type { HomeSite, ManifestItem } from '@/data/types';
 import { drawingIdsToDelete, siteIdsFromPackKeys } from '@/lib/offlinePack';
+import { clearVariationQueue } from '@/lib/variationQueue';
 import {
   cacheReadable,
   claimCacheSession,
@@ -98,7 +99,7 @@ function clearLocalMetadata() {
     for (let index = 0; index < store.length; index += 1) {
       const key = store.key(index);
       if (!key) continue;
-      if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.')) keys.push(key);
+      if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.') || key.startsWith('sitepack.variation.')) keys.push(key);
     }
     for (const key of keys) store.removeItem(key);
   } catch {
@@ -107,6 +108,11 @@ function clearLocalMetadata() {
 }
 
 async function deleteStoredFiles(): Promise<void> {
+  try {
+    await clearVariationQueue();
+  } catch {
+    // The drawing wipe still runs.
+  }
   if (Platform.OS === 'web') {
     try {
       await caches.delete('sitepack-drawings');
