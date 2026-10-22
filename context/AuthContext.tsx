@@ -92,11 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             },
             setSession: async (tokens) => {
-              const { error } = await supabase.auth.setSession({
+              const { data, error } = await supabase.auth.setSession({
                 access_token: tokens.accessToken,
                 refresh_token: tokens.refreshToken,
               });
-              return { error: error ? error.message : null };
+              return {
+                error: error ? error.message : null,
+                accessToken: error ? null : data.session?.access_token ?? null,
+              };
             },
             signOut: async () => {
               await supabase.auth.signOut();

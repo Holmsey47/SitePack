@@ -64,11 +64,38 @@ function parseUrl(value: string): URL | null {
   }
 }
 
+/** Implicit-flow links are only honoured for this host, or for the page's own origin on web. */
+const PREVIEW_HOST = 'sitepack-preview.vercel.app';
+
+/**
+ * React Native sets `window` to the global object and leaves `history` unset.
+ * Every history and location read goes through this so import and boot do not throw.
+ */
+function hasBrowserHistory(): boolean {
+  return typeof window !== 'undefined' && typeof window.history?.replaceState === 'function';
+}
+
+function browserOrigin(): string | null {
+  if (!hasBrowserHistory()) return null;
+  try {
+    const origin = window.location.origin;
+    return typeof origin === 'string' && origin ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function originAllowsAuthLink(url: URL): boolean {
+  if (url.protocol === 'https:' && url.host === PREVIEW_HOST) return true;
+  const origin = browserOrigin();
+  return origin !== null && url.origin === origin;
+}
+
 /** Hash only. Query tokens are ignored, including when a hash is also present. */
 export function sessionTokensFromUrl(url: string | null): SessionTokens | null {
   if (!url) return null;
   const parsed = parseUrl(url);
-  if (!parsed) return null;
+  if (!parsed || !originAllowsAuthLink(parsed)) return null;
   const purpose = authLinkPurpose(parsed.pathname);
   if (!purpose) return null;
   const hash = new URLSearchParams(parsed.hash.replace(/^#/, ''));
@@ -89,7 +116,7 @@ export function planBrowserUrl(href: string): { nextHref: string; stripped: bool
   if (hashHas) parsed.hash = '';
   for (const key of TOKEN_PARAMS) parsed.searchParams.delete(key);
   const nextHref = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  const sessionUrl = hashHas && authLinkPurpose(parsed.pathname) ? original : null;
+  const sessionUrl = hashHas && originAllowsAuthLink(parsed) && authLinkPurpose(parsed.pathname) ? original : null;
   return { nextHref, stripped: true, sessionUrl };
 }
 
@@ -100,9 +127,12 @@ function rememberSessionUrl(sessionUrl: string | null) {
   if (heldWebAuthUrl === undefined) heldWebAuthUrl = sessionUrl;
 }
 
-/** Drop access and refresh tokens from any history write, and from the current URL. */
+/**
+ * Drop access and refresh tokens from any history write, and from the current URL.
+ * Call this from the auth provider. Nothing in this module runs at import time.
+ */
 export function installAuthUrlScrubber(): void {
-  if (typeof window === 'undefined' || scrubberInstalled) return;
+  if (!hasBrowserHistory() || scrubberInstalled) return;
   scrubberInstalled = true;
   const originalReplace = window.history.replaceState.bind(window.history);
   const originalPush = window.history.pushState.bind(window.history);
@@ -131,7 +161,7 @@ export function installAuthUrlScrubber(): void {
 
 /** Synchronous. Safe to call more than once. Keeps the first allow-listed link in memory. */
 export function ensureWebAuthUrlStripped(): void {
-  if (typeof window === 'undefined') return;
+  if (!hasBrowserHistory()) return;
   installAuthUrlScrubber();
   try {
     const plan = planBrowserUrl(window.location.href);
@@ -255,7 +285,10 @@ export type SettleAuthLinkDeps = {
   now: number;
   getExisting: () => Promise<ExistingSession>;
   verifyToken: (accessToken: string) => Promise<AccountIdentity | null>;
-  setSession: (tokens: { accessToken: string; refreshToken: string }) => Promise<{ error: string | null }>;
+  setSession: (tokens: { accessToken: string; refreshToken: string }) => Promise<{
+    error: string | null;
+    accessToken: string | null;
+  }>;
   signOut: () => Promise<void>;
   confirm: (message: string) => Promise<boolean>;
 };
@@ -286,33 +319,43 @@ export async function settleAuthLink(deps: SettleAuthLinkDeps): Promise<AuthLink
 
   const existing = await deps.getExisting();
   if (existing.state !== 'none') {
-    const verified = await deps.verifyToken(parsed.accessToken);
-    const same = existing.state === 'signed-in' && verified !== null && sameAccount(existing.identity, verified);
+    let verified: AccountIdentity | null = null;
+    try {
+      verified = await deps.verifyToken(parsed.accessToken);
+    } catch {
+      verified = null;
+    }
+    // getUser failed, or the token's email was never confirmed by the server.
+    // Do not show claims.email and do not call setSession.
+    if (!verified) return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false };
+    const same = existing.state === 'signed-in' && sameAccount(existing.identity, verified);
     if (!same) {
       const current = existing.state === 'signed-in' ? existing.identity : {};
-      const targetEmail = verified?.email ?? claims.email;
-      const accepted = await deps.confirm(confirmSessionMessage(current, targetEmail));
+      const accepted = await deps.confirm(confirmSessionMessage(current, verified.email ?? null));
       if (!accepted) return { status: 'declined' };
       await signOutQuietly(deps.signOut);
     }
   }
 
-  const { error } = await deps.setSession({
-    accessToken: parsed.accessToken,
-    refreshToken: parsed.refreshToken,
-  });
-  if (error) {
+  let applied: { error: string | null; accessToken: string | null };
+  try {
+    applied = await deps.setSession({
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
+    });
+  } catch {
     await signOutQuietly(deps.signOut);
     return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true };
   }
-  const after = assessAuthLinkClaims(parsed.accessToken, parsed.purpose, deps.now);
+  if (applied.error) {
+    await signOutQuietly(deps.signOut);
+    return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true };
+  }
+  // supabase-js may refresh and persist a different session. Judge that token, not the URL.
+  const after = assessAuthLinkClaims(applied.accessToken ?? '', parsed.purpose, deps.now);
   if (!after.ok) {
     await signOutQuietly(deps.signOut);
     return { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true };
   }
   return { status: 'applied', purpose: parsed.purpose };
 }
-
-// Drop hash tokens before supabase-js is created. Importing this module is enough.
-installAuthUrlScrubber();
-ensureWebAuthUrlStripped();

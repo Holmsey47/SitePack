@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   AUTH_LINK_MAX_AGE_SECONDS,
   INVALID_AUTH_LINK,
@@ -135,9 +137,9 @@ test('an existing session is not replaced until the person confirms', async () =
       calls.push('verify');
       return { id: 'attacker', email: 'attacker@site.test' };
     },
-    setSession: async () => {
+    setSession: async (tokens) => {
       calls.push('setSession');
-      return { error: null };
+      return { error: null, accessToken: tokens.accessToken };
     },
     signOut: async () => {
       calls.push('signOut');
@@ -167,9 +169,9 @@ test('confirming signs out before setSession, and the same account does not ask'
     now: NOW,
     getExisting: async () => ({ state: 'signed-in', identity: { id: 'same-person', email: 'same@site.test' } }),
     verifyToken: async () => ({ id: 'same-person', email: 'same@site.test' }),
-    setSession: async () => {
+    setSession: async (tokens) => {
       confirmed.push('setSession');
-      return { error: null };
+      return { error: null, accessToken: tokens.accessToken };
     },
     signOut: async () => {
       confirmed.push('signOut');
@@ -183,13 +185,13 @@ test('confirming signs out before setSession, and the same account does not ask'
 
   const order: string[] = [];
   const switched = await settleAuthLink({
-    url: hashUrl('/reset', token({ amr: [{ method: 'recovery' }], email: 'other@site.test', sub: 'other' })),
+    url: hashUrl('/reset', token({ amr: [{ method: 'recovery' }], email: 'forged@site.test', sub: 'forged' })),
     now: NOW,
     getExisting: async () => ({ state: 'signed-in', identity: { id: 'victim', email: 'victim@site.test', username: 'ada' } }),
-    verifyToken: async () => null,
-    setSession: async () => {
+    verifyToken: async () => ({ id: 'other', email: 'other@site.test' }),
+    setSession: async (tokens) => {
       order.push('setSession');
-      return { error: null };
+      return { error: null, accessToken: tokens.accessToken };
     },
     signOut: async () => {
       order.push('signOut');
@@ -198,11 +200,73 @@ test('confirming signs out before setSession, and the same account does not ask'
       order.push('confirm');
       assert.match(message, /You're signed in as victim@site\.test/);
       assert.match(message, /This link is for other@site\.test/);
+      assert.equal(message.includes('forged@site.test'), false);
       return true;
     },
   });
   assert.equal(switched.status, 'applied');
   assert.deepEqual(order, ['confirm', 'signOut', 'setSession']);
+});
+
+test('a failed getUser rejects the link and never shows an unverified email', async () => {
+  for (const existing of [
+    { state: 'signed-in' as const, identity: { id: 'victim', email: 'victim@site.test' } },
+    { state: 'unknown' as const },
+  ]) {
+    const calls: string[] = [];
+    const outcome = await settleAuthLink({
+      url: hashUrl('/set-password', token({ amr: [{ method: 'otp' }], email: 'victim@site.test', sub: 'victim' })),
+      now: NOW,
+      getExisting: async () => existing,
+      verifyToken: async () => {
+        calls.push('verify');
+        return null;
+      },
+      setSession: async () => {
+        calls.push('setSession');
+        return { error: null, accessToken: freshInvite() };
+      },
+      signOut: async () => {
+        calls.push('signOut');
+      },
+      confirm: async (message) => {
+        calls.push(`confirm:${message}`);
+        return true;
+      },
+    });
+    assert.deepEqual(outcome, { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: false });
+    assert.deepEqual(calls, ['verify']);
+  }
+});
+
+test('amr and iat are checked on the access token setSession returns', async () => {
+  const urlToken = token({ amr: [{ method: 'otp' }], iat: NOW - 20, email: 'victim@site.test', sub: 'victim' });
+  const returned = token({ amr: [{ method: 'password' }], iat: NOW - 20, email: 'attacker@site.test', sub: 'attacker' });
+  const calls: string[] = [];
+  const outcome = await settleAuthLink({
+    url: hashUrl('/set-password', urlToken),
+    now: NOW,
+    getExisting: async () => ({ state: 'none' }),
+    verifyToken: async () => {
+      throw new Error('no existing session, so the URL token is not pre-verified');
+    },
+    setSession: async (tokens) => {
+      calls.push('setSession');
+      assert.equal(tokens.accessToken, urlToken);
+      assert.notEqual(tokens.accessToken, returned);
+      return { error: null, accessToken: returned };
+    },
+    signOut: async () => {
+      calls.push('signOut');
+    },
+    confirm: async () => {
+      throw new Error('must not confirm');
+    },
+  });
+  assert.deepEqual(outcome, { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true });
+  assert.deepEqual(calls, ['setSession', 'signOut']);
+  assert.equal(assessAuthLinkClaims(urlToken, 'invite', NOW).ok, true);
+  assert.equal(assessAuthLinkClaims(returned, 'invite', NOW).ok, false);
 });
 
 test('a mismatched amr or a stale iat never calls setSession', async () => {
@@ -218,9 +282,9 @@ test('a mismatched amr or a stale iat never calls setSession', async () => {
       verifyToken: async () => {
         throw new Error('bad claims must not be verified');
       },
-      setSession: async () => {
+      setSession: async (tokens) => {
         setCalls += 1;
-        return { error: null };
+        return { error: null, accessToken: tokens.accessToken };
       },
       signOut: async () => undefined,
       confirm: async () => {
@@ -244,7 +308,7 @@ test('when setSession fails the link is discarded and signed out', async () => {
     },
     setSession: async () => {
       calls.push('setSession');
-      return { error: 'bad refresh' };
+      return { error: 'bad refresh', accessToken: null };
     },
     signOut: async () => {
       calls.push('signOut');
@@ -253,6 +317,69 @@ test('when setSession fails the link is discarded and signed out', async () => {
   });
   assert.deepEqual(outcome, { status: 'rejected', message: INVALID_AUTH_LINK, signedOut: true });
   assert.deepEqual(calls, ['setSession', 'signOut']);
+});
+
+test('hash tokens are accepted only for https://sitepack-preview.vercel.app or the web origin', () => {
+  const access = freshInvite();
+  const fragment = `#access_token=${encodeURIComponent(access)}&refresh_token=refresh-1`;
+  assert.equal(sessionTokensFromUrl(`sitepack:///set-password${fragment}`), null);
+  assert.equal(sessionTokensFromUrl(`sitepack://set-password${fragment}`), null);
+  assert.equal(sessionTokensFromUrl(`https://evil.example/set-password${fragment}`), null);
+  assert.equal(sessionTokensFromUrl(`http://sitepack-preview.vercel.app/set-password${fragment}`), null);
+  assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app.evil.com/set-password${fragment}`), null);
+  assert.equal(planBrowserUrl(`sitepack:///set-password${fragment}`).sessionUrl, null);
+  assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app/set-password${fragment}`)?.purpose, 'invite');
+
+  const previous = (globalThis as { window?: unknown }).window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      history: { replaceState() {} },
+      location: { origin: 'http://127.0.0.1:8081' },
+    },
+  });
+  try {
+    assert.equal(sessionTokensFromUrl(`http://127.0.0.1:8081/set-password${fragment}`)?.purpose, 'invite');
+    assert.equal(sessionTokensFromUrl(`http://127.0.0.1:8081/reset/AB12${fragment}`)?.purpose, 'recovery');
+    assert.equal(sessionTokensFromUrl(`https://evil.example/set-password${fragment}`), null);
+    assert.equal(sessionTokensFromUrl(`https://sitepack-preview.vercel.app/reset${fragment}`)?.purpose, 'recovery');
+  } finally {
+    if (previous === undefined) delete (globalThis as { window?: unknown }).window;
+    else Object.defineProperty(globalThis, 'window', { configurable: true, value: previous });
+  }
+});
+
+test('importing authLink with no window or history does not throw', () => {
+  const source = fs.readFileSync(new URL('./authLink.ts', import.meta.url), 'utf8');
+  assert.match(source, /typeof window !== 'undefined' && typeof window\.history\?\.replaceState === 'function'/);
+  assert.doesNotMatch(source, /^installAuthUrlScrubber\(\);/m);
+  assert.doesNotMatch(source, /^ensureWebAuthUrlStripped\(\);/m);
+
+  const preludes = [
+    'delete globalThis.window;',
+    'globalThis.window = {};',
+    'globalThis.window = { location: { href: "https://sitepack-preview.vercel.app/set-password#access_token=a&refresh_token=b", origin: "https://sitepack-preview.vercel.app" } };',
+  ];
+  for (const prelude of preludes) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
+        '--experimental-strip-types',
+        '--import',
+        './scripts/register-alias.mjs',
+        '--input-type=module',
+        '-e',
+        `${prelude}
+        const mod = await import('./lib/authLink.ts');
+        mod.installAuthUrlScrubber();
+        mod.ensureWebAuthUrlStripped();
+        mod.takeWebAuthUrl();`,
+      ],
+      { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8' }
+    );
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  }
 });
 
 test('the address bar is cleared before boot awaits the network', () => {
