@@ -33,6 +33,7 @@
     "lib/appLinks.test.ts",
     "lib/format.test.ts",
     "lib/inviteGrant.test.ts",
+    "lib/authLink.test.ts",
     "lib/inviteRedirect.test.ts"
   ]
 }

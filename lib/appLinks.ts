@@ -19,10 +19,6 @@ export type AuthTokens = {
   type: 'invite' | 'recovery';
 };
 
-export type StashedAuth =
-  | { kind: 'session'; accessToken: string; refreshToken: string }
-  | { kind: 'pkce'; code: string };
-
 type ParsedLink = {
   pathname: string;
   search: string;
@@ -31,27 +27,10 @@ type ParsedLink = {
 
 let stagedJoin = '';
 let stagedReset = '';
-let pending: StashedAuth | null = null;
-let pendingId: string | null = null;
-let passwordSetup = false;
-const handled = new Set<string>();
 
 export function resetAppLinkCapture(): void {
   stagedJoin = '';
   stagedReset = '';
-  pending = null;
-  pendingId = null;
-  passwordSetup = false;
-  handled.clear();
-}
-
-function fingerprint(value: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
 }
 
 /** A leading `//` is still an in-app path. Collapse it to one slash before routing. */
@@ -122,23 +101,6 @@ export function authTokensFromUrl(url: string | null): AuthTokens | null {
   return tokensFromParams(new URLSearchParams(parsed.hash.replace(/^#/, '')));
 }
 
-/**
- * Native session intake. Hash tokens only, and only on the verified App Link
- * host for `/set-password` or `/reset`. The `sitepack://` scheme is refused.
- */
-function nativeSessionFromUrl(url: string): AuthTokens | null {
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    return null;
-  }
-  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== APP_LINK_HOST) return null;
-  const parsed = parseAppLink(url);
-  if (!parsed || !isAuthCallbackPath(parsed.pathname)) return null;
-  return authTokensFromUrl(url);
-}
-
 function isAuthCallbackPath(pathname: string): boolean {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   return path === '/set-password' || path === '/reset';
@@ -205,51 +167,8 @@ export function clearStagedResetCode(): void {
   stagedReset = '';
 }
 
-export function passwordSetupExpected(): boolean {
-  return passwordSetup;
-}
-
-export function consumePasswordSetup(): boolean {
-  const value = passwordSetup;
-  passwordSetup = false;
-  return value;
-}
-
-/** Remember tokens or a PKCE code from a launch URL. A second call with the same URL is a no-op. */
-export function stashAuthCallback(url: string | null, options?: { native?: boolean }): void {
-  if (!url) return;
-  const id = fingerprint(url);
-  if (handled.has(id) || pendingId === id) return;
-  const tokens = options?.native ? nativeSessionFromUrl(url) : authTokensFromUrl(url);
-  if (tokens) {
-    pendingId = id;
-    passwordSetup = true;
-    pending = { kind: 'session', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
-    return;
-  }
-  const code = pkceCodeFromUrl(url);
-  if (!code) return;
-  pendingId = id;
-  passwordSetup = true;
-  pending = { kind: 'pkce', code };
-}
-
-export function peekAuthCallback(): StashedAuth | null {
-  return pending;
-}
-
-export function takeAuthCallback(): StashedAuth | null {
-  if (!pending || !pendingId) return null;
-  handled.add(pendingId);
-  const value = pending;
-  pending = null;
-  pendingId = null;
-  return value;
-}
-
-/** Native entry. Stashes secrets, then returns the path the router may keep. */
+/** Native entry. Returns the path the router may keep. Session acceptance is lib/authLink.ts. */
 export function captureIncomingLink(input: string): string {
-  stashAuthCallback(input, { native: true });
   const parsed = parseAppLink(input);
   if (parsed) {
     const join = joinCodeFromPath(parsed.pathname);

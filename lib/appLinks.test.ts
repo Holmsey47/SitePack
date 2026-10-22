@@ -12,7 +12,6 @@ import {
   resetAppLinkCapture,
   resetCodeFromPath,
   routerPathFromLink,
-  takeAuthCallback,
 } from './appLinks.ts';
 
 const FINGERPRINT =
@@ -72,7 +71,6 @@ test('the router path keeps neither the code nor the tokens', () => {
   const joinPath = captureIncomingLink('https://sitepack-preview.vercel.app/join/K7QM4XPR');
   assert.equal(joinPath, '/join');
   assert.equal(peekStagedJoinCode(), 'K7QM4XPR');
-  assert.equal(takeAuthCallback(), null);
 
   resetAppLinkCapture();
   const resetPath = captureIncomingLink('https://sitepack-preview.vercel.app/reset/K7QM4XPR');
@@ -84,8 +82,7 @@ test('the router path keeps neither the code nor the tokens', () => {
     'https://sitepack-preview.vercel.app/set-password#access_token=aaa&refresh_token=bbb&type=invite';
   assert.equal(captureIncomingLink(tokenUrl), '/set-password');
   assert.equal(captureIncomingLink(tokenUrl).includes('aaa'), false);
-  assert.deepEqual(takeAuthCallback(), { kind: 'session', accessToken: 'aaa', refreshToken: 'bbb' });
-  assert.equal(takeAuthCallback(), null);
+  assert.equal(captureIncomingLink(tokenUrl).includes('access_token'), false);
 
   resetAppLinkCapture();
   const queryUrl =
@@ -93,14 +90,10 @@ test('the router path keeps neither the code nor the tokens', () => {
   assert.equal(routerPathFromLink(queryUrl), '/set-password?next=1');
   assert.equal(browserPathWithoutAuth(queryUrl), '/set-password?next=1');
   assert.equal(captureIncomingLink(queryUrl).includes('aaa'), false);
-  assert.equal(takeAuthCallback(), null);
+  assert.equal(captureIncomingLink(queryUrl).includes('access_token'), false);
 
   resetAppLinkCapture();
-  assert.equal(
-    captureIncomingLink('https://sitepack-preview.vercel.app/reset?code=abc'),
-    '/reset'
-  );
-  assert.deepEqual(takeAuthCallback(), { kind: 'pkce', code: 'abc' });
+  assert.equal(captureIncomingLink('https://sitepack-preview.vercel.app/reset?code=abc'), '/reset');
   assert.equal(browserPathWithoutAuth('https://sitepack-preview.vercel.app/join/K7QM4XPR'), '/join/K7QM4XPR');
 });
 
@@ -108,41 +101,32 @@ test('a leading double slash collapses to one slash', () => {
   assert.equal(routerPathFromLink('//evil.example/x'), '/evil.example/x');
   resetAppLinkCapture();
   assert.equal(captureIncomingLink('//evil.example/x'), '/evil.example/x');
-  assert.equal(takeAuthCallback(), null);
   resetAppLinkCapture();
   assert.equal(captureIncomingLink('//join/K7QM4XPR'), '/join');
   assert.equal(peekStagedJoinCode(), 'K7QM4XPR');
 });
 
-test('native session tokens stay on the verified https callback paths', () => {
+test('the route drops the hash before a session can be stored', () => {
   const hash = '#access_token=aaa&refresh_token=bbb&type=invite';
-  resetAppLinkCapture();
-  assert.equal(
-    captureIncomingLink(`https://sitepack-preview.vercel.app/reset${hash.replace('invite', 'recovery')}`),
-    '/reset'
-  );
-  assert.deepEqual(takeAuthCallback(), { kind: 'session', accessToken: 'aaa', refreshToken: 'bbb' });
-
-  resetAppLinkCapture();
-  assert.equal(captureIncomingLink(`sitepack://set-password${hash}`), '/set-password');
-  assert.equal(takeAuthCallback(), null);
-
-  resetAppLinkCapture();
-  assert.equal(captureIncomingLink(`https://evil.example/set-password${hash}`), '/set-password');
-  assert.equal(takeAuthCallback(), null);
-
-  resetAppLinkCapture();
-  assert.equal(captureIncomingLink(`https://sitepack-preview.vercel.app/sites${hash}`), '/sites');
-  assert.equal(takeAuthCallback(), null);
-
+  const urls = [
+    `https://sitepack-preview.vercel.app/set-password${hash}`,
+    `https://sitepack-preview.vercel.app/reset${hash}`,
+    `https://sitepack-preview.vercel.app/reset/AB12${hash}`,
+    `sitepack://set-password${hash}`,
+    `https://evil.example/set-password${hash}`,
+    `http://sitepack-preview.vercel.app/set-password${hash}`,
+    `https://sitepack-preview.vercel.app/sites${hash}`,
+  ];
+  for (const url of urls) {
+    resetAppLinkCapture();
+    const next = captureIncomingLink(url);
+    assert.equal(next.includes('aaa'), false);
+    assert.equal(next.includes('access_token'), false);
+    assert.equal(next.startsWith('//'), false);
+  }
   resetAppLinkCapture();
   assert.equal(captureIncomingLink(`https://sitepack-preview.vercel.app/join/K7QM4XPR${hash}`), '/join');
   assert.equal(peekStagedJoinCode(), 'K7QM4XPR');
-  assert.equal(takeAuthCallback(), null);
-
-  resetAppLinkCapture();
-  assert.equal(captureIncomingLink(`http://sitepack-preview.vercel.app/set-password${hash}`), '/set-password');
-  assert.equal(takeAuthCallback(), null);
 });
 
 test('assetlinks names the package and the release fingerprint', () => {

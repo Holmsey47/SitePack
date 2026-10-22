@@ -1,12 +1,14 @@
 import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { spentInviteGuidance } from '@/lib/inviteGrant';
+import { theme } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function SetPasswordScreen() {
-  const { setPassword, signOut } = useAuth();
+  const { setPassword, signOut, person } = useAuth();
+  const accountName = person?.email?.trim() || person?.username?.trim() || '';
   const router = useRouter();
   const [password, setValue] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -43,6 +45,19 @@ export default function SetPasswordScreen() {
     <Screen>
       <View style={{ gap: 8, paddingTop: 24 }}>
         <Title>Set your password</Title>
+        {accountName ? (
+          <Text style={{ color: theme.text, fontSize: 18, lineHeight: 26, fontWeight: '700' }}>
+            Setting a password for {accountName}
+          </Text>
+        ) : null}
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => {
+            void signOut().then(() => router.replace('/login'));
+          }}
+          style={{ minHeight: 48, justifyContent: 'center' }}>
+          <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>Not you? Sign out</Text>
+        </Pressable>
         <Muted>One time from your invite. After this, sign in with email + password — SitePack will not email a magic link.</Muted>
       </View>
       <Field label="New password" value={password} onChangeText={setValue} secureTextEntry />
