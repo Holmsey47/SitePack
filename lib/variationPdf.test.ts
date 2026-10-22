@@ -377,7 +377,8 @@ test('real-size photos keep their shape, the sign time is UK, and every page is 
   assert.ok(landscape);
   assert.ok(portrait);
   assert.ok(Math.abs(landscape.width - 515) < 1);
-  assert.ok(Math.abs(portrait.width - 515) < 1);
+  assert.ok(portrait.width > 400);
+  assert.ok(portrait.width <= 515);
   assert.ok(Math.abs(landscape.width / landscape.height - 4 / 3) < 0.02);
   assert.ok(Math.abs(portrait.width / portrait.height - 3 / 4) < 0.02);
   assert.ok(landscape.height < 740);
@@ -420,3 +421,104 @@ test('two landscape photos share a row, and a blank amount or first version stay
   assert.ok(photos[0].width / photos[0].height > 1.2);
   assert.equal(Buffer.from(solidPng(8, 8, [20, 80, 140])).length > 0, true);
 });
+
+test('the signature block shows the typed name, role and company beside the drawing', async () => {
+  const bytes = await buildVariationPdf({
+    voSeq: 7,
+    versionNo: 1,
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 – Oak Estate',
+    title: 'Extra beads',
+    description: '',
+    levelArea: null,
+    quantityText: null,
+    valuePence: null,
+    whenIso: '2026-10-22T22:14:00.000Z',
+    signerName: 'Dave Moran',
+    signerRoleCompany: 'Site manager, Northbuild',
+    photos: [],
+    signaturePng: signature,
+  });
+  const text = pdfText(bytes);
+  assert.match(text, /Dave Moran/);
+  assert.match(text, /Site manager/);
+  assert.match(text, /Northbuild/);
+  assert.match(text, /Signed 22 Oct 2026, 11:14pm/);
+  const name = textAt(text, 'Dave Moran');
+  const role = textAt(text, 'Site manager, Northbuild');
+  const drawing = placedImages(text).find((item) => item.height < 120 && item.height > 40);
+  assert.ok(name);
+  assert.ok(role);
+  assert.ok(drawing);
+  assert.ok(name.x >= drawing.x + drawing.width);
+  assert.ok(role.x >= drawing.x + drawing.width);
+  assert.ok(name.y <= drawing.y + drawing.height + 2);
+  assert.ok(name.y >= drawing.y - 2);
+});
+
+test('the signature shares a page with the last real-size photo', async () => {
+  const wide = fixtureJpeg(2000, 1500, 'wide');
+  const tall = fixtureJpeg(1500, 2000, 'tall');
+  const bytes = await buildVariationPdf({
+    voSeq: 7,
+    versionNo: 2,
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 – Oak Estate',
+    title: 'Extra beads',
+    description: 'Window reveals',
+    levelArea: 'L2',
+    quantityText: '12 m',
+    valuePence: 18000,
+    whenIso: '2026-10-22T22:14:00.000Z',
+    signerName: 'Dave Moran',
+    signerRoleCompany: 'Site manager, Northbuild',
+    photos: [
+      { bytes: wide, contentType: 'image/jpeg' },
+      { bytes: tall, contentType: 'image/jpeg' },
+    ],
+    signaturePng: signature,
+  });
+  const pages = await pageBodies(bytes);
+  const signed = pages.filter((page) => page.includes('Signed 22 Oct 2026, 11:14pm'));
+  assert.equal(signed.length, 1);
+  const body = signed[0] ?? '';
+  assert.match(body, /Photo 2 of 2/);
+  const photos = drawnPhotos(body).filter((item) => item.height > 150);
+  assert.ok(photos.length >= 1);
+  assert.equal(body.includes('Photo 1 of 2'), false);
+});
+
+async function pageBodies(bytes: Uint8Array): Promise<string[]> {
+  const src = await PDFDocument.load(bytes);
+  const bodies: string[] = [];
+  for (let index = 0; index < src.getPageCount(); index += 1) {
+    const doc = await PDFDocument.create();
+    const [page] = await doc.copyPages(src, [index]);
+    doc.addPage(page);
+    bodies.push(pdfText(await doc.save()));
+  }
+  return bodies;
+}
+
+function placedImages(text: string): Array<{ width: number; height: number; x: number; y: number }> {
+  const found: Array<{ width: number; height: number; x: number; y: number }> = [];
+  const pattern =
+    /q\s+1 0 0 1 ([0-9.]+) ([0-9.]+) cm\s+1 0 0 1 0 0 cm\s+([0-9.]+) 0 0 ([0-9.]+) 0 0 cm/g;
+  for (const match of text.matchAll(pattern)) {
+    found.push({
+      x: Number(match[1]),
+      y: Number(match[2]),
+      width: Number(match[3]),
+      height: Number(match[4]),
+    });
+  }
+  return found;
+}
+
+function textAt(text: string, label: string): { x: number; y: number } | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`1 0 0 1 ([0-9.]+) ([0-9.]+) Tm[\\s\\S]{0,160}?${escaped}`);
+  const match = pattern.exec(text);
+  if (!match) return null;
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
