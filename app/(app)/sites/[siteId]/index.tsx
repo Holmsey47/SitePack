@@ -109,6 +109,16 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      {manage ? (
+        <View style={{ gap: 8 }}>
+          <Button
+            label="Invite to this site"
+            minHeight={56}
+            onPress={() => router.push(`/sites/${siteId}/invite-code`)}
+          />
+          <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
+        </View>
+      ) : null}
       {manage && newJoiners > 0 ? (
         <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', alignSelf: 'flex-start', borderRadius: 8, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6 }}>
           {newJoiners === 1 ? 'New joiner' : `${newJoiners} new joiners`}
@@ -130,13 +140,9 @@ export default function SitePackScreen() {
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
       {manage ? (
-        <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-            <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
-            <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
-          </View>
-          <Button label="Invite to this site" variant="secondary" onPress={() => router.push(`/sites/${siteId}/invite-code`)} />
-          <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
+        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
+          <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
         </View>
       ) : null}
       {person?.role === 'owner' ? (

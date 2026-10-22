@@ -26,7 +26,6 @@ export {
   isJoinCodeShape,
   isUsernameShape,
   joinFailureMessage,
-  joinShareText,
   normalizeJoinCode,
   normalizeUsername,
   passwordHasLettersAndDigits,

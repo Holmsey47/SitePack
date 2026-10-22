@@ -1,3 +1,4 @@
+import { JoinSharePanel } from '@/components/JoinSharePanel';
 import { Button, Card, ChoiceChip, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
@@ -6,17 +7,15 @@ import {
   JOIN_DEFAULT_HOURS,
   JOIN_DEFAULT_MAX_USES,
   JOIN_HARD_MAX_USES,
-  JOIN_WEB_ORIGIN,
   expiryChoiceHours,
   joinFailureMessage,
-  joinShareText,
 } from '@/data/joinCodes';
 import type { JoinCodeCreated, JoinCodeRow } from '@/data/types';
-import { formatDate } from '@/lib/format';
+import { formatCodeExpiry } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Share, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 const HOURS = [
   { hours: 24, label: '24 hours' },
@@ -53,14 +52,6 @@ export default function InviteCodeScreen() {
   if (person && !canManageSite(person.role)) return <Redirect href="/sites" />;
 
   const active = codes.filter((row) => !row.revoked_at && new Date(row.expires_at).getTime() > Date.now());
-  const shareMessage = share
-    ? joinShareText({
-        company: share.company_name,
-        site: share.site_name,
-        code: share.code,
-        origin: JOIN_WEB_ORIGIN,
-      })
-    : '';
 
   async function onCreate() {
     if (!siteId) return;
@@ -81,15 +72,6 @@ export default function InviteCodeScreen() {
       setError(joinFailureMessage(err instanceof Error ? err.message : 'join_rejected'));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function onShare() {
-    if (!shareMessage) return;
-    try {
-      await Share.share({ message: shareMessage });
-    } catch {
-      setError('Could not open the share sheet. Copy the message below.');
     }
   }
 
@@ -154,16 +136,13 @@ export default function InviteCodeScreen() {
       <Button label="Create code" onPress={() => void onCreate()} loading={loading} />
 
       {share ? (
-        <Card>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Share this</Text>
-          <Text selectable style={{ color: theme.text, fontSize: 28, fontWeight: '800', letterSpacing: 1 }}>
-            {share.code}
-          </Text>
-          <Text selectable style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
-            {shareMessage}
-          </Text>
-          <Button label="Share message" onPress={() => void onShare()} />
-        </Card>
+        <JoinSharePanel
+          code={share.code}
+          siteName={share.site_name}
+          expiresAt={share.expires_at}
+          uses={0}
+          maxUses={share.max_uses}
+        />
       ) : null}
 
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>ACTIVE CODES</Text>
@@ -172,7 +151,8 @@ export default function InviteCodeScreen() {
         <Card key={row.id}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.label || 'No label'}</Text>
           <Muted>
-            {row.uses} of {row.max_uses} used · ends {formatDate(row.expires_at)}
+            {row.uses > 0 ? `${row.uses} of ${row.max_uses} joined · ` : ''}
+            {formatCodeExpiry(row.expires_at)}
           </Muted>
           <Button label="Share again" variant="secondary" onPress={() => void onShareAgain(row)} />
           <Button label="Revoke" variant="danger" onPress={() => setPendingRevoke(row)} />
