@@ -11,7 +11,7 @@ import {
   whatsAppShareUrl,
 } from '@/data/inviteEntry';
 import { formatJoinCode } from '@/data/joinCodes';
-import { formatDate } from '@/lib/format';
+import { formatCodeExpiry } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
@@ -109,7 +109,7 @@ export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: Joi
       <Text selectable style={styles.code}>
         {displayCode}
       </Text>
-      <Muted>Ends {formatDate(expiresAt)}</Muted>
+      <Muted>{formatCodeExpiry(expiresAt)}</Muted>
       <Muted>
         {uses} of {maxUses} joined
       </Muted>

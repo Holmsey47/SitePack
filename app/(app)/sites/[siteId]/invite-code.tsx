@@ -11,7 +11,7 @@ import {
   joinFailureMessage,
 } from '@/data/joinCodes';
 import type { JoinCodeCreated, JoinCodeRow } from '@/data/types';
-import { formatDate } from '@/lib/format';
+import { formatCodeExpiry } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -151,7 +151,7 @@ export default function InviteCodeScreen() {
         <Card key={row.id}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.label || 'No label'}</Text>
           <Muted>
-            {row.uses} of {row.max_uses} used · ends {formatDate(row.expires_at)}
+            {row.uses} of {row.max_uses} used · {formatCodeExpiry(row.expires_at)}
           </Muted>
           <Button label="Share again" variant="secondary" onPress={() => void onShareAgain(row)} />
           <Button label="Revoke" variant="danger" onPress={() => setPendingRevoke(row)} />
