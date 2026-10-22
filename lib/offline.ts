@@ -9,6 +9,7 @@ import {
   claimCacheSession,
   createCacheSession,
   finishClaim,
+  editOwnedCache,
   forgetSessionCache,
   readOwned,
   writePackFiles,
@@ -206,11 +207,20 @@ export function cachedPackSiteIds(): string[] {
   }
 }
 
-async function removeDrawingFiles(siteId: string, dropIds: readonly string[], currentIds: readonly string[]): Promise<void> {
+async function removeDrawingFiles(
+  siteId: string,
+  dropIds: readonly string[],
+  currentIds: readonly string[],
+  allowed: () => boolean = () => true
+): Promise<void> {
+  if (!allowed()) return;
   if (Platform.OS === 'web') {
     try {
       const cache = await caches.open('sitepack-drawings');
-      for (const id of dropIds) await cache.delete(id);
+      for (const id of dropIds) {
+        if (!allowed()) return;
+        await cache.delete(id);
+      }
     } catch {
       // The meta write still drops the superseded rows.
     }
@@ -221,10 +231,12 @@ async function removeDrawingFiles(siteId: string, dropIds: readonly string[], cu
     if (!folder.exists) return;
     const keep = new Set(currentIds);
     for (const id of dropIds) {
+      if (!allowed()) return;
       const file = new File(folder, `${id}.pdf`);
       if (file.exists) file.delete();
     }
     for (const entry of folder.list()) {
+      if (!allowed()) return;
       if (entry instanceof Directory) continue;
       const name = decodeURIComponent(entry.uri.split('/').pop() ?? '');
       if (!name.endsWith('.pdf')) continue;
@@ -256,15 +268,25 @@ export async function deleteSiteCache(siteId: string): Promise<void> {
 
 /** Delete superseded revisions that are still on disk after a sync that did not re-download. */
 export async function deleteSupersededDrawings(siteId: string, currentIds: readonly string[]): Promise<void> {
+  if (!canReadCache()) return;
+  const startedGeneration = session.generation;
+  const startedUser = session.userId;
+  const allowed = () => writeStillCurrent(session, startedGeneration, startedUser);
+  if (!allowed()) return;
   const meta = readPackMeta(siteId);
+  if (!allowed()) return;
   const dropIds = drawingIdsToDelete(meta?.items.map((item) => item.drawingId) ?? [], currentIds);
-  await removeDrawingFiles(siteId, dropIds, currentIds);
-  if (!meta) return;
-  if (!cacheReadable(session)) return;
-  const keep = new Set(currentIds);
-  const items = meta.items.filter((item) => keep.has(item.drawingId));
-  if (items.length === meta.items.length) return;
-  writeJson(PACK_KEY(siteId), { ...meta, items });
+  await editOwnedCache({
+    allowed,
+    mutate: () => removeDrawingFiles(siteId, dropIds, currentIds, allowed),
+    commit: () => {
+      if (!meta || !allowed()) return;
+      const keep = new Set(currentIds);
+      const items = meta.items.filter((item) => keep.has(item.drawingId));
+      if (items.length === meta.items.length) return;
+      writeJson(PACK_KEY(siteId), { ...meta, items });
+    },
+  });
 }
 
 export async function downloadCurrentPack(

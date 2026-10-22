@@ -4,12 +4,14 @@ import test from 'node:test';
 import {
   claimCacheSession,
   createCacheSession,
+  editOwnedCache,
   finishClaim,
   forgetSessionCache,
   readOwned,
   writePackFiles,
   writeStillCurrent,
 } from './offlineGuard.ts';
+import { coldStartCache, userCheckOutcome, userIdFromStoredSession } from './sessionBoot.ts';
 
 function ownedSession(userId: string) {
   const session = createCacheSession();
@@ -36,16 +38,17 @@ test('sign-out wipes the drawing cache', () => {
 });
 
 test('session expiry wipes the drawing cache', () => {
-  const session = ownedSession('alice');
-  const sites = ['oak'];
+  const session = ownedSession('user-alice');
+  const sites = ['site-oak'];
   forgetSessionCache(session, () => {
     sites.length = 0;
   });
   assert.deepEqual(sites, []);
   assert.equal(session.userId, null);
   const auth = fs.readFileSync('context/AuthContext.tsx', 'utf8');
-  const listener = auth.slice(auth.indexOf('onAuthStateChange'), auth.indexOf('const me = await repo.restoreSession'));
-  assert.match(listener, /if \(!session\?\.user\?\.id\) \{[\s\S]*bindCache\(null\)/);
+  const listener = auth.slice(auth.indexOf('onAuthStateChange'), auth.indexOf('const started = await restoreStoredSession'));
+  assert.match(listener, /if \(!live\) \{[\s\S]*bindCache\(null\)/);
+  assert.match(listener, /coldStartCache/);
   assert.match(auth, /async function bindCache\(userId: string \| null\) \{[\s\S]*deleteAllDrawingCaches/);
   assert.match(auth, /signOut: async \(\) => \{[\s\S]*bindCache\(null\)/);
 });
@@ -104,4 +107,114 @@ test('a download cancelled by a wipe does not commit and discards the file it ju
   const offline = fs.readFileSync('lib/offline.ts', 'utf8');
   assert.match(offline, /writePackFiles/);
   assert.match(offline, /writeStillCurrent/);
+});
+
+test('an offline cold start with a stored session keeps that user cache', () => {
+  const session = ownedSession('user-shaun');
+  const files = new Set(['site-oak/sheet-1']);
+  const stored = userIdFromStoredSession('{"user":{"id":"user-shaun"}}');
+  assert.equal(userCheckOutcome({ name: 'AuthRetryableFetchError', status: 0 }, false), 'offline');
+  const start = coldStartCache(stored, 'offline');
+  assert.equal(start.wipe, false);
+  assert.equal(start.userId, 'user-shaun');
+  assert.equal(claimCacheSession(session, start.userId ?? ''), 'kept');
+  assert.equal(files.size, 1);
+  const read = readOwned(session, () => ['site-oak'], [] as string[]);
+  assert.equal(read.wipe, false);
+  assert.deepEqual(read.value, ['site-oak']);
+  const auth = fs.readFileSync('context/AuthContext.tsx', 'utf8');
+  const boot = auth.slice(auth.indexOf('async function restoreStoredSession'), auth.indexOf('export function AuthProvider'));
+  assert.match(boot, /readStoredSessionUser/);
+  assert.match(boot, /coldStartCache/);
+  assert.doesNotMatch(boot, /bindCache\(null\)/);
+});
+
+test('an online start with no stored session wipes the cache', () => {
+  const session = ownedSession('user-shaun');
+  const files = new Set(['site-oak/sheet-1']);
+  assert.equal(userIdFromStoredSession(null), null);
+  const start = coldStartCache(null, 'ok');
+  assert.equal(start.wipe, true);
+  assert.equal(start.userId, null);
+  forgetSessionCache(session, () => {
+    files.clear();
+  });
+  assert.equal(files.size, 0);
+  assert.equal(session.userId, null);
+  assert.equal(coldStartCache('user-shaun', 'rejected').wipe, true);
+  assert.equal(userCheckOutcome({ name: 'AuthSessionMissingError', status: 400 }, false), 'rejected');
+  assert.equal(userCheckOutcome({ name: 'AuthApiError', status: 401, code: 'bad_jwt' }, false), 'rejected');
+});
+
+test('a stored session with a different owner wipes before any read', () => {
+  const session = ownedSession('user-alice');
+  const files = new Set(['site-oak/sheet-1']);
+  const start = coldStartCache('user-bob', 'offline');
+  assert.equal(start.wipe, false);
+  assert.equal(start.userId, 'user-bob');
+  assert.equal(claimCacheSession(session, start.userId ?? ''), 'replaced');
+  assert.equal(session.ownerUserId, null);
+  const generation = session.generation;
+  files.clear();
+  assert.equal(finishClaim(session, 'user-bob', generation), true);
+  let loaded = false;
+  const read = readOwned(session, () => {
+    loaded = true;
+    return [...files];
+  }, [] as string[]);
+  assert.equal(loaded, true);
+  assert.equal(read.wipe, false);
+  assert.deepEqual(read.value, []);
+  assert.equal(files.has('site-oak/sheet-1'), false);
+});
+
+test('deleteSupersededDrawings is refused for another owner and aborted when the cache is wiped mid-run', async () => {
+  let removed = false;
+  let committed = false;
+  const refused = await editOwnedCache({
+    allowed: () => false,
+    mutate: async () => {
+      removed = true;
+    },
+    commit: () => {
+      committed = true;
+    },
+  });
+  assert.equal(refused, 'cancelled');
+  assert.equal(removed, false);
+  assert.equal(committed, false);
+
+  const session = ownedSession('user-alice');
+  const started = session.generation;
+  const user = session.userId;
+  const dropped: string[] = [];
+  let saved = false;
+  const aborted = await editOwnedCache({
+    allowed: () => writeStillCurrent(session, started, user),
+    mutate: async () => {
+      for (const id of ['sheet-a', 'sheet-b']) {
+        if (!writeStillCurrent(session, started, user)) return;
+        dropped.push(id);
+        if (id === 'sheet-a') forgetSessionCache(session, () => undefined);
+      }
+    },
+    commit: () => {
+      saved = true;
+    },
+  });
+  assert.equal(aborted, 'cancelled');
+  assert.equal(saved, false);
+  assert.deepEqual(dropped, ['sheet-a']);
+
+  const offline = fs.readFileSync('lib/offline.ts', 'utf8');
+  const fn = offline.slice(
+    offline.indexOf('export async function deleteSupersededDrawings'),
+    offline.indexOf('export async function downloadCurrentPack')
+  );
+  assert.match(fn, /if \(!canReadCache\(\)\) return/);
+  assert.match(fn, /writeStillCurrent/);
+  assert.match(fn, /editOwnedCache/);
+  assert.match(fn, /removeDrawingFiles\(siteId, dropIds, currentIds, allowed\)/);
+  const remover = offline.slice(offline.indexOf('async function removeDrawingFiles'), offline.indexOf('export async function deleteSiteCache'));
+  assert.match(remover, /if \(!allowed\(\)\) return/);
 });

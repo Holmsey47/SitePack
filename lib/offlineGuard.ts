@@ -75,6 +75,22 @@ export function writeStillCurrent(
   );
 }
 
+/**
+ * Delete or rewrite cache bytes only for the current owner.
+ * A mismatch or a wipe before the edit refuses it. A wipe during the edit skips the commit.
+ */
+export async function editOwnedCache(input: {
+  allowed: () => boolean;
+  mutate: () => Promise<void>;
+  commit: () => void;
+}): Promise<'committed' | 'cancelled'> {
+  if (!input.allowed()) return 'cancelled';
+  await input.mutate();
+  if (!input.allowed()) return 'cancelled';
+  input.commit();
+  return 'committed';
+}
+
 export async function writePackFiles<T>(input: {
   allowed: () => boolean;
   items: readonly T[];
