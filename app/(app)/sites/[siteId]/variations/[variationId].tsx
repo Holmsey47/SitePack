@@ -114,6 +114,7 @@ export default function VariationDetailScreen() {
     const signaturePng = current.signature ? dataUrlBytes(current.signature.signature_png) : null;
     return buildVariationPdf({
       voSeq: detail.vo_seq,
+      versionNo: current.version_no,
       companyName: company,
       siteName,
       title: current.title,
