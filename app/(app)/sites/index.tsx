@@ -169,7 +169,7 @@ export default function SitesScreen() {
           <Text style={{ color: openOnly ? theme.current : theme.muted, fontWeight: '700' }}>Has open requests</Text>
         </Pressable>
         <Pressable onPress={() => setStaleOnly((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Out of date</Text>
+          <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Not updated in 7 days</Text>
         </Pressable>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
