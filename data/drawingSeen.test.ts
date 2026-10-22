@@ -117,6 +117,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.gfRevC), /not_opened/);
   await assert.rejects(() => fixtureRepo.recordDrawingOpen(IDS.yard), /not_authorized/);
+  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.yard), /drawing_not_found/);
   await fixtureRepo.recordDrawingOpen(IDS.gfRevC);
   const tap = new Date().toISOString();
   const seen = await fixtureRepo.confirmDrawingSeen(IDS.gfRevC, tap);
@@ -162,7 +163,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   assert.equal(reset.drawings.find((row) => row.drawing_id === replaced.id)?.seen_count, 0);
   assert.equal(reset.drawings.some((row) => row.drawing_id === IDS.gfRevC), false);
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
-  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(replaced.id), /not_authorized|not_opened/);
+  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(replaced.id), /drawing_not_found/);
 });
 
 test('the drawing seen migration does not touch storage or earlier files', () => {
@@ -194,6 +195,11 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.match(probe, /removed people drop out of N/);
   assert.match(probe, /firm Y cannot read firm X/);
   assert.match(probe, /operative of site B cannot read site A/);
+  assert.match(probe, /an outsider gets drawing_not_found for a drawing that exists/);
+  assert.match(
+    sql,
+    /if not found or not private\.can_access_site\(v_drawing\.site_id\) then\s+raise exception 'drawing_not_found'/
+  );
   const runner = fs.readFileSync('scripts/run-drawing-seen-rls.sh', 'utf8');
   assert.match(runner, /supabase\.co/);
   assert.match(runner, /alter table storage\.objects enable row level security/);

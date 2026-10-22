@@ -3,6 +3,8 @@ import type { SiteSeenGap, SiteSeenSummary, UnseenDrawing } from '@/data/drawing
 import {
   flushDrawingSeenQueue,
   getDrawingSeenQueue,
+  noticesForOwner,
+  ownedQueue,
   type QueuedSeen,
   type SeenNotice,
 } from '@/lib/drawingSeenQueue';
@@ -33,24 +35,27 @@ export function drawingSeenIo() {
   };
 }
 
-export async function flushQueuedDrawingSeen(): Promise<SeenNotice[]> {
-  return flushDrawingSeenQueue(getDrawingSeenQueue(), drawingSeenIo());
+export async function flushQueuedDrawingSeen(ownerId: string): Promise<SeenNotice[]> {
+  return flushDrawingSeenQueue(getDrawingSeenQueue(), drawingSeenIo(), ownerId);
 }
 
-export async function refreshDrawingSeen(manage: boolean): Promise<{
+export async function refreshDrawingSeen(
+  manage: boolean,
+  ownerId: string | null | undefined
+): Promise<{
   unseen: UnseenDrawing[];
   gaps: SiteSeenGap[];
   queued: QueuedSeen[];
   notices: SeenNotice[];
 }> {
   const queue = getDrawingSeenQueue();
-  if (await deviceIsOnline()) {
-    await flushQueuedDrawingSeen().catch(() => undefined);
+  if (ownerId && (await deviceIsOnline())) {
+    await flushQueuedDrawingSeen(ownerId).catch(() => undefined);
   }
   const unseen = await repo.listMyUnseenDrawings().catch(() => [] as UnseenDrawing[]);
   const gaps = manage ? await repo.managerDrawingGaps().catch(() => [] as SiteSeenGap[]) : [];
-  const queued = await queue.list();
-  const notices = await queue.listNotices();
+  const queued = ownedQueue(await queue.list(), ownerId);
+  const notices = noticesForOwner(await queue.listNotices(), ownerId);
   return { unseen, gaps, queued, notices };
 }
 

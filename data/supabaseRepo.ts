@@ -862,7 +862,9 @@ export const supabaseRepo: SitePackRepo = {
       await rpcJson('sign_variation', {
         p_version_id: versionId,
         p_signer_name: input.signerName,
-        p_role_company: input.roleCompany,
+        p_role: input.role,
+        p_company: input.company,
+        p_confirmation: input.confirmationText,
         p_signature_png: input.signaturePng,
       }),
       null

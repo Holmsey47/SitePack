@@ -258,7 +258,9 @@ select pg_temp.ok(
   (public.sign_variation(
     (select (v->>'version_id')::uuid from probe where k = 'a'),
     'Dave Moran',
-    'Site manager, Northbuild',
+    'Site manager',
+    'Northbuild',
+    'I confirm I instructed this extra work on behalf of Northbuild. The price is still to be agreed.',
     'data:image/png;base64,' || repeat('QUFB', 20)
   ) ->> 'status') = 'Signed',
   'hand-the-phone sign-off locks the signing step'
@@ -386,7 +388,9 @@ set local role authenticated;
 select public.sign_variation(
   (select (v->>'version_id')::uuid from probe where k = 'b'),
   'Sam Cole',
-  'Foreman, Otherbuild',
+  'Foreman',
+  'Otherbuild',
+  'I confirm I instructed this extra work on behalf of Otherbuild and agree the amount shown.',
   'data:image/png;base64,' || repeat('QUFB', 20)
 );
 

@@ -58,7 +58,7 @@ export default function SitePackScreen() {
       const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
       setReady(isPackReady(siteId, currentIds));
       const manageNow = person ? canManageSite(person.role) : false;
-      const seen = await refreshDrawingSeen(manageNow).catch(() => null);
+      const seen = await refreshDrawingSeen(manageNow, person?.auth_user_id).catch(() => null);
       if (seen) {
         setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
         setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
