@@ -78,7 +78,7 @@ export default function SitesScreen() {
     useCallback(() => {
       if (!person) return;
       let active = true;
-      refreshDrawingSeen(manager)
+      refreshDrawingSeen(manager, person.auth_user_id)
         .then((next) => {
           if (!active) return;
           setUnseen(next.unseen);

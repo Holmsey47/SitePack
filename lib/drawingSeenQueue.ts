@@ -2,6 +2,7 @@ export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 export type QueuedSeen = {
   id: string;
+  ownerId: string;
   kind: 'open' | 'confirm';
   drawingId: string;
   siteId: string;
@@ -11,6 +12,7 @@ export type QueuedSeen = {
 
 export type SeenNotice = {
   id: string;
+  ownerId: string;
   siteId: string;
   drawingId: string;
   revision: string;
@@ -23,10 +25,32 @@ export type DrawingSeenQueue = {
   remove(id: string): Promise<void>;
   listNotices(): Promise<SeenNotice[]>;
   putNotice(notice: SeenNotice): Promise<void>;
+  removeNotice(id: string): Promise<void>;
 };
 
 const QUEUE_KEY = 'sitepack.drawingSeen.queue';
 const NOTICE_KEY = 'sitepack.drawingSeen.notices';
+export const DRAWING_SEEN_PREFIX = 'sitepack.drawingSeen.';
+
+export function isDrawingSeenStorageKey(key: string): boolean {
+  return key.startsWith(DRAWING_SEEN_PREFIX);
+}
+
+type KeyedStorage = {
+  length: number;
+  key(index: number): string | null;
+  removeItem(key: string): void;
+};
+
+/** Drop every seen-queue key. The drawing-cache wipe calls this. */
+export function removeDrawingSeenKeys(storage: KeyedStorage): void {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key && isDrawingSeenStorageKey(key)) keys.push(key);
+  }
+  for (const key of keys) storage.removeItem(key);
+}
 
 export function memoryDrawingSeenQueue(): DrawingSeenQueue {
   const rows = new Map<string, QueuedSeen>();
@@ -47,6 +71,9 @@ export function memoryDrawingSeenQueue(): DrawingSeenQueue {
     async putNotice(notice) {
       notices.set(notice.id, { ...notice });
     },
+    async removeNotice(id) {
+      notices.delete(id);
+    },
   };
 }
 
@@ -65,7 +92,9 @@ function isQueuedSeen(value: unknown): value is QueuedSeen {
     typeof item.drawingId === 'string' &&
     typeof item.siteId === 'string' &&
     typeof item.revision === 'string' &&
-    typeof item.at === 'string'
+    typeof item.at === 'string' &&
+    typeof item.ownerId === 'string' &&
+    item.ownerId.length > 0
   );
 }
 
@@ -77,7 +106,9 @@ function isSeenNotice(value: unknown): value is SeenNotice {
     typeof notice.siteId === 'string' &&
     typeof notice.drawingId === 'string' &&
     typeof notice.revision === 'string' &&
-    typeof notice.message === 'string'
+    typeof notice.message === 'string' &&
+    typeof notice.ownerId === 'string' &&
+    notice.ownerId.length > 0
   );
 }
 
@@ -116,6 +147,10 @@ export function storageDrawingSeenQueue(storage: MemoryStorage): DrawingSeenQueu
       next.push(notice);
       storage.setItem(NOTICE_KEY, JSON.stringify(next));
     },
+    async removeNotice(id) {
+      const next = readNotices(storage).filter((row) => row.id !== id);
+      storage.setItem(NOTICE_KEY, JSON.stringify(next));
+    },
   };
 }
 
@@ -133,8 +168,18 @@ export function setDrawingSeenQueueForTests(store: DrawingSeenQueue | null) {
   active = store;
 }
 
-export function queueId(kind: QueuedSeen['kind'], drawingId: string, revision: string): string {
-  return `${kind}:${drawingId}:${revision}`;
+export function queueId(kind: QueuedSeen['kind'], drawingId: string, revision: string, ownerId: string): string {
+  return `${ownerId}:${kind}:${drawingId}:${revision}`;
+}
+
+export function ownedQueue(rows: QueuedSeen[], ownerId: string | null | undefined): QueuedSeen[] {
+  if (!ownerId) return [];
+  return rows.filter((row) => row.ownerId === ownerId);
+}
+
+export function noticesForOwner(notices: SeenNotice[], ownerId: string | null | undefined): SeenNotice[] {
+  if (!ownerId) return [];
+  return notices.filter((notice) => notice.ownerId === ownerId);
 }
 
 /** Opens go first so a queued tap can confirm after the open lands. */
@@ -163,18 +208,23 @@ export function rejectedTapNotice(revision: string, code: string, currentRevisio
     }
     return `Rev ${revision} was replaced — open the current sheet`;
   }
-  if (code === 'drawing_not_found') {
-    return `Rev ${revision} is gone — open the current sheet`;
-  }
   return `Rev ${revision} was not saved`;
 }
 
 export async function rememberRejectedTap(
   queue: DrawingSeenQueue,
-  input: { drawingId: string; siteId: string; revision: string; code: string; currentRevision?: string | null }
+  input: {
+    ownerId: string;
+    drawingId: string;
+    siteId: string;
+    revision: string;
+    code: string;
+    currentRevision?: string | null;
+  }
 ): Promise<SeenNotice> {
   const notice: SeenNotice = {
-    id: `reject:${input.drawingId}:${input.revision}`,
+    id: `reject:${input.ownerId}:${input.drawingId}:${input.revision}`,
+    ownerId: input.ownerId,
     siteId: input.siteId,
     drawingId: input.drawingId,
     revision: input.revision,
@@ -202,6 +252,7 @@ async function rejectQueuedTap(
     }
     created.push(
       await rememberRejectedTap(queue, {
+        ownerId: item.ownerId,
         drawingId: item.drawingId,
         siteId: item.siteId,
         revision: item.revision,
@@ -219,11 +270,19 @@ export async function flushDrawingSeenQueue(
     recordOpen(drawingId: string): Promise<unknown>;
     confirm(drawingId: string, seenAt: string): Promise<unknown>;
     currentRevision?(item: QueuedSeen): Promise<string | null>;
-  }
+  },
+  ownerId: string
 ): Promise<SeenNotice[]> {
   const created: SeenNotice[] = [];
+  for (const notice of await queue.listNotices()) {
+    if (notice.ownerId !== ownerId) await queue.removeNotice(notice.id);
+  }
   const ordered = orderedQueue(await queue.list());
   for (const item of ordered) {
+    if (item.ownerId !== ownerId) {
+      await queue.remove(item.id);
+      continue;
+    }
     try {
       if (item.kind === 'open') await io.recordOpen(item.drawingId);
       else await io.confirm(item.drawingId, item.at);
@@ -260,11 +319,12 @@ export async function flushDrawingSeenQueue(
  */
 export async function queueSeenTap(
   queue: DrawingSeenQueue,
-  input: { drawingId: string; siteId: string; revision: string; at: string; opened: boolean }
+  input: { ownerId: string; drawingId: string; siteId: string; revision: string; at: string; opened: boolean }
 ): Promise<'queued' | 'not_opened'> {
-  if (!input.opened) return 'not_opened';
+  if (!input.opened || !input.ownerId) return 'not_opened';
   await queue.put({
-    id: queueId('open', input.drawingId, input.revision),
+    id: queueId('open', input.drawingId, input.revision, input.ownerId),
+    ownerId: input.ownerId,
     kind: 'open',
     drawingId: input.drawingId,
     siteId: input.siteId,
@@ -272,7 +332,8 @@ export async function queueSeenTap(
     at: input.at,
   });
   await queue.put({
-    id: queueId('confirm', input.drawingId, input.revision),
+    id: queueId('confirm', input.drawingId, input.revision, input.ownerId),
+    ownerId: input.ownerId,
     kind: 'confirm',
     drawingId: input.drawingId,
     siteId: input.siteId,

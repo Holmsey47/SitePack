@@ -169,6 +169,9 @@ $fn$;
 -- p_seen_at is the device tap time. It is stored when it is not more than
 -- 5 minutes in the future and not before this person's open of this rev.
 -- Otherwise seen_at falls back to the server receive time. The first tap sticks.
+-- A missing drawing and a drawing the caller cannot access both raise
+-- drawing_not_found, so the caller cannot tell whether the sheet exists.
+-- not_authorized stays for a caller with no people row.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.confirm_drawing_seen(
@@ -196,11 +199,8 @@ begin
   from public.drawings d
   where d.id = p_drawing_id;
 
-  if not found then
+  if not found or not private.can_access_site(v_drawing.site_id) then
     raise exception 'drawing_not_found';
-  end if;
-  if not private.can_access_site(v_drawing.site_id) then
-    raise exception 'not_authorized';
   end if;
   if v_drawing.is_current is not true then
     raise exception 'not_current';

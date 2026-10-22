@@ -288,9 +288,13 @@ select pg_temp.ok(
 select pg_temp.ok(
   pg_temp.raises(
     'select public.confirm_drawing_seen(''' || :'drawb' || ''')',
-    'not_authorized'
+    'drawing_not_found'
+  )
+  and pg_temp.raises(
+    'select public.confirm_drawing_seen(''00000000-0000-4000-8000-000000000099'')',
+    'drawing_not_found'
   ),
-  'operative of site B cannot confirm site A'
+  'an outsider gets drawing_not_found for a drawing that exists'
 );
 
 reset role;
@@ -300,7 +304,11 @@ set local role authenticated;
 select pg_temp.ok(
   (select count(*) from public.drawing_seen) = 0
   and pg_temp.raises('select public.site_drawing_seen(''' || :'sitea' || ''')', 'not_authorized')
-  and pg_temp.raises('select public.drawing_seen_roster(''' || :'drawb' || ''')', 'drawing_not_found'),
+  and pg_temp.raises('select public.drawing_seen_roster(''' || :'drawb' || ''')', 'drawing_not_found')
+  and pg_temp.raises(
+    'select public.confirm_drawing_seen(''' || :'drawb' || ''')',
+    'drawing_not_found'
+  ),
   'firm Y cannot read firm X confirmations'
 );
 
