@@ -79,14 +79,59 @@ create index snag_photos_site_id_idx on public.snag_photos (site_id);
 comment on table public.snag_photos is
   'Before photos on raise, after photos when the snag is marked Fixed. Bytes live in site-photos.';
 
-create table public.snag_signatures (
-  id uuid primary key default gen_random_uuid(),
-  snag_id uuid not null unique references public.snags (id) on delete cascade,
+create table public.snag_signoffs (
+  id uuid primary key,
   site_id uuid not null references public.sites (id) on delete cascade,
-  kind text not null check (kind in ('manager', 'contractor')),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  kind text not null check (kind in ('internal', 'contractor')),
   signer_name text not null,
   signer_role text not null,
   signer_company text not null,
+  confirmation_text text not null,
+  signature_png text,
+  signed_at timestamptz not null,
+  signed_received_at timestamptz not null default now(),
+  covered jsonb not null,
+  outstanding jsonb not null,
+  recorded_by uuid not null references public.people (id),
+  created_at timestamptz not null default now(),
+  constraint snag_signoffs_name_len check (char_length(btrim(signer_name)) between 1 and 120),
+  constraint snag_signoffs_role_len check (char_length(btrim(signer_role)) between 1 and 80),
+  constraint snag_signoffs_company_len check (char_length(btrim(signer_company)) between 1 and 120),
+  constraint snag_signoffs_confirmation_len check (char_length(btrim(confirmation_text)) between 1 and 400),
+  constraint snag_signoffs_png_len check (signature_png is null or char_length(signature_png) between 40 and 300000),
+  constraint snag_signoffs_png_kind check (
+    (kind = 'internal' and signature_png is null)
+    or (kind = 'contractor' and signature_png is not null)
+  ),
+  constraint snag_signoffs_covered_array check (jsonb_typeof(covered) = 'array' and jsonb_array_length(covered) >= 1),
+  constraint snag_signoffs_outstanding_array check (jsonb_typeof(outstanding) = 'array')
+);
+
+create index snag_signoffs_site_id_idx on public.snag_signoffs (site_id);
+
+comment on table public.snag_signoffs is
+  'One sign-off of the snags that were Fixed at that moment. The row is immutable. A later fix needs a new row.';
+
+comment on column public.snag_signoffs.confirmation_text is
+  'The sentence the server built from the typed company. The PDF prints this text, not a client copy.';
+
+comment on column public.snag_signoffs.covered is
+  'Snapshot of covered snag ids, notes, levels, statuses and photo paths at signing.';
+
+comment on column public.snag_signoffs.outstanding is
+  'Snapshot of snags still Open at signing. Not part of this signature.';
+
+create table public.snag_signatures (
+  id uuid primary key default gen_random_uuid(),
+  snag_id uuid not null unique references public.snags (id) on delete cascade,
+  signoff_id uuid not null references public.snag_signoffs (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  kind text not null check (kind in ('internal', 'contractor')),
+  signer_name text not null,
+  signer_role text not null,
+  signer_company text not null,
+  confirmation_text text not null,
   signature_png text,
   signed_at timestamptz not null,
   signed_received_at timestamptz not null default now(),
@@ -95,9 +140,10 @@ create table public.snag_signatures (
   constraint snag_signatures_name_len check (char_length(btrim(signer_name)) between 1 and 120),
   constraint snag_signatures_role_len check (char_length(btrim(signer_role)) between 1 and 80),
   constraint snag_signatures_company_len check (char_length(btrim(signer_company)) between 1 and 120),
+  constraint snag_signatures_confirmation_len check (char_length(btrim(confirmation_text)) between 1 and 400),
   constraint snag_signatures_png_len check (signature_png is null or char_length(signature_png) between 40 and 300000),
   constraint snag_signatures_png_kind check (
-    (kind = 'manager' and signature_png is null)
+    (kind = 'internal' and signature_png is null)
     or (kind = 'contractor' and signature_png is not null)
   )
 );
@@ -105,7 +151,7 @@ create table public.snag_signatures (
 create index snag_signatures_site_id_idx on public.snag_signatures (site_id);
 
 comment on table public.snag_signatures is
-  'Sign-off by an owner or contracts manager, or by the main contractor on the phone. signed_at is the device time.';
+  'The per-snag link to one immutable sign-off. signed_at is the device time.';
 
 comment on column public.snag_signatures.signed_at is
   'When the phone recorded the sign-off. Sanity-checked the same way as raised_at.';
@@ -129,7 +175,7 @@ as $fn$
   where p.auth_user_id = (select auth.uid());
 $fn$;
 
-revoke all on function private.snag_actor() from public;
+revoke all on function private.snag_actor() from public, anon, authenticated;
 
 create or replace function private.snag_device_time(p_at timestamptz)
 returns timestamptz
@@ -147,7 +193,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.snag_device_time(timestamptz) from public;
+revoke all on function private.snag_device_time(timestamptz) from public, anon, authenticated;
 
 create or replace function private.snag_require_site(p_site_id uuid)
 returns table (person_id uuid, company_id uuid, role text, display_name text)
@@ -187,7 +233,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.snag_require_site(uuid) from public;
+revoke all on function private.snag_require_site(uuid) from public, anon, authenticated;
 
 create or replace function private.snag_person_label(p_name text)
 returns text
@@ -198,7 +244,7 @@ as $fn$
   select left(coalesce(nullif(btrim(coalesce(p_name, '')), ''), 'Someone on site'), 120);
 $fn$;
 
-revoke all on function private.snag_person_label(text) from public;
+revoke all on function private.snag_person_label(text) from public, anon, authenticated;
 
 create or replace function private.guard_snag()
 returns trigger
@@ -269,7 +315,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_snag() from public;
+revoke all on function private.guard_snag() from public, anon, authenticated;
 
 create trigger snags_guard
   before insert or update on public.snags
@@ -309,7 +355,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_snag_photo() from public;
+revoke all on function private.guard_snag_photo() from public, anon, authenticated;
 
 create trigger snag_photos_guard
   before insert or update on public.snag_photos
@@ -347,7 +393,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_snag_signature() from public;
+revoke all on function private.guard_snag_signature() from public, anon, authenticated;
 
 create trigger snag_signatures_guard
   before insert or update on public.snag_signatures
@@ -362,16 +408,19 @@ alter table public.snag_counters enable row level security;
 alter table public.snags enable row level security;
 alter table public.snag_photos enable row level security;
 alter table public.snag_signatures enable row level security;
+alter table public.snag_signoffs enable row level security;
 
 revoke all on table public.snag_counters from public, anon, authenticated;
 revoke all on table public.snags from public, anon, authenticated;
 revoke all on table public.snag_photos from public, anon, authenticated;
 revoke all on table public.snag_signatures from public, anon, authenticated;
+revoke all on table public.snag_signoffs from public, anon, authenticated;
 
 grant select on table public.snag_counters to authenticated;
 grant select on table public.snags to authenticated;
 grant select on table public.snag_photos to authenticated;
 grant select on table public.snag_signatures to authenticated;
+grant select on table public.snag_signoffs to authenticated;
 
 create policy snag_counters_select
   on public.snag_counters for select to authenticated
@@ -391,6 +440,13 @@ create policy snag_photos_select
 create policy snag_signatures_select
   on public.snag_signatures for select to authenticated
   using (private.can_access_site(site_id));
+
+create policy snag_signoffs_select
+  on public.snag_signoffs for select to authenticated
+  using (
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+  );
 
 -- ---------------------------------------------------------------------------
 -- Photos and text
@@ -430,7 +486,7 @@ begin
     raise exception 'photo_count';
   end if;
 
-  v_prefix := p_company_id::text || '/' || p_site_id::text || '/';
+  v_prefix := p_company_id::text || '/' || p_site_id::text || '/snags/';
 
   for i in 0..v_len - 1 loop
     v_item := p_photos -> i;
@@ -449,6 +505,7 @@ begin
     end;
 
     if char_length(v_path) < char_length(v_prefix) + 1
+       or left(v_path, 1) = '/'
        or left(v_path, char_length(v_prefix)) <> v_prefix
        or strpos(v_path, '..') > 0
        or strpos(v_path, chr(92)) > 0
@@ -474,7 +531,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.snag_take_photos(uuid, uuid, uuid, text, jsonb) from public;
+revoke all on function private.snag_take_photos(uuid, uuid, uuid, text, jsonb) from public, anon, authenticated;
 
 create or replace function private.snag_text(
   p_note text,
@@ -501,7 +558,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.snag_text(text, text, text) from public;
+revoke all on function private.snag_text(text, text, text) from public, anon, authenticated;
 
 create or replace function private.next_snag_seq(p_site_id uuid)
 returns integer
@@ -522,13 +579,218 @@ begin
 end;
 $fn$;
 
-revoke all on function private.next_snag_seq(uuid) from public;
+revoke all on function private.next_snag_seq(uuid) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Writes
 -- ---------------------------------------------------------------------------
 
+create or replace function private.snag_confirmation(p_kind text, p_company text)
+returns text
+language plpgsql
+immutable
+set search_path = ''
+as $fn$
+declare
+  v_company text;
+begin
+  v_company := btrim(coalesce(p_company, ''));
+  if char_length(v_company) < 1 or char_length(v_company) > 120 then
+    raise exception 'invalid_input';
+  end if;
+  if p_kind = 'contractor' then
+    return 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of ' || v_company || '.';
+  end if;
+  if p_kind = 'internal' then
+    return 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
+  end if;
+  raise exception 'invalid_input';
+end;
+$fn$;
+
+revoke all on function private.snag_confirmation(text, text) from public, anon, authenticated;
+
+create or replace function private.guard_snag_signoff()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+begin
+  if tg_op = 'UPDATE' or tg_op = 'DELETE' then
+    raise exception 'closed';
+  end if;
+  return new;
+end;
+$fn$;
+
+revoke all on function private.guard_snag_signoff() from public, anon, authenticated;
+
+create trigger snag_signoffs_guard
+  before update or delete on public.snag_signoffs
+  for each row execute function private.guard_snag_signoff();
+
+create or replace function private.snag_signoff_json(p_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select jsonb_build_object(
+    'signoff_id', s.id,
+    'site_id', s.site_id,
+    'kind', s.kind,
+    'signer_name', s.signer_name,
+    'signer_role', s.signer_role,
+    'signer_company', s.signer_company,
+    'confirmation_text', s.confirmation_text,
+    'signature_png', s.signature_png,
+    'signed_at', s.signed_at,
+    'signed_received_at', s.signed_received_at,
+    'covered', s.covered,
+    'outstanding', s.outstanding
+  )
+  from public.snag_signoffs s
+  where s.id = p_id;
+$fn$;
+
+revoke all on function private.snag_signoff_json(uuid) from public, anon, authenticated;
+
+-- One immutable sign-off of every snag that is Fixed right now.
+-- A retry of the same id returns the stored row. A later fix needs a new id.
+create or replace function private.apply_snag_signoff(
+  p_signoff_id uuid,
+  p_site_id uuid,
+  p_signed_at timestamptz,
+  p_kind text,
+  p_signer_name text,
+  p_signer_role text,
+  p_company text,
+  p_signature_png text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor record;
+  v_existing public.snag_signoffs;
+  v_signed timestamptz;
+  v_received timestamptz;
+  v_confirmation text;
+  v_covered jsonb;
+  v_outstanding jsonb;
+  v_item jsonb;
+  v_snag_id uuid;
+begin
+  if p_signoff_id is null or p_site_id is null or p_kind not in ('internal', 'contractor') then
+    raise exception 'invalid_input';
+  end if;
+
+  select * into v_actor from private.snag_require_site(p_site_id);
+
+  select * into v_existing from public.snag_signoffs where id = p_signoff_id;
+  if v_existing.id is not null then
+    if v_existing.site_id = p_site_id
+       and v_existing.company_id = v_actor.company_id
+       and v_existing.kind = p_kind then
+      return private.snag_signoff_json(v_existing.id);
+    end if;
+    raise exception 'not_authorized';
+  end if;
+
+  v_confirmation := private.snag_confirmation(p_kind, p_company);
+  v_signed := private.snag_device_time(p_signed_at);
+  v_received := now();
+
+  perform 1
+  from public.snags s
+  where s.site_id = p_site_id
+    and s.company_id = v_actor.company_id
+    and s.status = 'Fixed'
+  order by s.snag_seq
+  for update;
+
+  select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
+  into v_covered
+  from (
+    select
+      s.snag_seq,
+      jsonb_build_object(
+        'snag_id', s.id,
+        'snag_seq', s.snag_seq,
+        'note', s.note,
+        'level_area', s.level_area,
+        'status', s.status,
+        'photo_paths', coalesce((
+          select jsonb_agg(p.storage_path order by case p.kind when 'before' then 0 else 1 end, p.sort_order)
+          from public.snag_photos p
+          where p.snag_id = s.id
+        ), '[]'::jsonb)
+      ) as item
+    from public.snags s
+    where s.site_id = p_site_id
+      and s.company_id = v_actor.company_id
+      and s.status = 'Fixed'
+  ) covered_rows;
+
+  select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
+  into v_outstanding
+  from (
+    select
+      s.snag_seq,
+      jsonb_build_object(
+        'snag_id', s.id,
+        'snag_seq', s.snag_seq,
+        'note', s.note,
+        'level_area', s.level_area
+      ) as item
+    from public.snags s
+    where s.site_id = p_site_id
+      and s.company_id = v_actor.company_id
+      and s.status = 'Open'
+  ) open_rows;
+
+  if jsonb_array_length(v_covered) < 1 then
+    raise exception 'closed';
+  end if;
+
+  insert into public.snag_signoffs (
+    id, site_id, company_id, kind, signer_name, signer_role, signer_company,
+    confirmation_text, signature_png, signed_at, signed_received_at,
+    covered, outstanding, recorded_by
+  ) values (
+    p_signoff_id, p_site_id, v_actor.company_id, p_kind,
+    p_signer_name, p_signer_role, btrim(p_company),
+    v_confirmation, p_signature_png, v_signed, v_received,
+    v_covered, v_outstanding, v_actor.person_id
+  );
+
+  for v_item in select value from jsonb_array_elements(v_covered) loop
+    v_snag_id := (v_item ->> 'snag_id')::uuid;
+    insert into public.snag_signatures (
+      snag_id, signoff_id, site_id, kind, signer_name, signer_role, signer_company,
+      confirmation_text, signature_png, signed_at, signed_received_at, recorded_by
+    ) values (
+      v_snag_id, p_signoff_id, p_site_id, p_kind,
+      p_signer_name, p_signer_role, btrim(p_company),
+      v_confirmation, p_signature_png, v_signed, v_received, v_actor.person_id
+    );
+    update public.snags
+    set status = 'Signed off'
+    where id = v_snag_id;
+  end loop;
+
+  return private.snag_signoff_json(p_signoff_id);
+end;
+$fn$;
+
+revoke all on function private.apply_snag_signoff(uuid, uuid, timestamptz, text, text, text, text, text) from public, anon, authenticated;
+
 create or replace function public.create_snag(
+  p_id uuid,
   p_site_id uuid,
   p_note text,
   p_level_area text,
@@ -544,30 +806,47 @@ as $fn$
 declare
   v_actor record;
   v_text record;
-  v_id uuid;
+  v_existing public.snags;
   v_seq integer;
   v_raised timestamptz;
   v_received timestamptz;
 begin
+  if p_id is null then
+    raise exception 'invalid_input';
+  end if;
+
   select * into v_actor from private.snag_require_site(p_site_id);
+  select * into v_existing from public.snags where id = p_id;
+  if v_existing.id is not null then
+    if v_existing.site_id = p_site_id and v_existing.company_id = v_actor.company_id then
+      return jsonb_build_object(
+        'snag_id', v_existing.id,
+        'snag_seq', v_existing.snag_seq,
+        'status', v_existing.status,
+        'raised_at', v_existing.raised_at,
+        'raised_received_at', v_existing.raised_received_at
+      );
+    end if;
+    raise exception 'not_authorized';
+  end if;
+
   select * into v_text from private.snag_text(p_note, p_level_area, p_trade_label);
   v_raised := private.snag_device_time(p_raised_at);
   v_received := now();
-  v_id := gen_random_uuid();
   v_seq := private.next_snag_seq(p_site_id);
 
   insert into public.snags (
     id, site_id, company_id, snag_seq, note, level_area, trade_label,
     raised_by, raised_by_name, raised_at, raised_received_at, status
   ) values (
-    v_id, p_site_id, v_actor.company_id, v_seq, v_text.note, v_text.level_area, v_text.trade_label,
+    p_id, p_site_id, v_actor.company_id, v_seq, v_text.note, v_text.level_area, v_text.trade_label,
     v_actor.person_id, private.snag_person_label(v_actor.display_name), v_raised, v_received, 'Open'
   );
 
-  perform private.snag_take_photos(v_id, p_site_id, v_actor.company_id, 'before', p_photos);
+  perform private.snag_take_photos(p_id, p_site_id, v_actor.company_id, 'before', p_photos);
 
   return jsonb_build_object(
-    'snag_id', v_id,
+    'snag_id', p_id,
     'snag_seq', v_seq,
     'status', 'Open',
     'raised_at', v_raised,
@@ -627,9 +906,11 @@ begin
 end;
 $fn$;
 
-create or replace function public.sign_off_snag_as_manager(
-  p_snag_id uuid,
-  p_signed_at timestamptz
+create or replace function public.sign_off_snags_internal(
+  p_signoff_id uuid,
+  p_site_id uuid,
+  p_signed_at timestamptz,
+  p_company text
 )
 returns jsonb
 language plpgsql
@@ -637,67 +918,34 @@ security definer
 set search_path = ''
 as $fn$
 declare
-  v_row public.snags;
   v_actor record;
-  v_signed timestamptz;
-  v_received timestamptz;
   v_role text;
-  v_company text;
 begin
-  select * into v_row from public.snags where id = p_snag_id;
-  if v_row.id is null then
-    raise exception 'not_authorized';
-  end if;
-
-  select * into v_actor from private.snag_require_site(v_row.site_id);
-
+  select * into v_actor from private.snag_require_site(p_site_id);
   if v_actor.role not in ('owner', 'cm') then
     raise exception 'not_authorized';
   end if;
-
-  if v_row.company_id <> v_actor.company_id or v_row.status <> 'Fixed' then
-    raise exception 'snag_locked';
-  end if;
-
   v_role := case v_actor.role when 'owner' then 'Owner' else 'Contracts manager' end;
-  select left(btrim(c.name), 120) into v_company
-  from public.companies c
-  where c.id = v_actor.company_id;
-
-  if v_company is null or char_length(v_company) < 1 then
-    raise exception 'invalid_input';
-  end if;
-
-  v_signed := private.snag_device_time(p_signed_at);
-  v_received := now();
-
-  insert into public.snag_signatures (
-    snag_id, site_id, kind, signer_name, signer_role, signer_company,
-    signature_png, signed_at, signed_received_at, recorded_by
-  ) values (
-    v_row.id, v_row.site_id, 'manager', private.snag_person_label(v_actor.display_name), v_role, v_company,
-    null, v_signed, v_received, v_actor.person_id
-  );
-
-  update public.snags
-  set status = 'Signed off'
-  where id = v_row.id;
-
-  return jsonb_build_object(
-    'snag_id', v_row.id,
-    'status', 'Signed off',
-    'signed_at', v_signed,
-    'signed_received_at', v_received
+  return private.apply_snag_signoff(
+    p_signoff_id,
+    p_site_id,
+    p_signed_at,
+    'internal',
+    private.snag_person_label(v_actor.display_name),
+    v_role,
+    p_company,
+    null
   );
 end;
 $fn$;
 
-create or replace function public.sign_off_snag_as_contractor(
-  p_snag_id uuid,
+create or replace function public.sign_off_snags_contractor(
+  p_signoff_id uuid,
+  p_site_id uuid,
   p_signed_at timestamptz,
   p_signer_name text,
   p_signer_role text,
-  p_signer_company text,
+  p_company text,
   p_signature_png text
 )
 returns jsonb
@@ -706,59 +954,28 @@ security definer
 set search_path = ''
 as $fn$
 declare
-  v_row public.snags;
-  v_actor record;
-  v_signed timestamptz;
-  v_received timestamptz;
   v_name text;
   v_role text;
-  v_company text;
 begin
-  select * into v_row from public.snags where id = p_snag_id;
-  if v_row.id is null then
-    raise exception 'not_authorized';
-  end if;
-
-  select * into v_actor from private.snag_require_site(v_row.site_id);
-
-  if v_row.company_id <> v_actor.company_id or v_row.status <> 'Fixed' then
-    raise exception 'snag_locked';
-  end if;
-
   v_name := btrim(coalesce(p_signer_name, ''));
   v_role := btrim(coalesce(p_signer_role, ''));
-  v_company := btrim(coalesce(p_signer_company, ''));
-
   if char_length(v_name) < 1 or char_length(v_name) > 120
      or char_length(v_role) < 1 or char_length(v_role) > 80
-     or char_length(v_company) < 1 or char_length(v_company) > 120
      or p_signature_png is null
      or left(p_signature_png, 22) <> 'data:image/png;base64,'
      or char_length(p_signature_png) < 40
      or char_length(p_signature_png) > 300000 then
     raise exception 'invalid_input';
   end if;
-
-  v_signed := private.snag_device_time(p_signed_at);
-  v_received := now();
-
-  insert into public.snag_signatures (
-    snag_id, site_id, kind, signer_name, signer_role, signer_company,
-    signature_png, signed_at, signed_received_at, recorded_by
-  ) values (
-    v_row.id, v_row.site_id, 'contractor', v_name, v_role, v_company,
-    p_signature_png, v_signed, v_received, v_actor.person_id
-  );
-
-  update public.snags
-  set status = 'Signed off'
-  where id = v_row.id;
-
-  return jsonb_build_object(
-    'snag_id', v_row.id,
-    'status', 'Signed off',
-    'signed_at', v_signed,
-    'signed_received_at', v_received
+  return private.apply_snag_signoff(
+    p_signoff_id,
+    p_site_id,
+    p_signed_at,
+    'contractor',
+    v_name,
+    v_role,
+    p_company,
+    p_signature_png
   );
 end;
 $fn$;
@@ -865,9 +1082,11 @@ as $fn$
         'signer_name', g.signer_name,
         'signer_role', g.signer_role,
         'signer_company', g.signer_company,
+        'confirmation_text', g.confirmation_text,
         'signature_png', g.signature_png,
         'signed_at', g.signed_at,
-        'signed_received_at', g.signed_received_at
+        'signed_received_at', g.signed_received_at,
+        'signoff_id', g.signoff_id
       )
       from public.snag_signatures g
       where g.snag_id = s.id
@@ -877,7 +1096,7 @@ as $fn$
   where s.id = p_snag_id;
 $fn$;
 
-revoke all on function private.snag_json(uuid) from public;
+revoke all on function private.snag_json(uuid) from public, anon;
 grant execute on function private.snag_json(uuid) to authenticated;
 
 create or replace function public.snag_detail(p_snag_id uuid)
@@ -962,19 +1181,19 @@ begin
 end;
 $fn$;
 
-revoke all on function public.create_snag(uuid, text, text, text, timestamptz, jsonb) from public;
-revoke all on function public.fix_snag(uuid, timestamptz, jsonb) from public;
-revoke all on function public.sign_off_snag_as_manager(uuid, timestamptz) from public;
-revoke all on function public.sign_off_snag_as_contractor(uuid, timestamptz, text, text, text, text) from public;
-revoke all on function public.list_snags(uuid) from public;
-revoke all on function public.snag_detail(uuid) from public;
-revoke all on function public.snag_report(uuid) from public;
-revoke all on function public.snag_trade_labels(uuid) from public;
+revoke all on function public.create_snag(uuid, uuid, text, text, text, timestamptz, jsonb) from public, anon;
+revoke all on function public.fix_snag(uuid, timestamptz, jsonb) from public, anon;
+revoke all on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text) from public, anon;
+revoke all on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text) from public, anon;
+revoke all on function public.list_snags(uuid) from public, anon;
+revoke all on function public.snag_detail(uuid) from public, anon;
+revoke all on function public.snag_report(uuid) from public, anon;
+revoke all on function public.snag_trade_labels(uuid) from public, anon;
 
-grant execute on function public.create_snag(uuid, text, text, text, timestamptz, jsonb) to authenticated;
+grant execute on function public.create_snag(uuid, uuid, text, text, text, timestamptz, jsonb) to authenticated;
 grant execute on function public.fix_snag(uuid, timestamptz, jsonb) to authenticated;
-grant execute on function public.sign_off_snag_as_manager(uuid, timestamptz) to authenticated;
-grant execute on function public.sign_off_snag_as_contractor(uuid, timestamptz, text, text, text, text) to authenticated;
+grant execute on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text) to authenticated;
+grant execute on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text) to authenticated;
 grant execute on function public.list_snags(uuid) to authenticated;
 grant execute on function public.snag_detail(uuid) to authenticated;
 grant execute on function public.snag_report(uuid) to authenticated;

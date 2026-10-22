@@ -30,6 +30,15 @@ SQL
 
 for migration in supabase/migrations/*.sql; do
   echo "apply ${migration}"
+  # Hosted Postgres grants EXECUTE to anon through default privileges, separately
+  # from PUBLIC. Apply that grant only before the snag migration so the revoke
+  # from anon is what the probe measures.
+  if [[ "$migration" == *20261022170000_snags.sql ]]; then
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+alter default privileges in schema public grant execute on functions to anon;
+alter default privileges in schema private grant execute on functions to anon;
+SQL
+  fi
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
 done
 

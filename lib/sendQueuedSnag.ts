@@ -1,4 +1,4 @@
-import type { CreateSnagInput, SnagPhotoInput } from '@/data/snags';
+import type { CreateSnagInput, SnagPhotoInput, SnagSignoff } from '@/data/snags';
 import type { QueuedPhoto, QueuedSnag, QueuedSnagCreate, SnagQueueStore } from '@/lib/snagQueue';
 import { getSnagQueue } from '@/lib/snagQueue';
 
@@ -6,8 +6,16 @@ export type SnagSender = {
   upload(photo: QueuedPhoto, item: { companyId: string; siteId: string }): Promise<SnagPhotoInput>;
   create(input: CreateSnagInput): Promise<{ snagId: string }>;
   fix(snagId: string, fixedAt: string, photos: SnagPhotoInput[]): Promise<void>;
-  signManager(snagId: string, signedAt: string): Promise<void>;
-  signContractor(snagId: string, signedAt: string, name: string, role: string, company: string, signaturePng: string): Promise<void>;
+  signInternal(input: { signoffId: string; siteId: string; signedAt: string; company: string }): Promise<SnagSignoff>;
+  signContractor(input: {
+    signoffId: string;
+    siteId: string;
+    signedAt: string;
+    signerName: string;
+    signerRole: string;
+    company: string;
+    signaturePng: string;
+  }): Promise<SnagSignoff>;
 };
 
 async function defaultSender(): Promise<SnagSender> {
@@ -34,16 +42,11 @@ async function defaultSender(): Promise<SnagSender> {
     async fix(snagId, fixedAt, photos) {
       await repo.fixSnag(snagId, fixedAt, photos);
     },
-    async signManager(snagId, signedAt) {
-      await repo.signOffSnagAsManager(snagId, signedAt);
+    async signInternal(input) {
+      return repo.signOffSnagsInternal(input);
     },
-    async signContractor(snagId, signedAt, name, role, company, signaturePng) {
-      await repo.signOffSnagAsContractor(snagId, signedAt, {
-        signerName: name,
-        signerRole: role,
-        signerCompany: company,
-        signaturePng,
-      });
+    async signContractor(input) {
+      return repo.signOffSnagsContractor(input);
     },
   };
 }
@@ -65,6 +68,7 @@ export async function sendQueuedSnag(
     if (!current.serverSnagId) {
       const photos = await uploadAll(active, current.photos, current);
       const created = await active.create({
+        snagId: current.localId,
         siteId: current.siteId,
         note: current.note,
         levelArea: current.levelArea,
@@ -84,17 +88,23 @@ export async function sendQueuedSnag(
     return;
   }
 
-  if (item.mode === 'manager') {
-    await active.signManager(item.snagId, item.signedAt);
+  if (item.mode === 'internal') {
+    await active.signInternal({
+      signoffId: item.localId,
+      siteId: item.siteId,
+      signedAt: item.signedAt,
+      company: item.signerCompany,
+    });
     return;
   }
 
-  await active.signContractor(
-    item.snagId,
-    item.signedAt,
-    item.signerName ?? '',
-    item.signerRole ?? '',
-    item.signerCompany ?? '',
-    item.signaturePng ?? ''
-  );
+  await active.signContractor({
+    signoffId: item.localId,
+    siteId: item.siteId,
+    signedAt: item.signedAt,
+    signerName: item.signerName ?? '',
+    signerRole: item.signerRole ?? '',
+    company: item.signerCompany,
+    signaturePng: item.signaturePng ?? '',
+  });
 }

@@ -70,8 +70,8 @@ import {
   fixtureCreateSnag,
   fixtureFixSnag,
   fixtureListSnags,
-  fixtureSignOffContractor,
-  fixtureSignOffManager,
+  fixtureEditSignoff,
+  fixtureSignOffSnags,
   fixtureSnagDetail,
   fixtureSnagPhotoUrl,
   fixtureSnagReport,
@@ -80,7 +80,7 @@ import {
   seedFixtureSnags,
   type FixtureSnagBucket,
 } from '@/data/fixtureSnags';
-import type { CreateSnagInput } from '@/data/snags';
+import type { CreateSnagInput, SignOffSnagsInput } from '@/data/snags';
 
 type GroupRecord = {
   id: string;
@@ -589,6 +589,14 @@ function companyPersonView(person: Person): CompanyPerson {
     username: person.username ?? null,
     site_names: siteNames,
   };
+}
+
+export function editSnagSignoffForTests(signoffId: string) {
+  fixtureEditSignoff(store.snags, signoffId);
+}
+
+export function snagSignoffCountForTests(): number {
+  return store.snags.signoffs.length;
 }
 
 export const fixtureRepo: SitePackRepo = {
@@ -1178,14 +1186,28 @@ export const fixtureRepo: SitePackRepo = {
     fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id));
   },
 
-  async signOffSnagAsManager(snagId, signedAt) {
+  async signOffSnagsInternal(input: SignOffSnagsInput) {
     const person = meOrThrow();
-    fixtureSignOffManager(store.snags, snagActor(person), snagId, signedAt, store.companyName, (id) => canAccessSite(person, id));
+    return fixtureSignOffSnags(
+      store.snags,
+      snagActor(person),
+      input,
+      'internal',
+      (id) => canAccessSite(person, id),
+      (id) => store.sites.find((row) => row.id === id)?.company_id
+    );
   },
 
-  async signOffSnagAsContractor(snagId, signedAt, input) {
+  async signOffSnagsContractor(input: SignOffSnagsInput) {
     const person = meOrThrow();
-    fixtureSignOffContractor(store.snags, snagActor(person), snagId, signedAt, input, (id) => canAccessSite(person, id));
+    return fixtureSignOffSnags(
+      store.snags,
+      snagActor(person),
+      input,
+      'contractor',
+      (id) => canAccessSite(person, id),
+      (id) => store.sites.find((row) => row.id === id)?.company_id
+    );
   },
 
   async snagTradeLabels(siteId) {

@@ -36,14 +36,42 @@ export type SnagPhoto = {
   signed_url_expires_at?: string | null;
 };
 
+export type SnagSignoffKind = 'internal' | 'contractor';
+
+export type SnagSnapshot = {
+  snag_id: string;
+  snag_seq: number;
+  note: string;
+  level_area: string | null;
+  status?: string;
+  photo_paths?: string[];
+};
+
 export type SnagSignature = {
-  kind: 'manager' | 'contractor';
+  kind: SnagSignoffKind;
   signer_name: string;
   signer_role: string;
   signer_company: string;
+  confirmation_text: string;
   signature_png: string | null;
   signed_at: string;
   signed_received_at: string;
+  signoff_id: string;
+};
+
+export type SnagSignoff = {
+  signoff_id: string;
+  site_id: string;
+  kind: SnagSignoffKind;
+  signer_name: string;
+  signer_role: string;
+  signer_company: string;
+  confirmation_text: string;
+  signature_png: string | null;
+  signed_at: string;
+  signed_received_at: string;
+  covered: SnagSnapshot[];
+  outstanding: SnagSnapshot[];
 };
 
 export type SnagDetail = {
@@ -75,12 +103,23 @@ export type SnagPhotoInput = {
 };
 
 export type CreateSnagInput = {
+  snagId: string;
   siteId: string;
   note: string;
   levelArea?: string | null;
   tradeLabel: string;
   raisedAt: string;
   photos: SnagPhotoInput[];
+};
+
+export type SignOffSnagsInput = {
+  signoffId: string;
+  siteId: string;
+  signedAt: string;
+  company: string;
+  signerName?: string;
+  signerRole?: string;
+  signaturePng?: string;
 };
 
 export function snagNumber(snagSeq: number): string {
@@ -140,6 +179,10 @@ export function snagError(code: string): string {
       return 'You cannot open this snag.';
     case 'signature_required':
       return 'Sign off needs a name and a signature.';
+    case 'closed':
+      return 'Nothing is left to sign off.';
+    case 'not_found':
+      return 'That snag could not be found.';
     case 'invalid_input':
       return 'Check the snag and try again.';
     default:

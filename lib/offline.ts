@@ -2,6 +2,7 @@ import { PACK_DIRECTORY_CREATE } from '@/data/walk';
 import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 import { removeDrawingSeenKeys } from '@/lib/drawingSeenQueue';
+import { deleteSnagIndexedDb, removeSnagQueueKeys } from '@/lib/snagQueue';
 
 import type { HomeSite, ManifestItem } from '@/data/types';
 import { drawingIdsToDelete, siteIdsFromPackKeys } from '@/lib/offlinePack';
@@ -103,9 +104,11 @@ function clearLocalMetadata() {
     }
     for (const key of keys) store.removeItem(key);
     removeDrawingSeenKeys(store);
+    removeSnagQueueKeys(store);
   } catch {
     // The file delete still runs.
   }
+  deleteSnagIndexedDb();
 }
 
 async function deleteStoredFiles(): Promise<void> {
