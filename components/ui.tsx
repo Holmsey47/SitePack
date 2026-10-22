@@ -55,12 +55,15 @@ export function Button({
   variant = 'primary',
   disabled,
   loading,
+  minHeight,
 }: {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   disabled?: boolean;
   loading?: boolean;
+  /** Glove target. Defaults to the shared thumb height. */
+  minHeight?: number;
 }) {
   return (
     <Pressable
@@ -69,6 +72,7 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.btn,
+        minHeight != null && { minHeight },
         variant === 'primary' && styles.btnPrimary,
         variant === 'secondary' && styles.btnSecondary,
         variant === 'ghost' && styles.btnGhost,

@@ -1,58 +1,114 @@
-import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { JoinSharePanel } from '@/components/JoinSharePanel';
+import { Button, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { inviteFailureMessage } from '@/data/inviteError';
+import { inviteSiteChoice, inviteSitesFromPulse } from '@/data/inviteEntry';
+import { JOIN_DEFAULT_HOURS, JOIN_DEFAULT_MAX_USES, joinFailureMessage } from '@/data/joinCodes';
 import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
-import type { PulseRow, Role } from '@/data/types';
-import { roleLabel, workingRows } from '@/data/walk';
+import type { JoinCodeCreated, PulseRow, Role } from '@/data/types';
+import { roleLabel } from '@/data/walk';
 import { theme } from '@/lib/theme';
-import { Redirect, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 const ROLES: Role[] = ['operative', 'cm', 'owner'];
 
 export default function InviteScreen() {
   const { person } = useAuth();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string | string[] }>();
+  const emailFlag = Array.isArray(params.email) ? params.email[0] : params.email;
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<Role>('operative');
   const [trade, setTrade] = useState('');
   const [sites, setSites] = useState<PulseRow[]>([]);
   const [siteIds, setSiteIds] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [share, setShare] = useState<JoinCodeCreated | null>(null);
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState('');
-  const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [emailDone, setEmailDone] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(emailFlag === '1');
+  const [creating, setCreating] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       if (!person || person.role === 'operative') return;
+      let active = true;
       repo
         .companySitesPulse()
         .then((rows) => {
+          if (!active) return;
           const next = sitesAfterReload(rows, []);
-          setSites(workingRows(next.sites));
+          setSites(next.sites);
           setListNotice(next.notice);
+          setLoaded(true);
         })
         .catch(() => {
+          if (!active) return;
           setSites((current) => sitesAfterReload(null, current).sites);
           setListNotice(sitesAfterReload(null, []).notice);
+          setLoaded(true);
         });
-    }, [person])
+      return () => {
+        active = false;
+      };
+    }, [person]),
   );
+
+  const openChoice = useMemo(() => inviteSiteChoice(inviteSitesFromPulse(sites)), [sites]);
+
+  useEffect(() => {
+    if (openChoice.kind === 'one') {
+      setSelectedId(openChoice.site.id);
+      return;
+    }
+    if (openChoice.kind === 'none') {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => (current && openChoice.sites.some((site) => site.id === current) ? current : null));
+  }, [openChoice]);
+
+  useEffect(() => {
+    if (emailFlag === '1') setEmailOpen(true);
+  }, [emailFlag]);
 
   if (person && !canManageSite(person.role)) return <Redirect href="/sites" />;
 
   const allowedRoles = person?.role === 'cm' ? (['operative'] as Role[]) : ROLES;
+  const openSites = openChoice.kind === 'many' ? openChoice.sites : openChoice.kind === 'one' ? [openChoice.site] : [];
 
   function toggleSite(siteId: string) {
     setSiteIds((current) => (current.includes(siteId) ? current.filter((id) => id !== siteId) : [...current, siteId]));
   }
 
+  async function onCreateCode() {
+    if (!selectedId) return;
+    setCreating(true);
+    setError('');
+    try {
+      const created = await repo.createJoinCode({
+        siteId: selectedId,
+        maxUses: JOIN_DEFAULT_MAX_USES,
+        hours: JOIN_DEFAULT_HOURS,
+      });
+      setShare(created);
+    } catch (err) {
+      setError(joinFailureMessage(err instanceof Error ? err.message : 'join_rejected'));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function onSubmit() {
-    setLoading(true);
+    setEmailLoading(true);
     setError('');
     try {
       await repo.invitePerson({
@@ -62,77 +118,144 @@ export default function InviteScreen() {
         trade: trade.trim() || null,
         siteIds,
       });
-      setDone(true);
+      setEmailDone(true);
     } catch (err) {
       setError(inviteFailureMessage(err instanceof Error ? err.message : null, 'The invite did not send. Try again.'));
     } finally {
-      setLoading(false);
+      setEmailLoading(false);
     }
-  }
-
-  if (done) {
-    return (
-      <Screen>
-        <Title>
-          Invite sent to {displayName.trim()}, {email.trim()}.
-        </Title>
-      </Screen>
-    );
   }
 
   return (
     <Screen>
-      <Title>Invite someone</Title>
-      <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
-      <Field label="Name" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
-      <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Role</Text>
-      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-        {allowedRoles.map((value) => (
-          <Pressable
-            key={value}
-            onPress={() => setRole(value)}
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 12,
-              backgroundColor: role === value ? theme.current : theme.surface,
-            }}>
-            <Text style={{ color: role === value ? theme.currentInk : theme.text, fontWeight: '700' }}>
-              {roleLabel(value)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+      <Title>Invite with a code</Title>
+      <Muted>A valid code puts them straight on the site. No approval step.</Muted>
       {listNotice ? <Text style={{ color: theme.muted }}>{listNotice}</Text> : null}
-      {sites.map((site) => {
-        const on = siteIds.includes(site.site_id);
-        return (
-          <Pressable
-            key={site.site_id}
-            onPress={() => toggleSite(site.site_id)}
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: on ? theme.current : theme.line,
-            }}>
-            <Text style={{ color: theme.text }}>{site.name}</Text>
-          </Pressable>
-        );
-      })}
+      {!loaded ? <Muted>Loading sites…</Muted> : null}
+      {loaded && !listNotice && openChoice.kind === 'none' ? (
+        <EmptyState
+          title="Make a site first"
+          action={
+            person?.role === 'owner' ? (
+              <Button label="Create site" minHeight={56} onPress={() => router.push('/create-site')} />
+            ) : (
+              <Muted>Ask the owner to make a site.</Muted>
+            )
+          }
+        />
+      ) : null}
+      {loaded && openChoice.kind !== 'none' ? (
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: theme.muted, fontWeight: '700' }}>
+            {openChoice.kind === 'one' ? 'Site' : 'Which site?'}
+          </Text>
+          {openSites.map((site) => {
+            const selected = selectedId === site.id;
+            return (
+              <Pressable
+                key={site.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => setSelectedId(site.id)}
+                style={{
+                  minHeight: 56,
+                  justifyContent: 'center',
+                  paddingHorizontal: 14,
+                  borderRadius: 12,
+                  borderWidth: 2,
+                  borderColor: selected ? theme.current : theme.line,
+                  backgroundColor: selected ? theme.surfaceAlt : theme.surface,
+                }}>
+                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{site.name}</Text>
+                {selected ? <Text style={{ color: theme.current, fontWeight: '800' }}>Selected</Text> : null}
+              </Pressable>
+            );
+          })}
+          <Button
+            label="Create code"
+            minHeight={56}
+            onPress={() => void onCreateCode()}
+            loading={creating}
+            disabled={!selectedId}
+          />
+        </View>
+      ) : null}
+      {share ? (
+        <JoinSharePanel
+          code={share.code}
+          siteName={share.site_name}
+          expiresAt={share.expires_at}
+          uses={0}
+          maxUses={share.max_uses}
+        />
+      ) : null}
       <ErrorText>{error}</ErrorText>
-      <Button
-        label="Send invite"
-        onPress={() => void onSubmit()}
-        loading={loading}
-        disabled={!email.trim() || !displayName.trim()}
-      />
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setEmailOpen((current) => !current)}
+        style={{ minHeight: 48, justifyContent: 'center' }}>
+        <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>
+          {emailOpen ? 'Hide email invite' : 'Invite by email instead'}
+        </Text>
+      </Pressable>
+      {emailOpen ? (
+        emailDone ? (
+          <Title>
+            Invite sent to {displayName.trim()}, {email.trim()}.
+          </Title>
+        ) : (
+          <View style={{ gap: 16 }}>
+            <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
+            <Field label="Name" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
+            <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
+            <Text style={{ color: theme.muted, fontWeight: '700' }}>Role</Text>
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {allowedRoles.map((value) => (
+                <Pressable
+                  key={value}
+                  onPress={() => setRole(value)}
+                  style={{
+                    minHeight: 48,
+                    justifyContent: 'center',
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: 12,
+                    backgroundColor: role === value ? theme.current : theme.surface,
+                  }}>
+                  <Text style={{ color: role === value ? theme.currentInk : theme.text, fontWeight: '700' }}>
+                    {roleLabel(value)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+            {openSites.map((site) => {
+              const on = siteIds.includes(site.id);
+              return (
+                <Pressable
+                  key={site.id}
+                  onPress={() => toggleSite(site.id)}
+                  style={{
+                    minHeight: 48,
+                    justifyContent: 'center',
+                    paddingHorizontal: 12,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: on ? theme.current : theme.line,
+                  }}>
+                  <Text style={{ color: theme.text }}>{site.name}</Text>
+                </Pressable>
+              );
+            })}
+            <Button
+              label="Send invite"
+              onPress={() => void onSubmit()}
+              loading={emailLoading}
+              disabled={!email.trim() || !displayName.trim()}
+            />
+          </View>
+        )
+      ) : null}
     </Screen>
   );
 }
