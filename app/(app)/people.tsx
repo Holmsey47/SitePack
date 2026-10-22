@@ -10,15 +10,17 @@ import {
   removableSites,
 } from '@/data/companyPeople';
 import { repo } from '@/data/index';
+import { canManageSite } from '@/data/repo';
 import type { CompanyPerson, PulseRow } from '@/data/types';
 import { theme } from '@/lib/theme';
 import { personLabel, siteLabel } from '@/data/walk';
-import { Link, Redirect, useFocusEffect } from 'expo-router';
+import { Link, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function PeopleScreen() {
   const { person } = useAuth();
+  const router = useRouter();
   const [people, setPeople] = useState<CompanyPerson[]>([]);
   const [sites, setSites] = useState<PulseRow[]>([]);
   const [name, setName] = useState('');
@@ -124,6 +126,9 @@ export default function PeopleScreen() {
   return (
     <Screen footer={person ? <AppTabs role={person.role} /> : null}>
       <Title>People</Title>
+      {person && canManageSite(person.role) ? (
+        <Button label="Invite" minHeight={56} onPress={() => router.push('/invite')} />
+      ) : null}
       <Link href="/groups" asChild>
         <Pressable accessibilityRole="link" style={{ minHeight: 48, justifyContent: 'center' }}>
           <Text style={{ color: theme.current, fontSize: 18, fontWeight: '800' }}>Groups</Text>
