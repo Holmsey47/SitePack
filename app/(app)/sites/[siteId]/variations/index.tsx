@@ -1,6 +1,6 @@
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
 import { repo } from '@/data/index';
-import { filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { filterVariations, formatPounds, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
 import { deviceIsOnline, getVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { theme } from '@/lib/theme';
@@ -88,6 +88,7 @@ export default function VariationsScreen() {
             </Text>
             <Muted>
               {row.status} · {row.photo_count} photo{row.photo_count === 1 ? '' : 's'}
+              {row.value_pence != null ? ` · ${formatPounds(row.value_pence)}` : ''}
             </Muted>
           </Card>
         ))
