@@ -22,6 +22,9 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/snags/index" options={{ title: 'Snags' }} />
       <Stack.Screen name="sites/[siteId]/snags/new" options={{ title: 'Raise a snag' }} />
       <Stack.Screen name="sites/[siteId]/snags/[snagId]" options={{ title: 'Snag' }} />
+      <Stack.Screen name="sites/[siteId]/attendance/index" options={{ title: 'Hours' }} />
+      <Stack.Screen name="sites/[siteId]/attendance/week" options={{ title: 'Weekly hours' }} />
+      <Stack.Screen name="sites/[siteId]/attendance/[entryId]" options={{ title: 'Hours entry' }} />
       <Stack.Screen name="sites/[siteId]/request" options={{ title: 'Request a drawing' }} />
       <Stack.Screen name="sites/[siteId]/upload" options={{ title: 'Upload' }} />
       <Stack.Screen name="sites/[siteId]/drawing/[drawingId]" options={{ title: 'Drawing' }} />

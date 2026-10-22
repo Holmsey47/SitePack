@@ -9,6 +9,7 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
+import { adoptAttendanceOwner, wipeAttendanceQueue } from '@/lib/attendanceQueue';
 import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
@@ -44,10 +45,13 @@ const PERSON_KEY = 'sitepack.auth.person';
 
 async function bindCache(userId: string | null) {
   try {
-    if (userId) await adoptCacheOwner(userId);
-    else {
+    if (userId) {
+      await adoptCacheOwner(userId);
+      await adoptAttendanceOwner(userId);
+    } else {
       writeRemembered(null);
       await deleteAllDrawingCaches();
+      await wipeAttendanceQueue();
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.

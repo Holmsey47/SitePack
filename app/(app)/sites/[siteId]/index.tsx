@@ -1,3 +1,4 @@
+import { SiteSignButton } from '@/components/SiteSignButton';
 import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
@@ -201,6 +202,13 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      <SiteSignButton siteId={site.id} />
+      <Button
+        label={manage ? 'On site now' : 'My hours'}
+        variant="secondary"
+        minHeight={56}
+        onPress={() => router.push(`/sites/${siteId}/attendance`)}
+      />
       {seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
         <Text
           accessibilityRole="text"

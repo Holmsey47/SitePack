@@ -1,0 +1,512 @@
+-- Attendance RLS. Apply scripts/throwaway-auth.sql and every migration first.
+--   DATABASE_URL=postgres://postgres@127.0.0.1/sitepack_hours bash scripts/run-attendance-rls.sh
+-- The checks roll back. Nothing here is a hosted project.
+
+\set ON_ERROR_STOP on
+\set firmx 'c1111111-1111-4111-8111-111111111111'
+\set firmy 'c2222222-2222-4222-8222-222222222222'
+\set ownerx 'a1111111-1111-4111-8111-111111111111'
+\set cmx 'a1111111-1111-4111-8111-111111111112'
+\set opa 'a1111111-1111-4111-8111-111111111113'
+\set opb 'a1111111-1111-4111-8111-111111111114'
+\set opc 'a1111111-1111-4111-8111-111111111115'
+\set ownery 'a2222222-2222-4222-8222-222222222221'
+\set sitea '51111111-1111-4111-8111-111111111111'
+\set siteb '51111111-1111-4111-8111-111111111112'
+\set sitey '52222222-2222-4222-8222-222222222221'
+
+begin;
+
+create or replace function pg_temp.ok(cond boolean, message text)
+returns void
+language plpgsql
+as $$
+begin
+  if coalesce(cond, false) then
+    raise notice 'ok: %', message;
+  else
+    raise exception 'FAIL: %', message;
+  end if;
+end;
+$$;
+
+create or replace function pg_temp.jwt(p_sub uuid)
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claim.sub', p_sub::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', p_sub::text, 'role', 'authenticated')::text,
+    true
+  );
+end;
+$$;
+
+create or replace function pg_temp.raises(p_sql text, p_message text)
+returns boolean
+language plpgsql
+as $$
+begin
+  execute p_sql;
+  return false;
+exception
+  when others then
+    return sqlerrm = p_message;
+end;
+$$;
+
+create temp table probe (k text primary key, v jsonb);
+grant all on table probe to authenticated;
+
+select pg_temp.ok(
+  private.london_end(date '2026-03-29') = timestamptz '2026-03-29 22:59:00+00'
+  and private.london_end(date '2026-10-25') = timestamptz '2026-10-25 23:59:00+00'
+  and private.london_start(date '2026-03-29') = timestamptz '2026-03-29 00:00:00+00'
+  and private.london_start(date '2026-10-25') = timestamptz '2026-10-24 23:00:00+00'
+  and private.london_start(date '2026-03-30') - private.london_start(date '2026-03-29') = interval '23 hours'
+  and private.london_start(date '2026-10-26') - private.london_start(date '2026-10-25') = interval '25 hours',
+  '23:59 Europe/London is right on both clock-change Sundays'
+);
+
+insert into probe (k, v)
+values (
+  'monday',
+  to_jsonb((date_trunc('week', private.london_day(pg_catalog.now())::timestamp))::date)
+);
+
+select pg_temp.ok(
+  (
+    select count(*)
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'sign_in_site',
+        'sign_out_site',
+        'close_forgotten_attendance',
+        'correct_attendance',
+        'my_site_attendance',
+        'list_my_attendance',
+        'list_on_site_now',
+        'weekly_attendance',
+        'attendance_entry'
+      )
+      and exists (
+        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) c
+        where c like 'search_path=%'
+      )
+  ) = 9,
+  'attendance functions pin search_path'
+);
+
+select pg_temp.ok(
+  (
+    select count(*)
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+      and p.proname in (
+        'sign_in_site',
+        'sign_out_site',
+        'close_forgotten_attendance',
+        'correct_attendance'
+      )
+  ) = 4
+  and not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'my_site_attendance',
+        'list_my_attendance',
+        'list_on_site_now',
+        'weekly_attendance',
+        'attendance_entry'
+      )
+      and p.prosecdef
+  ),
+  'writes are security definer and attendance reads run as the caller'
+);
+
+select pg_temp.ok(
+  not has_function_privilege('anon', 'public.sign_in_site(uuid,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'public.sign_out_site(uuid,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'public.correct_attendance(uuid,timestamptz,timestamptz,text)', 'execute')
+  and not has_function_privilege('anon', 'public.list_on_site_now(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.weekly_attendance(uuid,date)', 'execute')
+  and not has_function_privilege('anon', 'public.close_forgotten_attendance()', 'execute')
+  and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.close_forgotten_attendance()', 'execute')
+  and not has_table_privilege('anon', 'public.site_attendance', 'select')
+  and not has_table_privilege('anon', 'public.site_attendance_audit', 'select')
+  and not has_table_privilege('authenticated', 'public.site_attendance', 'insert')
+  and not has_table_privilege('authenticated', 'public.site_attendance', 'update')
+  and not has_table_privilege('authenticated', 'public.site_attendance_audit', 'insert'),
+  'anon cannot call attendance and clients cannot write the tables directly'
+);
+
+insert into auth.users (id, email)
+values
+  (:'ownerx', 'ownerx@firmx.test'),
+  (:'cmx', 'cmx@firmx.test'),
+  (:'opa', 'opa@firmx.test'),
+  (:'opb', 'opb@firmx.test'),
+  (:'opc', 'opc@firmx.test'),
+  (:'ownery', 'ownery@firmy.test');
+
+insert into public.companies (id, name)
+values
+  (:'firmx', 'Firm X'),
+  (:'firmy', 'Firm Y');
+
+insert into public.people (id, auth_user_id, company_id, role, display_name, email, trade)
+values
+  (:'ownerx', :'ownerx', :'firmx', 'owner', 'Owner X', 'ownerx@firmx.test', null),
+  (:'cmx', :'cmx', :'firmx', 'cm', 'CM X', 'cmx@firmx.test', 'contracts'),
+  (:'opa', :'opa', :'firmx', 'operative', 'Op A', 'opa@firmx.test', 'dryliner'),
+  (:'opb', :'opb', :'firmx', 'operative', 'Op B', 'opb@firmx.test', 'labourer'),
+  (:'opc', :'opc', :'firmx', 'operative', 'Op C', 'opc@firmx.test', 'carpenter'),
+  (:'ownery', :'ownery', :'firmy', 'owner', 'Owner Y', 'ownery@firmy.test', null);
+
+insert into public.sites (id, company_id, name)
+values
+  (:'sitea', :'firmx', 'Site A'),
+  (:'siteb', :'firmx', 'Site B'),
+  (:'sitey', :'firmy', 'Site Y');
+
+insert into public.site_assignments (site_id, person_id)
+values
+  (:'sitea', :'cmx'),
+  (:'sitea', :'opa'),
+  (:'sitea', :'opc'),
+  (:'siteb', :'opb');
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_in_site(' || quote_literal(:'siteb') || '::uuid, now())',
+    'not_authorized'
+  ),
+  'operative of site A cannot sign in on site B'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_in_site(' || quote_literal(:'sitea') || '::uuid, now() - interval ''40 days'')',
+    'invalid_time'
+  ),
+  'a device time older than 30 days is rejected'
+);
+
+insert into probe (k, v)
+values (
+  'a-in',
+  public.sign_in_site(:'sitea'::uuid, now() - interval '11 minutes')
+);
+
+select pg_temp.ok(
+  (select (v->>'in_gap')::boolean
+      and v->>'in_at' = v->>'in_received_at'
+      and v->>'in_at' is distinct from v->>'in_device_at'
+      and v->>'state' = 'in'
+      and v->'audit' = 'null'::jsonb
+   from probe where k = 'a-in'),
+  'the server time is used and a gap over 10 minutes is flagged'
+);
+
+select pg_temp.ok(
+  (select in_at = in_received_at and in_gap from public.site_attendance where person_id = :'opa'::uuid),
+  'the stored row uses the server time'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_in_site(' || quote_literal(:'sitea') || '::uuid, now())',
+    'already_signed_in'
+  ),
+  'a second sign-in is refused'
+);
+
+select pg_temp.ok(
+  public.list_on_site_now(:'sitea'::uuid) is null
+  and public.weekly_attendance(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::date from probe where k = 'monday')
+  ) is null,
+  'on site now and the weekly sheet are null for an operative'
+);
+
+insert into probe (k, v)
+values (
+  'a-out',
+  public.sign_out_site(:'sitea'::uuid, now() - interval '2 minutes')
+);
+
+select pg_temp.ok(
+  (select not (v->>'out_gap')::boolean
+      and v->>'out_at' = v->>'out_received_at'
+      and v->>'state' = 'out'
+      and v->'audit' = 'null'::jsonb
+   from probe where k = 'a-out'),
+  'sign-out uses the server time and a short gap is not flagged'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'update public.site_attendance set person_name = ''nope''',
+    'permission denied for table site_attendance'
+  ),
+  'an operative cannot edit entries'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance('
+      || quote_literal((select v->>'entry_id' from probe where k = 'a-out'))
+      || '::uuid, now() - interval ''2 hours'', now() - interval ''1 hour'', ''Because'')',
+    'not_authorized'
+  ),
+  'an operative cannot correct an entry'
+);
+
+reset role;
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance) = 0
+  and (select count(*) from public.site_attendance_audit) = 0
+  and public.list_my_attendance(:'sitea'::uuid) = '[]'::jsonb,
+  'an operative cannot read another person''s hours'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.attendance_entry('
+      || quote_literal((select v->>'entry_id' from probe where k = 'a-out'))
+      || '::uuid)',
+    'not_authorized'
+  ),
+  'an operative cannot open another person''s entry'
+);
+
+reset role;
+select pg_temp.jwt(:'opb'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance) = 0,
+  'operative of site B cannot read site A'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.my_site_attendance(' || quote_literal(:'sitea') || '::uuid)',
+    'not_authorized'
+  ),
+  'operative of site B cannot ask for site A'
+);
+
+reset role;
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.list_on_site_now(' || quote_literal(:'siteb') || '::uuid)',
+    'not_authorized'
+  ),
+  'contracts manager cannot read a site they are not on'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance) = 1
+  and (select company_id from public.site_attendance) = :'firmx'::uuid
+  and jsonb_array_length(public.list_on_site_now(:'sitea'::uuid)->'rows') = 0,
+  'firm X cannot read firm Y and an empty site is an empty list'
+);
+
+insert into probe (k, v)
+values (
+  'corrected',
+  public.correct_attendance(
+    (select (v->>'entry_id')::uuid from probe where k = 'a-out'),
+    now() - interval '8 hours',
+    now() - interval '1 hour',
+    'Left at four, not when the phone synced'
+  )
+);
+
+select pg_temp.ok(
+  (select v->'audit'->0->>'reason' = 'Left at four, not when the phone synced'
+      and (v->'audit'->0->'before_entry'->>'in_at') is distinct from (v->'audit'->0->'after_entry'->>'in_at')
+      and (v->'audit'->0->'before_entry'->>'out_at') is distinct from (v->'audit'->0->'after_entry'->>'out_at')
+      and (v->'audit'->0->'before_entry'->>'in_device_at') = (v->'audit'->0->'after_entry'->>'in_device_at')
+      and v->>'in_at' = v->'audit'->0->'after_entry'->>'in_at'
+   from probe where k = 'corrected'),
+  'a correction keeps the before and after and the device time'
+);
+
+select pg_temp.ok(
+  (select count(*) = 1 and bool_and(reason = 'Left at four, not when the phone synced')
+   from public.site_attendance_audit),
+  'the audit row is stored'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance('
+      || quote_literal((select v->>'entry_id' from probe where k = 'a-out'))
+      || '::uuid, now() - interval ''2 hours'', now(), '' '')',
+    'invalid_input'
+  ),
+  'a correction without a reason is refused'
+);
+
+select pg_temp.ok(
+  public.weekly_attendance(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::date from probe where k = 'monday')
+  ) is not null,
+  'the owner receives the weekly sheet'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (public.attendance_entry((select (v->>'entry_id')::uuid from probe where k = 'a-out'))->'audit') = 'null'::jsonb
+  and (select count(*) from public.site_attendance_audit) = 0,
+  'an operative''s entry hides the correction log'
+);
+
+reset role;
+
+update public.site_attendance
+set in_at = private.london_end(private.london_day(now())) - interval '36 hours',
+    in_received_at = private.london_end(private.london_day(now())) - interval '36 hours',
+    out_at = null,
+    out_device_at = null,
+    out_received_at = null,
+    out_gap = null,
+    forgot_sign_out = false
+where id = (select (v->>'entry_id')::uuid from probe where k = 'a-out');
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values ('forgot', public.sign_out_site(:'sitea'::uuid, now()));
+
+select pg_temp.ok(
+  (select (v->>'forgot_sign_out')::boolean and v->>'state' = 'out' from probe where k = 'forgot'),
+  'a forgotten sign-out closes at 23:59 and the tap keeps that close'
+);
+
+reset role;
+
+select pg_temp.ok(
+  (select forgot_sign_out
+      and out_at = private.london_end(private.london_day(in_at))
+   from public.site_attendance
+   where id = (select (v->>'entry_id')::uuid from probe where k = 'a-out')),
+  'the forgotten row closes at 23:59 Europe/London'
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select public.close_forgotten_attendance();
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance where forgot_sign_out) = 1,
+  'closing forgotten rows again does not add a second close'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values ('y', public.sign_in_site(:'sitey'::uuid, now()));
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance where company_id = :'firmy'::uuid) = 0
+  and (select count(*) from public.site_attendance) = 1,
+  'firm X cannot read firm Y hours'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_attendance) = 1
+  and (select company_id from public.site_attendance) = :'firmy'::uuid,
+  'firm Y cannot read firm X hours'
+);
+
+reset role;
+set local role anon;
+
+do $$
+begin
+  perform public.sign_in_site('51111111-1111-4111-8111-111111111111'::uuid, now());
+  raise exception 'FAIL: anon called sign_in_site';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon cannot call sign_in_site';
+end $$;
+
+do $$
+begin
+  perform public.list_on_site_now('51111111-1111-4111-8111-111111111111'::uuid);
+  raise exception 'FAIL: anon called list_on_site_now';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon cannot call list_on_site_now';
+end $$;
+
+do $$
+begin
+  perform public.weekly_attendance('51111111-1111-4111-8111-111111111111'::uuid, date '2026-10-19');
+  raise exception 'FAIL: anon called weekly_attendance';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon cannot call weekly_attendance';
+end $$;
+
+do $$
+begin
+  perform public.correct_attendance(
+    '51111111-1111-4111-8111-111111111111'::uuid,
+    now(),
+    now(),
+    'no'
+  );
+  raise exception 'FAIL: anon called correct_attendance';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon cannot call correct_attendance';
+end $$;
+
+reset role;
+
+rollback;

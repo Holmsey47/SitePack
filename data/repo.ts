@@ -32,6 +32,7 @@ import type {
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 import type { CreateSnagInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport } from '@/data/snags';
+import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 
 export type SignInResult = {
   person: Person;
@@ -152,6 +153,14 @@ export type SitePackRepo = {
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;
   confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
+  signInSite(siteId: string, deviceAt: string): Promise<AttendanceEntry>;
+  signOutSite(siteId: string, deviceAt: string): Promise<AttendanceEntry>;
+  mySiteAttendance(siteId: string): Promise<MySiteAttendance>;
+  listMyAttendance(siteId: string): Promise<AttendanceEntry[]>;
+  listOnSiteNow(siteId: string): Promise<OnSiteNow | null>;
+  weeklyAttendance(siteId: string, weekStart: string): Promise<WeeklyAttendance | null>;
+  attendanceEntry(entryId: string): Promise<AttendanceEntry | null>;
+  correctAttendance(entryId: string, inAt: string, outAt: string, reason: string): Promise<AttendanceEntry>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -221,6 +230,8 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'snag_locked',
     'invalid_time',
     'after_photo_required',
+    'already_signed_in',
+    'not_signed_in',
   ]) {
     if (text.includes(known)) return known;
   }

@@ -15,6 +15,7 @@ import type {
 } from '@/data/variations';
 import { PHOTO_URL_SECONDS } from '@/data/variations';
 import type { CreateSnagInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagStatus } from '@/data/snags';
+import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 import {
   parseDrawingProof,
   parseDrawingRoster,
@@ -1003,6 +1004,61 @@ export const supabaseRepo: SitePackRepo = {
   async snagTradeLabels(siteId) {
     const data = unwrap(await rpcJson('snag_trade_labels', { p_site_id: siteId }), null);
     return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
+  },
+
+  async signInSite(siteId, deviceAt) {
+    return unwrap(await rpcJson('sign_in_site', { p_site_id: siteId, p_device_at: deviceAt }), null) as AttendanceEntry;
+  },
+
+  async signOutSite(siteId, deviceAt) {
+    return unwrap(await rpcJson('sign_out_site', { p_site_id: siteId, p_device_at: deviceAt }), null) as AttendanceEntry;
+  },
+
+  async mySiteAttendance(siteId) {
+    return unwrap(await rpcJson('my_site_attendance', { p_site_id: siteId }), null) as MySiteAttendance;
+  },
+
+  async listMyAttendance(siteId) {
+    const data = unwrap(await rpcJson('list_my_attendance', { p_site_id: siteId }), null);
+    return Array.isArray(data) ? (data as AttendanceEntry[]) : [];
+  },
+
+  async listOnSiteNow(siteId) {
+    const { data, error } = await getSupabase().rpc('list_on_site_now', { p_site_id: siteId });
+    if (error) throw new Error(rpcErrorCode(error) === 'unknown' ? error.message : rpcErrorCode(error));
+    if (data == null) return null;
+    return data as OnSiteNow;
+  },
+
+  async weeklyAttendance(siteId, weekStart) {
+    const { data, error } = await getSupabase().rpc('weekly_attendance', {
+      p_site_id: siteId,
+      p_week_start: weekStart,
+    });
+    if (error) throw new Error(rpcErrorCode(error) === 'unknown' ? error.message : rpcErrorCode(error));
+    if (data == null) return null;
+    return data as WeeklyAttendance;
+  },
+
+  async attendanceEntry(entryId) {
+    try {
+      return unwrap(await rpcJson('attendance_entry', { p_entry_id: entryId }), null) as AttendanceEntry;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_authorized') return null;
+      throw err;
+    }
+  },
+
+  async correctAttendance(entryId, inAt, outAt, reason) {
+    return unwrap(
+      await rpcJson('correct_attendance', {
+        p_entry_id: entryId,
+        p_in_at: inAt,
+        p_out_at: outAt,
+        p_reason: reason,
+      }),
+      null
+    ) as AttendanceEntry;
   },
 };
 

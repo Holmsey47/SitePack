@@ -81,6 +81,18 @@ import {
   type FixtureSnagBucket,
 } from '@/data/fixtureSnags';
 import type { CreateSnagInput } from '@/data/snags';
+import {
+  emptyAttendance,
+  fixtureAttendanceEntry,
+  fixtureCorrect,
+  fixtureListMine,
+  fixtureMySiteAttendance,
+  fixtureOnSiteNow,
+  fixtureSignIn,
+  fixtureSignOut,
+  fixtureWeekly,
+  type FixtureAttendanceBucket,
+} from '@/data/fixtureAttendance';
 
 type GroupRecord = {
   id: string;
@@ -154,6 +166,7 @@ type Store = {
   codeSerial: number;
   variations: FixtureVariationBucket;
   snags: FixtureSnagBucket;
+  attendance: FixtureAttendanceBucket;
   drawingOpens: ProofOpen[];
   drawingSeen: ProofSeen[];
 };
@@ -455,6 +468,7 @@ function seed(): Store {
       benId: IDS.ben,
       cmId: IDS.cm,
     }),
+    attendance: emptyAttendance(),
   };
 }
 
@@ -1192,6 +1206,52 @@ export const fixtureRepo: SitePackRepo = {
     const person = meOrThrow();
     const site = store.sites.find((row) => row.id === siteId);
     return fixtureSnagTrades(store.people, store.assignments, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
+  },
+
+  async signInSite(siteId, deviceAt) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureSignIn(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId), deviceAt);
+  },
+
+  async signOutSite(siteId, deviceAt) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureSignOut(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId), deviceAt);
+  },
+
+  async mySiteAttendance(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureMySiteAttendance(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
+  },
+
+  async listMyAttendance(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureListMine(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
+  },
+
+  async listOnSiteNow(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureOnSiteNow(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
+  },
+
+  async weeklyAttendance(siteId, weekStart) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureWeekly(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId), weekStart);
+  },
+
+  async attendanceEntry(entryId) {
+    const person = meOrThrow();
+    return fixtureAttendanceEntry(store.attendance, snagActor(person), entryId, (id) => canAccessSite(person, id));
+  },
+
+  async correctAttendance(entryId, inAt, outAt, reason) {
+    const person = meOrThrow();
+    return fixtureCorrect(store.attendance, snagActor(person), entryId, inAt, outAt, reason, (id) => canAccessSite(person, id));
   },
 
   async createJoinCode(input): Promise<JoinCodeCreated> {
