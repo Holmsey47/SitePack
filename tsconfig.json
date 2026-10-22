@@ -37,6 +37,7 @@
     "lib/inviteRedirect.test.ts",
     "lib/hardwareBack.test.ts",
     "lib/offlinePack.test.ts",
-    "lib/secureChunks.test.ts"
+    "lib/secureChunks.test.ts",
+    "lib/contrast.test.ts"
   ]
 }

@@ -1,5 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, StaleBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
@@ -122,7 +122,7 @@ export default function SitesScreen() {
             <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                 <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
-                {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <StaleBadge /> : null}
+                {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
               </View>
               {site.address_line ? <Muted>{site.address_line}</Muted> : null}
               <Muted>{formatWhen(site.updated_at)}</Muted>
@@ -169,7 +169,7 @@ export default function SitesScreen() {
           <Text style={{ color: openOnly ? theme.current : theme.muted, fontWeight: '700' }}>Has open requests</Text>
         </Pressable>
         <Pressable onPress={() => setStaleOnly((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Stale pack</Text>
+          <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Out of date</Text>
         </Pressable>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
@@ -180,7 +180,7 @@ export default function SitesScreen() {
           <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
-              {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <StaleBadge /> : null}
+              {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
               {(row.new_joiner_count ?? 0) > 0 ? (
                 <Text
                   style={{

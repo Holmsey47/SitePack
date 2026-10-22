@@ -1,5 +1,5 @@
 import { DrawingFrame } from '@/components/drawing-frame';
-import { Button, Muted, RevBadge, Screen, StaleBadge, Title } from '@/components/ui';
+import { Button, Muted, RevBadge, Screen, OutOfDateBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { displayLevel } from '@/data/folders';
 import { repo } from '@/data/index';
@@ -110,7 +110,7 @@ export default function DrawingViewerScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <View style={{ flex: 1 }}>
             <Title>{title}</Title>
-            {stale ? <StaleBadge /> : null}
+            {stale ? <OutOfDateBadge /> : null}
           </View>
           {uri ? (
             <Pressable

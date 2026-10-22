@@ -32,3 +32,13 @@ export function uploadBackActive(): boolean {
 export function requestUploadBackConfirm(): void {
   askLeave?.();
 }
+
+let downloadActive = false;
+
+export function setDownloadBackNote(active: boolean): void {
+  downloadActive = active;
+}
+
+export function downloadBackActive(): boolean {
+  return downloadActive;
+}

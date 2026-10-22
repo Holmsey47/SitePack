@@ -84,6 +84,85 @@ export function packIsStale(
   return updated > downloaded;
 }
 
+export type PhoneSheet = {
+  drawingId: string;
+  title: string;
+  revision: string;
+};
+
+export type PhoneSheetRow = PhoneSheet & {
+  /** Set when the phone does not have this current revision. */
+  changedLabel: string | null;
+};
+
+/**
+ * Phone rows in pack order, then any current sheet the phone does not have.
+ * A changed row names the live revision that is not on the phone.
+ */
+export function phoneSheetRows(
+  phone: readonly PhoneSheet[],
+  current: readonly PhoneSheet[] | null
+): PhoneSheetRow[] {
+  if (!current) {
+    return phone.map((item) => ({ ...item, changedLabel: null }));
+  }
+  const liveById = new Map(current.map((item) => [item.drawingId, item]));
+  const seen = new Set<string>();
+  const rows: PhoneSheetRow[] = [];
+  for (const item of phone) {
+    if (!item.drawingId || seen.has(item.drawingId)) continue;
+    seen.add(item.drawingId);
+    const live = liveById.get(item.drawingId);
+    if (live && live.revision !== item.revision) {
+      const title = live.title || item.title;
+      rows.push({
+        drawingId: item.drawingId,
+        title,
+        revision: item.revision,
+        changedLabel: `${title} · new Rev ${live.revision}, not on phone`,
+      });
+      continue;
+    }
+    if (!live) {
+      rows.push({
+        drawingId: item.drawingId,
+        title: item.title,
+        revision: item.revision,
+        changedLabel: `${item.title} · Rev ${item.revision} is no longer current`,
+      });
+      continue;
+    }
+    rows.push({ drawingId: item.drawingId, title: item.title, revision: item.revision, changedLabel: null });
+  }
+  for (const live of current) {
+    if (!live.drawingId || seen.has(live.drawingId)) continue;
+    seen.add(live.drawingId);
+    rows.push({
+      drawingId: live.drawingId,
+      title: live.title,
+      revision: live.revision,
+      changedLabel: `${live.title} · new Rev ${live.revision}, not on phone`,
+    });
+  }
+  return rows;
+}
+
+export function changedSheetCount(rows: readonly { changedLabel: string | null }[]): number {
+  return rows.reduce((count, row) => count + (row.changedLabel ? 1 : 0), 0);
+}
+
+/** "Phone copy is out of date. 1 sheet changed since 22 Oct." */
+export function phoneCopyOutOfDateLine(count: number, downloadedAt: string): string {
+  const date = new Date(downloadedAt);
+  const day = Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+  const sheets = count === 1 ? '1 sheet changed' : `${count} sheets changed`;
+  return day
+    ? `Phone copy is out of date. ${sheets} since ${day}.`
+    : `Phone copy is out of date. ${sheets}.`;
+}
+
 /** One cached sheet is stale when the live revision differs, or the site moved on after download. */
 export function drawingCopyIsStale(
   meta: { downloadedAt: string; items: readonly PackRevision[] } | null,

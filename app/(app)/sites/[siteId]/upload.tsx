@@ -239,7 +239,7 @@ export default function UploadScreen() {
       <View style={{ flex: 1, backgroundColor: 'rgba(8, 10, 14, 0.86)', justifyContent: 'flex-end', padding: 16, gap: 12 }}>
         <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>This upload is still going.</Text>
         <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
-          Leave this screen? The current drawing stays as it is.
+          The upload keeps going. It becomes current when it finishes.
         </Text>
         <Button
           label="Stay"

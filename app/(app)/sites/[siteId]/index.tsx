@@ -1,4 +1,4 @@
-import { Button, Card, EmptyState, Muted, Screen, StaleBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
@@ -6,17 +6,25 @@ import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
+import { setDownloadBackNote } from '@/lib/backRegistry';
+import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
+import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
-import { packIsStale } from '@/lib/offlinePack';
+import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { theme } from '@/lib/theme';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const { person, signOut } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
+  const [allowDownloadLeave, setAllowDownloadLeave] = useState(false);
+  const pendingDownloadLeave = useRef<NavigationAction | null>(null);
+  const mounted = useRef(true);
   const [site, setSite] = useState<HomeSite | null>(null);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [progress, setProgress] = useState<string>('');
@@ -78,14 +86,45 @@ export default function SitePackScreen() {
   const folders = packFolders(drawings);
   const manage = person ? canManageSite(person.role) : false;
   const meta = siteId ? readPackMeta(siteId) : null;
-  const currentRevisions = drawings.filter((drawing) => drawing.is_current).map((drawing) => ({
-    drawingId: drawing.id,
-    revision: drawing.revision,
-  }));
-  const stale = packIsStale(meta, {
-    updatedAt: site?.updated_at,
-    current: drawings.length > 0 ? currentRevisions : null,
+  const currentSheets = drawings
+    .filter((drawing) => drawing.is_current)
+    .map((drawing) => ({ drawingId: drawing.id, revision: drawing.revision, title: drawing.title }));
+  const phoneRows = meta
+    ? phoneSheetRows(meta.items, drawings.length > 0 ? currentSheets : null)
+    : [];
+  const changeCount = changedSheetCount(phoneRows);
+  const outOfDate = meta
+    ? drawings.length > 0
+      ? changeCount > 0
+      : packIsStale(meta, { updatedAt: site?.updated_at })
+    : false;
+  const downloading = progress.length > 0;
+
+  usePreventRemove(downloading && !allowDownloadLeave, ({ data }) => {
+    pendingDownloadLeave.current = data.action;
+    showBackToast(DOWNLOAD_CARRIES_ON);
+    setAllowDownloadLeave(true);
   });
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setDownloadBackNote(downloading);
+    return () => setDownloadBackNote(false);
+  }, [downloading]);
+
+  useEffect(() => {
+    if (!allowDownloadLeave) return;
+    const action = pendingDownloadLeave.current;
+    pendingDownloadLeave.current = null;
+    if (action) navigation.dispatch(action);
+    else router.back();
+  }, [allowDownloadLeave, navigation, router]);
 
   async function onDownload() {
     if (!siteId) return;
@@ -99,11 +138,13 @@ export default function SitePackScreen() {
         return;
       }
       await downloadCurrentPack(siteId, manifest, (done, total) => {
-        setProgress(`Downloading ${done} of ${total}…`);
+        if (mounted.current) setProgress(`Downloading ${done} of ${total}…`);
       });
+      if (!mounted.current) return;
       setProgress('');
       setReady(true);
     } catch {
+      if (!mounted.current) return;
       setProgress('');
       setError(PACK_DOWNLOAD_ERROR);
     }
@@ -144,16 +185,33 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
-      {meta && meta.items.length > 0 ? (
+      {phoneRows.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>ON THIS PHONE</Text>
-            {stale ? <StaleBadge /> : null}
+            {outOfDate ? <OutOfDateBadge /> : null}
           </View>
-          {meta.items.map((item) => (
+          {outOfDate ? (
+            <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22, width: '100%' }}>
+              {changeCount > 0 && meta
+                ? phoneCopyOutOfDateLine(changeCount, meta.downloadedAt)
+                : 'Phone copy is out of date.'}
+            </Text>
+          ) : null}
+          {outOfDate ? (
+            <Button
+              label="Update phone copy"
+              minHeight={52}
+              loading={downloading}
+              onPress={() => void onDownload()}
+            />
+          ) : null}
+          {phoneRows.map((item) => (
             <Card key={item.drawingId} onPress={() => router.push(`/sites/${siteId}/drawing/${item.drawingId}`)}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{item.title}</Text>
-              <Muted>Rev {item.revision}</Muted>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>
+                {item.changedLabel ?? item.title}
+              </Text>
+              {item.changedLabel ? null : <Muted>Rev {item.revision}</Muted>}
             </Card>
           ))}
         </View>
@@ -208,7 +266,7 @@ export default function SitePackScreen() {
       ) : null}
 
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>
-      {folders.length === 0 && !(meta && meta.items.length > 0) ? (
+      {folders.length === 0 && phoneRows.length === 0 ? (
         <EmptyState
           title="No drawings yet"
           action={

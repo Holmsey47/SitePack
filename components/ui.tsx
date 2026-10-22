@@ -181,11 +181,15 @@ export function NoLoginBadge() {
   );
 }
 
-/** The copy on this phone is older than the last sync. */
-export function StaleBadge() {
+/** The copy on this phone is out of date. A label, not a control. */
+export function OutOfDateBadge() {
   return (
-    <View style={styles.stale} accessibilityRole="text" accessibilityLabel="Offline copy is older than the last sync">
-      <Text style={styles.staleText}>Stale</Text>
+    <View
+      pointerEvents="none"
+      style={styles.outOfDate}
+      accessibilityRole="text"
+      accessibilityLabel="Out of date">
+      <Text style={styles.outOfDateText}>Out of date</Text>
     </View>
   );
 }
@@ -305,14 +309,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
-  stale: {
+  outOfDate: {
     alignSelf: 'flex-start',
     backgroundColor: theme.open,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    minHeight: 32,
     justifyContent: 'center',
   },
-  staleText: { color: theme.text, fontSize: 14, fontWeight: '800' },
+  outOfDateText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
 });

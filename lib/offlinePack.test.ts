@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  changedSheetCount,
   downloadsOnWifi,
   drawingCopyIsStale,
   drawingIdsToDelete,
   packIsStale,
   packNeedsDownload,
+  phoneCopyOutOfDateLine,
+  phoneSheetRows,
   siteIdsFromPackKeys,
   siteIdsToDrop,
 } from './offlinePack.ts';
@@ -90,4 +93,27 @@ test('a stale badge shows when the cached revision or the site update is newer t
   assert.equal(drawingCopyIsStale(meta, 'a', { revision: 'B' }, '2026-10-02T00:00:00.000Z'), false);
   assert.equal(drawingCopyIsStale(meta, 'a', null, '2026-10-02T00:00:00.000Z'), true);
   assert.equal(drawingCopyIsStale(meta, 'missing', null, '2026-10-02T00:00:00.000Z'), false);
+});
+
+test('an out of date phone copy names the changed sheets and the last sync day', () => {
+  const phone = [
+    { drawingId: 'ground', title: 'Ground Floor GA', revision: 'C' },
+    { drawingId: 'first', title: 'First Floor GA', revision: 'A' },
+  ];
+  const current = [
+    { drawingId: 'ground', title: 'Ground Floor GA', revision: 'D' },
+    { drawingId: 'first', title: 'First Floor GA', revision: 'A' },
+  ];
+  const rows = phoneSheetRows(phone, current);
+  assert.equal(changedSheetCount(rows), 1);
+  assert.equal(rows[0].changedLabel, 'Ground Floor GA · new Rev D, not on phone');
+  assert.equal(rows[1].changedLabel, null);
+  assert.equal(
+    phoneCopyOutOfDateLine(1, '2026-10-22T12:00:00.000Z'),
+    'Phone copy is out of date. 1 sheet changed since 22 Oct.'
+  );
+  assert.equal(
+    phoneCopyOutOfDateLine(2, '2026-10-22T12:00:00.000Z'),
+    'Phone copy is out of date. 2 sheets changed since 22 Oct.'
+  );
 });
