@@ -49,7 +49,7 @@ test('people list rules', () => {
 });
 
 test('company people read, no-login operative, and attach', async (t) => {
-  const fields = ['display_name', 'has_login', 'id', 'role', 'site_names', 'trade'];
+  const fields = ['display_name', 'has_login', 'id', 'role', 'site_names', 'trade', 'username'];
 
   await t.test('the owner sees everyone, including a person on no site', async () => {
     resetFixtureStore();

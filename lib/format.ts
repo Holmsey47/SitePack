@@ -1,15 +1,17 @@
+const LONDON = 'Europe/London';
+
 export function formatWhen(iso: string | null | undefined): string {
   if (!iso) return 'Never updated';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 'Updated —';
-  return `Updated ${date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+  return `Updated ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: LONDON })}`;
 }
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return 'No date';
-  const date = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+  const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: LONDON });
 }
 
 export function timeAgo(iso: string): string {

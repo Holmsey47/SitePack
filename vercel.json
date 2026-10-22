@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    { "source": "/assets/node_modules/(.*)", "destination": "/assets/vendor_modules/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
+    }
+  ]
+}

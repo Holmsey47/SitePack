@@ -12,7 +12,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitesScreen() {
-  const { person, signOut } = useAuth();
+  const { person, signOut, acknowledgePasswordReset } = useAuth();
   const router = useRouter();
   const manager = person != null && person.role !== 'operative';
   const [rows, setRows] = useState<PulseRow[]>([]);
@@ -82,6 +82,18 @@ export default function SitesScreen() {
 
   const footer = person ? <AppTabs role={person.role} /> : null;
 
+  function acknowledge() {
+    void acknowledgePasswordReset().catch(() => setError('Could not clear that notice.'));
+  }
+
+  const resetNotice = person?.password_reset_at ? (
+    <Card>
+      <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Your password was reset</Text>
+      <Muted>If that wasn’t you, ask your manager for a new code.</Muted>
+      <Button label="OK" onPress={acknowledge} />
+    </Card>
+  ) : null;
+
   if (!manager) {
     return (
       <Screen footer={footer}>
@@ -89,6 +101,7 @@ export default function SitesScreen() {
           <Title>Sites</Title>
           <HeaderActions label="Sign out" onPress={() => void signOut()} />
         </View>
+        {resetNotice}
         {error ? <ErrorText>{error}</ErrorText> : null}
         {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
@@ -129,6 +142,7 @@ export default function SitesScreen() {
         <Title>Sites</Title>
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
+      {resetNotice}
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
         <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} />
@@ -148,7 +162,23 @@ export default function SitesScreen() {
       ) : (
         filtered.map((row) => (
           <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.name}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
+              {(row.new_joiner_count ?? 0) > 0 ? (
+                <Text
+                  style={{
+                    color: theme.currentInk,
+                    backgroundColor: theme.current,
+                    fontWeight: '800',
+                    overflow: 'hidden',
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                  }}>
+                  {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
+                </Text>
+              ) : null}
+            </View>
             {row.address_line ? <Muted>{row.address_line}</Muted> : null}
             <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
             <Muted>{operativesLine(row.operative_count)}</Muted>

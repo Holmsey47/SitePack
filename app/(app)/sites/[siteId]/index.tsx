@@ -10,11 +10,11 @@ import { downloadCurrentPack, isPackReady, readPackMeta } from '@/lib/offline';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
-  const { person } = useAuth();
+  const { person, signOut } = useAuth();
   const router = useRouter();
   const [site, setSite] = useState<HomeSite | null>(null);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
@@ -22,17 +22,25 @@ export default function SitePackScreen() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [newJoiners, setNewJoiners] = useState(0);
 
   const load = useCallback(async () => {
     if (!siteId) return;
     const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
     setSite(nextSite);
     setDrawings(nextDrawings);
+    if (person && canManageSite(person.role)) {
+      const joiners = await repo.listJoiners(siteId).catch(() => []);
+      const week = 7 * 24 * 60 * 60 * 1000;
+      setNewJoiners(
+        joiners.filter((row) => !row.removed_at && Date.now() - new Date(row.joined_at).getTime() < week).length
+      );
+    }
     setLoaded(true);
     setError('');
     const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
     setReady(isPackReady(siteId, currentIds));
-  }, [siteId]);
+  }, [siteId, person]);
 
   useFocusEffect(
     useCallback(() => {
@@ -84,7 +92,28 @@ export default function SitePackScreen() {
 
   return (
     <Screen>
+      {person?.role === 'operative' ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.replace('/sites')}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>← Sites</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void signOut()}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>Sign out</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <Title>{site.name}</Title>
+      {manage && newJoiners > 0 ? (
+        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', alignSelf: 'flex-start', borderRadius: 8, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6 }}>
+          {newJoiners === 1 ? 'New joiner' : `${newJoiners} new joiners`}
+        </Text>
+      ) : null}
       {site.address_line ? <Muted>{site.address_line}</Muted> : null}
       {site.main_contractor ? <Muted>Main contractor · {site.main_contractor}</Muted> : null}
       {site.what_it_is ? <Muted>{site.what_it_is}</Muted> : null}
@@ -101,9 +130,13 @@ export default function SitePackScreen() {
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
       {manage ? (
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
-          <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
+            <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
+          </View>
+          <Button label="Invite to this site" variant="secondary" onPress={() => router.push(`/sites/${siteId}/invite-code`)} />
+          <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
         </View>
       ) : null}
       {person?.role === 'owner' ? (

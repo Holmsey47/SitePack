@@ -32,3 +32,13 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Production web export
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-not-a-secret
+          EXPO_PUBLIC_USE_FIXTURES: ""
+        run: node scripts/export-web.mjs
+
+      - name: Production bundle and dist/vercel.json
+        run: node scripts/check-prod-bundle.mjs

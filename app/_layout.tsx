@@ -24,11 +24,23 @@ function Gate() {
   const router = useRouter();
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+    let meta = document.querySelector('meta[name="referrer"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'referrer');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', 'no-referrer');
+  }, []);
+
+  useEffect(() => {
     if (!ready) return;
     const parts = [...segments] as string[];
     const inAuth = parts[0] === '(auth)';
     const screen = parts[1] ?? '';
-    if (!person && screen !== 'login') {
+    const publicJoin = parts[0] === 'join' || parts[0] === 'reset';
+    if (!person && screen !== 'login' && !publicJoin) {
       router.replace('/login');
       return;
     }
@@ -60,6 +72,8 @@ function Gate() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(app)" options={{ headerShown: false }} />
+      <Stack.Screen name="join" options={{ title: 'Join a site' }} />
+      <Stack.Screen name="reset" options={{ title: 'New password' }} />
     </Stack>
   );
 }

@@ -110,7 +110,7 @@ export function Field({
   secureTextEntry?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words';
   multiline?: boolean;
-  keyboardType?: 'default' | 'email-address';
+  keyboardType?: 'default' | 'email-address' | 'number-pad';
   maxLength?: number;
 }) {
   return (

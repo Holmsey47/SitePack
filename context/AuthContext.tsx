@@ -1,7 +1,7 @@
 import { repo, useFixtures } from '@/data/index';
 import { inviteGrantFromUrl } from '@/lib/inviteGrant';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
-import type { Person } from '@/data/types';
+import type { JoinWithCodeInput, Person } from '@/data/types';
 import * as Linking from 'expo-linking';
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
@@ -11,6 +11,10 @@ type AuthState = {
   needsPassword: boolean;
   usingFixtures: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithUsername: (username: string, password: string) => Promise<void>;
+  joinWithCode: (input: JoinWithCodeInput) => Promise<string>;
+  redeemPasswordReset: (code: string, password: string) => Promise<void>;
+  acknowledgePasswordReset: () => Promise<void>;
   signOut: () => Promise<void>;
   setPassword: (password: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -124,6 +128,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await repo.signIn(email, password);
         setPerson(result.person);
         setNeedsPassword(result.needsPassword || readPending());
+      },
+      signInWithUsername: async (username, password) => {
+        const result = await repo.signInWithUsername(username, password);
+        setPerson(result.person);
+        setNeedsPassword(false);
+      },
+      joinWithCode: async (input) => {
+        const result = await repo.joinWithCode(input);
+        setPerson(result.person);
+        setNeedsPassword(false);
+        return result.siteId;
+      },
+      redeemPasswordReset: async (code, password) => {
+        await repo.redeemPasswordReset(code, password);
+      },
+      acknowledgePasswordReset: async () => {
+        await repo.acknowledgePasswordReset();
+        const me = await repo.me();
+        setPerson(me);
       },
       signOut: async () => {
         await repo.signOut();
