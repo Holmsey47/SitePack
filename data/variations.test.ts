@@ -11,12 +11,14 @@ import {
   variationPdfFilename,
 } from './variations.ts';
 import { formatUkDateTime } from '../lib/format.ts';
+import { variationConfirmation } from '../lib/variationWording.ts';
 
 test('pounds parse and the UK clock', () => {
   assert.equal(parsePounds(''), null);
   assert.equal(parsePounds('£12.50'), 1250);
   assert.equal(parsePounds('1,250.5'), 125050);
-  assert.equal(formatPounds(18000), '£180.00');
+  assert.equal(formatPounds(18000), '£180.00 + VAT');
+  assert.equal(formatPounds(14550), '£145.50 + VAT');
   assert.equal(formatUkDateTime('2026-10-22T13:05:00.000Z'), '22 Oct 2026, 2:05pm');
   assert.equal(variationPdfFilename(4), 'Variation VO-4.pdf');
   assert.throws(() => parsePounds('12.5p/hour'), /invalid_input/);
@@ -58,7 +60,9 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
   assert.equal(before?.current.status, 'Draft');
   await fixtureRepo.signVariation(draft.version_id, {
     signerName: 'Dave Moran',
-    roleCompany: 'Site manager, Northbuild',
+    role: 'Site manager',
+    company: 'Northbuild',
+    confirmationText: variationConfirmation('Northbuild', false),
     signaturePng: 'data:image/png;base64,' + 'A'.repeat(40),
   });
   await assert.rejects(
@@ -68,6 +72,9 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
   const locked = await fixtureRepo.getVariation(draft.variation_id);
   assert.equal(locked?.current.status, 'Signed');
   assert.equal(locked?.current.signature?.signer_name, 'Dave Moran');
+  assert.equal(locked?.current.signature?.signer_role, 'Site manager');
+  assert.equal(locked?.current.signature?.signer_company, 'Northbuild');
+  assert.equal(locked?.current.signature?.confirmation_text, variationConfirmation('Northbuild', false));
   const revised = await fixtureRepo.reviseVariation(draft.version_id);
   const after = await fixtureRepo.getVariation(draft.variation_id);
   assert.equal(after?.current.version_id, revised.versionId);

@@ -113,7 +113,7 @@ export type SitePackRepo = {
   setVariationValue(versionId: string, valuePence: number | null): Promise<void>;
   signVariation(
     versionId: string,
-    input: { signerName: string; roleCompany: string; signaturePng: string }
+    input: { signerName: string; role: string; company: string; confirmationText: string; signaturePng: string }
   ): Promise<void>;
   sendVariation(versionId: string): Promise<void>;
   reviseVariation(versionId: string): Promise<{ versionId: string }>;

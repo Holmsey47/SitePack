@@ -94,20 +94,24 @@ create table public.variation_signatures (
   version_id uuid not null unique references public.variation_versions (id) on delete cascade,
   site_id uuid not null references public.sites (id) on delete cascade,
   signer_name text not null,
-  signer_role_company text not null,
+  signer_role text not null,
+  signer_company text not null,
+  confirmation_text text not null,
   signature_png text not null,
   signed_at timestamptz not null,
   recorded_by uuid not null references public.people (id),
   created_at timestamptz not null default now(),
   constraint variation_signatures_name_len check (char_length(btrim(signer_name)) between 1 and 120),
-  constraint variation_signatures_role_len check (char_length(btrim(signer_role_company)) between 1 and 160),
+  constraint variation_signatures_role_len check (char_length(btrim(signer_role)) between 1 and 120),
+  constraint variation_signatures_company_len check (char_length(btrim(signer_company)) between 1 and 160),
+  constraint variation_signatures_confirmation_len check (char_length(btrim(confirmation_text)) between 1 and 400),
   constraint variation_signatures_png_len check (char_length(signature_png) between 40 and 300000)
 );
 
 create index variation_signatures_site_id_idx on public.variation_signatures (site_id);
 
 comment on table public.variation_signatures is
-  'Hand-the-phone sign-off for one version. Typed name, role or company, drawn PNG, server timestamp. Kept when a later version is added.';
+  'Hand-the-phone sign-off for one version. Typed name, role, company, the confirmation sentence shown, drawn PNG, server timestamp. Kept when a later version is added.';
 
 -- ---------------------------------------------------------------------------
 -- Actor and guards. search_path is empty. Names are schema-qualified.
@@ -694,7 +698,9 @@ $fn$;
 create or replace function public.sign_variation(
   p_version_id uuid,
   p_signer_name text,
-  p_role_company text,
+  p_role text,
+  p_company text,
+  p_confirmation text,
   p_signature_png text
 )
 returns jsonb
@@ -707,6 +713,8 @@ declare
   v_actor record;
   v_name text;
   v_role text;
+  v_company text;
+  v_confirmation text;
   v_signed_at timestamptz;
 begin
   select * into v_row from public.variation_versions where id = p_version_id;
@@ -721,9 +729,13 @@ begin
   end if;
 
   v_name := btrim(coalesce(p_signer_name, ''));
-  v_role := btrim(coalesce(p_role_company, ''));
+  v_role := btrim(coalesce(p_role, ''));
+  v_company := btrim(coalesce(p_company, ''));
+  v_confirmation := btrim(coalesce(p_confirmation, ''));
   if char_length(v_name) < 1 or char_length(v_name) > 120
-     or char_length(v_role) < 1 or char_length(v_role) > 160
+     or char_length(v_role) < 1 or char_length(v_role) > 120
+     or char_length(v_company) < 1 or char_length(v_company) > 160
+     or char_length(v_confirmation) < 1 or char_length(v_confirmation) > 400
      or p_signature_png is null
      or left(p_signature_png, 22) <> 'data:image/png;base64,'
      or char_length(p_signature_png) < 40
@@ -734,9 +746,9 @@ begin
   v_signed_at := now();
 
   insert into public.variation_signatures (
-    version_id, site_id, signer_name, signer_role_company, signature_png, signed_at, recorded_by
+    version_id, site_id, signer_name, signer_role, signer_company, confirmation_text, signature_png, signed_at, recorded_by
   ) values (
-    v_row.id, v_row.site_id, v_name, v_role, p_signature_png, v_signed_at, v_actor.person_id
+    v_row.id, v_row.site_id, v_name, v_role, v_company, v_confirmation, p_signature_png, v_signed_at, v_actor.person_id
   );
 
   update public.variation_versions
@@ -945,7 +957,9 @@ as $fn$
     'signature', (
       select jsonb_build_object(
         'signer_name', s.signer_name,
-        'signer_role_company', s.signer_role_company,
+        'signer_role', s.signer_role,
+        'signer_company', s.signer_company,
+        'confirmation_text', s.confirmation_text,
         'signature_png', s.signature_png,
         'signed_at', s.signed_at
       )
@@ -1009,7 +1023,7 @@ $fn$;
 revoke all on function public.create_variation(uuid, text, text, text, text, integer, jsonb) from public;
 revoke all on function public.update_variation_draft(uuid, text, text, text, text, jsonb) from public;
 revoke all on function public.set_variation_value(uuid, integer) from public;
-revoke all on function public.sign_variation(uuid, text, text, text) from public;
+revoke all on function public.sign_variation(uuid, text, text, text, text, text) from public;
 revoke all on function public.send_variation(uuid) from public;
 revoke all on function public.revise_variation(uuid) from public;
 revoke all on function public.list_variations(uuid) from public;
@@ -1018,7 +1032,7 @@ revoke all on function public.variation_detail(uuid) from public;
 grant execute on function public.create_variation(uuid, text, text, text, text, integer, jsonb) to authenticated;
 grant execute on function public.update_variation_draft(uuid, text, text, text, text, jsonb) to authenticated;
 grant execute on function public.set_variation_value(uuid, integer) to authenticated;
-grant execute on function public.sign_variation(uuid, text, text, text) to authenticated;
+grant execute on function public.sign_variation(uuid, text, text, text, text, text) to authenticated;
 grant execute on function public.send_variation(uuid) to authenticated;
 grant execute on function public.revise_variation(uuid) to authenticated;
 grant execute on function public.list_variations(uuid) to authenticated;

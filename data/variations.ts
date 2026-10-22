@@ -35,7 +35,9 @@ export type VariationPhoto = {
 
 export type VariationSignature = {
   signer_name: string;
-  signer_role_company: string;
+  signer_role: string;
+  signer_company: string;
+  confirmation_text: string;
   signature_png: string;
   signed_at: string;
 };
@@ -98,7 +100,12 @@ export function formatPounds(pence: number): string {
   const abs = Math.abs(pence);
   const pounds = Math.floor(abs / 100);
   const rest = String(abs % 100).padStart(2, '0');
-  return `${negative ? '-' : ''}£${pounds.toLocaleString('en-GB')}.${rest}`;
+  return `${negative ? '-' : ''}£${pounds.toLocaleString('en-GB')}.${rest} + VAT`;
+}
+
+/** The £ field stays off the screen while the phone is handed over. */
+export function variationAmountEditorOpen(locked: boolean, manager: boolean, handover: boolean): boolean {
+  return manager && !locked && !handover;
 }
 
 export function parsePounds(text: string): number | null {

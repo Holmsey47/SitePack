@@ -151,7 +151,7 @@ export default function NewVariationScreen() {
         maxLength={80}
       />
       {manager ? (
-        <Field label="Amount (optional)" value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="default" />
+        <Field label="£ ex VAT" value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="default" />
       ) : null}
       <View style={{ gap: 8 }}>
         {photos.map((photo) => (

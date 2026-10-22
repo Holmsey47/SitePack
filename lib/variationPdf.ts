@@ -1,5 +1,6 @@
 import { formatPounds, variationPdfFilename } from '@/data/variations';
 import { formatUkDateTime } from '@/lib/format';
+import { variationConfirmation, variationLockLine } from '@/lib/variationWording';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 
 export { variationPdfFilename };
@@ -17,7 +18,10 @@ export type VariationPdfInput = {
   valuePence: number | null;
   whenIso: string | null;
   signerName: string | null;
-  signerRoleCompany: string | null;
+  signerRole: string | null;
+  signerCompany: string | null;
+  /** Sentence shown above the pad. Falls back to the shared wording when empty. */
+  confirmationText: string | null;
   photos: Array<{ bytes: Uint8Array; contentType: string }>;
   signaturePng: Uint8Array | null;
 };
@@ -294,41 +298,65 @@ export async function buildVariationPdf(input: VariationPdfInput): Promise<Uint8
     const imageHeight = image ? image.height * scale : 0;
     const textX = image ? LEFT + imageWidth + GAP : LEFT;
     const textMax = Math.max(40, LEFT + CONTENT_WIDTH - textX);
-    const rows: Array<{ text: string; face: Face; size: number }> = [];
-    const pushWrapped = (text: string | null, face: Face, size: number) => {
-      const trimmed = text?.trim() ?? '';
-      if (!trimmed) return;
-      for (const chunk of wrap(trimmed, face, size, textMax)) rows.push({ text: chunk, face, size });
-    };
-    pushWrapped(input.signerName, bold, 12);
-    pushWrapped(input.signerRoleCompany, font, 12);
     const signed = formatUkDateTime(input.whenIso);
-    if (signed) pushWrapped(`Signed ${signed}`, bold, 12);
-    if (!image && rows.length === 0) {
-      rows.push({ text: 'Signature could not be embedded.', face: font, size: 11 });
+    const confirmation =
+      input.confirmationText?.trim() || variationConfirmation(input.signerCompany ?? '', input.valuePence != null);
+    const lock = signed ? variationLockLine(signed) : '';
+    type Row = { text: string; face: Face; size: number; x: number };
+    const across = (text: string, face: Face, size: number): Row[] =>
+      wrap(text, face, size, CONTENT_WIDTH).map((line) => ({ text: line, face, size, x: LEFT }));
+    const beside = (text: string | null, face: Face, size: number): Row[] => {
+      const trimmed = text?.trim() ?? '';
+      if (!trimmed) return [];
+      return wrap(trimmed, face, size, textMax).map((line) => ({ text: line, face, size, x: textX }));
+    };
+    const confirmRows = confirmation ? across(confirmation, font, 12) : [];
+    const identityRows: Row[] = [
+      ...beside(input.signerName, bold, 12),
+      ...beside(input.signerRole, font, 12),
+      ...beside(input.signerCompany, font, 12),
+      ...(signed ? beside(`Signed ${signed}`, bold, 12) : []),
+    ];
+    if (!image && identityRows.length === 0) {
+      identityRows.push({ text: 'Signature could not be embedded.', face: font, size: 11, x: LEFT });
     }
+    const lockRows = lock ? across(lock, font, 12) : [];
     const lineGap = 4;
-    const textHeight = rows.reduce((sum, row) => sum + row.size + lineGap, 0);
+    const stack = (rows: Row[]) => rows.reduce((sum, row) => sum + row.size + lineGap, 0);
+    const confirmHeight = stack(confirmRows);
+    const identityHeight = Math.max(imageHeight, stack(identityRows));
+    const lockHeight = stack(lockRows);
     const lead = 4;
-    const block = Math.max(imageHeight, textHeight);
-    const height = lead + block + GAP;
+    let height = lead + identityHeight + GAP;
+    if (confirmRows.length > 0) height += confirmHeight + GAP;
+    if (lockRows.length > 0) height += GAP + lockHeight;
     return {
       height,
       draw(target, top) {
-        const origin = top - lead;
+        let cursor = top - lead;
+        const paint = (rows: Row[]) => {
+          for (const row of rows) {
+            target.drawText(row.text, {
+              x: row.x,
+              y: cursor - row.size,
+              size: row.size,
+              font: row.face,
+              color: rgb(0.1, 0.1, 0.1),
+            });
+            cursor -= row.size + lineGap;
+          }
+        };
+        paint(confirmRows);
+        if (confirmRows.length > 0) cursor -= GAP;
+        const identityTop = cursor;
         if (image) {
-          target.drawImage(image, { x: LEFT, y: origin - imageHeight, width: imageWidth, height: imageHeight });
+          target.drawImage(image, { x: LEFT, y: identityTop - imageHeight, width: imageWidth, height: imageHeight });
         }
-        let cursor = origin;
-        for (const row of rows) {
-          target.drawText(row.text, {
-            x: textX,
-            y: cursor - row.size,
-            size: row.size,
-            font: row.face,
-            color: rgb(0.1, 0.1, 0.1),
-          });
-          cursor -= row.size + lineGap;
+        paint(identityRows);
+        cursor = identityTop - identityHeight;
+        if (lockRows.length > 0) {
+          cursor -= GAP;
+          paint(lockRows);
         }
         return top - height;
       },

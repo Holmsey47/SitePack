@@ -15,11 +15,13 @@ function scaleStroke(stroke: SignatureStroke, width: number, height: number): Si
 }
 
 /** Drawn signature. The PNG has no EXIF. */
-export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUrl: string | null) => void; disabled?: boolean }) {
   const [strokes, setStrokes] = useState<SignatureStroke[]>([]);
   const [active, setActive] = useState<SignaturePoint[]>([]);
   const strokesRef = useRef<SignatureStroke[]>([]);
+  const disabledRef = useRef(disabled);
   const onChangeRef = useRef(onChange);
+  disabledRef.current = disabled;
   const layout = useRef({ width: WIDTH, height: HEIGHT });
   onChangeRef.current = onChange;
 
@@ -32,8 +34,8 @@ export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) 
 
   const responder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => !disabledRef.current,
+      onMoveShouldSetPanResponder: () => !disabledRef.current,
       onPanResponderGrant: (event) => {
         setActive([{ x: event.nativeEvent.locationX, y: event.nativeEvent.locationY }]);
       },
@@ -67,6 +69,7 @@ export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) 
           borderWidth: 1,
           borderColor: theme.line,
           overflow: 'hidden',
+          opacity: disabled ? 0.45 : 1,
         }}
         {...responder.panHandlers}>
         {shown.flat().map((point, index) => (
@@ -85,7 +88,7 @@ export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) 
           />
         ))}
       </View>
-      <Button label="Clear signature" variant="secondary" minHeight={48} onPress={() => publish([])} />
+      <Button label="Clear signature" variant="secondary" minHeight={48} disabled={disabled} onPress={() => publish([])} />
     </View>
   );
 }
