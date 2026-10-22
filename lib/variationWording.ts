@@ -11,9 +11,9 @@ export const VARIATION_CONFIRM_WITHOUT_AMOUNT =
 export const VARIATION_LOCK_LINE =
   'Record locked at signing, [Time]. Any later change creates a new version.';
 
-/** The sentence shown above the pad and stored with the signature. */
+/** The sentence shown above the pad. A blank company is display-only; the stored sentence uses the typed name. */
 export function variationConfirmation(company: string, hasAmount: boolean): string {
-  const shown = company.trim() || '[company]';
+  const shown = company.trim() || 'your company';
   const sentence = hasAmount ? VARIATION_CONFIRM_WITH_AMOUNT : VARIATION_CONFIRM_WITHOUT_AMOUNT;
   return sentence.replace('[Company]', shown);
 }
