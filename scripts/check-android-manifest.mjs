@@ -133,10 +133,49 @@ for (const name of [
     process.exit(1);
   }
 }
-const releaseLine =
-  'signingConfig System.getenv("SITEPACK_KEYSTORE_PATH") ? signingConfigs.release : signingConfigs.debug';
-if (!gradle.includes(releaseLine)) {
-  console.error('Release builds must use the env signing config when the keystore path is set.');
+const application = xml.match(/<application\b([^>]*)>/);
+if (!application || !/\bandroid:allowBackup="false"/.test(application[1])) {
+  console.error('The application tag must set android:allowBackup="false".');
+  process.exit(1);
+}
+if (/\bandroid:allowBackup="true"/.test(xml)) {
+  console.error('android:allowBackup="true" is still present.');
+  process.exit(1);
+}
+
+const buildTypesAt = gradle.indexOf('buildTypes');
+const releaseTypeAt = buildTypesAt < 0 ? -1 : gradle.indexOf('release {', buildTypesAt);
+if (releaseTypeAt < 0) {
+  console.error('app/build.gradle has no release build type.');
+  process.exit(1);
+}
+let depth = 0;
+let releaseTypeEnd = -1;
+for (let index = gradle.indexOf('{', releaseTypeAt); index < gradle.length; index += 1) {
+  if (gradle[index] === '{') depth += 1;
+  else if (gradle[index] === '}') {
+    depth -= 1;
+    if (depth === 0) {
+      releaseTypeEnd = index;
+      break;
+    }
+  }
+}
+const releaseType = releaseTypeEnd < 0 ? '' : gradle.slice(releaseTypeAt, releaseTypeEnd + 1);
+if (!releaseType.includes('signingConfig signingConfigs.release')) {
+  console.error('Release builds must use signingConfigs.release.');
+  process.exit(1);
+}
+if (releaseType.includes('signingConfigs.debug')) {
+  console.error('Release builds must not fall back to the debug signing config.');
+  process.exit(1);
+}
+if (!gradle.includes('throw new GradleException("Release signing is missing "')) {
+  console.error('Release signing must fail the build when SITEPACK keystore env is missing.');
+  process.exit(1);
+}
+if (!/debug \{\s*signingConfig signingConfigs\.debug/.test(gradle)) {
+  console.error('Debug builds must keep signingConfigs.debug.');
   process.exit(1);
 }
 if (gradle.includes('storePassword "') || gradle.includes("storePassword 'upload'")) {
@@ -151,4 +190,5 @@ console.log(xml.slice(start, end));
 console.log('AndroidManifest autoVerify intent-filter matches uk.sitepack.app App Links.');
 console.log('Blocked permissions are present only as tools:node="remove".');
 console.log('service_role grep: clean.');
-console.log('Release signing reads SITEPACK_KEYSTORE_* from the environment.');
+console.log('android:allowBackup is false.');
+console.log('Release signing reads SITEPACK_KEYSTORE_* from the environment and fails closed.');

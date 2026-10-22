@@ -3,16 +3,51 @@ const { withAppBuildGradle } = require('expo/config-plugins');
 const RELEASE_SIGNING = `
         release {
             def sitepackStorePath = System.getenv("SITEPACK_KEYSTORE_PATH")
-            if (sitepackStorePath != null && !sitepackStorePath.isEmpty()) {
+            def sitepackStorePassword = System.getenv("SITEPACK_KEYSTORE_PASSWORD")
+            def sitepackKeyAlias = System.getenv("SITEPACK_KEY_ALIAS")
+            def sitepackKeyPassword = System.getenv("SITEPACK_KEY_PASSWORD")
+            if (sitepackStorePath != null && !sitepackStorePath.isEmpty()
+                    && sitepackStorePassword != null && !sitepackStorePassword.isEmpty()
+                    && sitepackKeyAlias != null && !sitepackKeyAlias.isEmpty()
+                    && sitepackKeyPassword != null && !sitepackKeyPassword.isEmpty()) {
                 storeFile file(sitepackStorePath)
-                storePassword System.getenv("SITEPACK_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("SITEPACK_KEY_ALIAS")
-                keyPassword System.getenv("SITEPACK_KEY_PASSWORD")
+                storePassword sitepackStorePassword
+                keyAlias sitepackKeyAlias
+                keyPassword sitepackKeyPassword
             }
         }`;
 
-const RELEASE_LINE =
-  'signingConfig System.getenv("SITEPACK_KEYSTORE_PATH") ? signingConfigs.release : signingConfigs.debug';
+const RELEASE_LINE = 'signingConfig signingConfigs.release';
+
+// Runs only when a release package task is in the graph, so assembleDebug still works with no keystore.
+const RELEASE_GUARD = `
+gradle.taskGraph.whenReady {
+    def buildingRelease = gradle.taskGraph.allTasks.any { task ->
+        task.project.path == project.path && (
+            task.name == "assembleRelease" ||
+            task.name == "bundleRelease" ||
+            task.name == "packageRelease" ||
+            task.name == "signReleaseBundle"
+        )
+    }
+    if (!buildingRelease) {
+        return
+    }
+    def required = [
+        "SITEPACK_KEYSTORE_PATH",
+        "SITEPACK_KEYSTORE_PASSWORD",
+        "SITEPACK_KEY_ALIAS",
+        "SITEPACK_KEY_PASSWORD",
+    ]
+    def missing = required.findAll { name ->
+        def value = System.getenv(name)
+        value == null || value.isEmpty()
+    }
+    if (!missing.isEmpty()) {
+        throw new GradleException("Release signing is missing " + missing.join(", ") + ".")
+    }
+}
+`;
 
 function applyReleaseSigning(contents) {
   if (contents.includes('SITEPACK_KEYSTORE_PATH')) return contents;
@@ -44,6 +79,9 @@ function applyReleaseSigning(contents) {
   }
   const replaced = block.replace(/signingConfig\s+signingConfigs\.debug/, RELEASE_LINE);
   next = next.slice(0, releaseAt) + replaced + next.slice(close + 1);
+  if (!next.includes('sitepackRequireReleaseSigning') && !next.includes('buildingRelease')) {
+    next = `${next.trimEnd()}\n${RELEASE_GUARD}`;
+  }
   return next;
 }
 

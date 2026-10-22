@@ -14,6 +14,7 @@
     },
     "android": {
       "package": "uk.sitepack.app",
+      "allowBackup": false,
       "blockedPermissions": [
         "SYSTEM_ALERT_WINDOW",
         "RECORD_AUDIO",

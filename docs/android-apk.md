@@ -39,7 +39,9 @@ Values may be wrapped in single or double quotes. Lines starting with `#` are ig
 
 The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1` or if a `SERVICE_ROLE` variable is set.
 
-It runs a clean Android prebuild, then `gradlew assembleRelease`. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project.
+It runs a clean Android prebuild, then `gradlew assembleRelease`. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project. A release build fails if any of those four is missing. It does not fall back to the debug keystore. Debug builds are unchanged and do not need the keystore.
+
+`expo prebuild` rewrites `package.json` (the `android` and `ios` scripts) and can rewrite other tracked files. On exit, including when the build fails, the script runs `git checkout` to put `package.json` back to HEAD and to restore any other tracked file that was clean when the script started. Do not leave uncommitted edits in `package.json` while you run it. Those edits are discarded. The generated `android/` directory is gitignored and is left in place.
 
 The signed APK is `dist-apk/sitepack-<version>.apk`. The version comes from `app.json`.
 
@@ -51,4 +53,4 @@ Copy the APK to the phone and open it. Allow install from that source. There is 
 
 ## CI
 
-CI does not sign and does not have the keystore. The Android job exports the JS bundle, greps it for `service_role` and seed logins, and runs the existing manifest checks: App Link paths, blocked permissions, and the release signing block reading those four environment variables.
+CI does not sign and does not have the keystore. The Android job exports the JS bundle, greps it for `service_role` and seed logins, and runs the manifest checks: App Link paths, blocked permissions, `android:allowBackup="false"`, and release signing that reads those four environment variables and fails the release build when any of them is missing.

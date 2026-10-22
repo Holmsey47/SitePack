@@ -10,6 +10,33 @@ fail() {
   exit 1
 }
 
+# Prebuild rewrites package.json (android/ios scripts) and can touch other tracked files.
+# Restore those on every exit, including failure. Files that were already dirty stay dirty,
+# except package.json, which is always returned to HEAD.
+tmp=""
+dirty_before=""
+cleanup() {
+  local status=$?
+  set +e
+  if [[ -n "$tmp" && -d "$tmp" ]]; then
+    rm -rf "$tmp"
+  fi
+  if [[ -n "$dirty_before" && -f "$dirty_before" ]]; then
+    local file
+    while IFS= read -r file; do
+      [[ -z "$file" ]] && continue
+      if [[ "$file" == "package.json" ]] || ! grep -Fxq -- "$file" "$dirty_before"; then
+        git checkout -- "$file"
+      fi
+    done < <(git diff --name-only HEAD)
+    rm -f "$dirty_before"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+dirty_before=$(mktemp)
+git diff --name-only HEAD > "$dirty_before" || true
+
 load_env_file() {
   local file="$1"
   [[ -f "$file" ]] || fail "Env file not found."
@@ -132,7 +159,6 @@ if (got !== want) {
 '
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
 unzip -q "$out" -d "$tmp"
 node scripts/check-js-bundle.mjs "$tmp"
 echo "Wrote ${out}"

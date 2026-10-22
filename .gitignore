@@ -16,6 +16,10 @@ expo-env.d.ts
 *.orig.*
 *.jks
 *.keystore
+keystore.env
+*.keystore.env
+release.env
+/secrets/
 *.p8
 *.p12
 *.key

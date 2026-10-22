@@ -18,6 +18,9 @@ test('build-apk.sh names the signing env and does not echo secret values', () =>
   assert.match(source, /83:C8:DD:E7:8A:3A:2B:A4:26:B6:CC:B4:DF:ED:CF:53:DC:DD:64:54:3C:28:11:A6:29:07:8F:07:49:16:57:B6/);
   assert.match(source, /dist-apk\/sitepack-/);
   assert.match(source, /check-js-bundle\.mjs/);
+  assert.match(source, /trap cleanup EXIT/);
+  assert.match(source, /git checkout -- "\$file"/);
+  assert.match(source, /package\.json/);
   assert.doesNotMatch(source, /echo .*(PASSWORD|ANON_KEY|KEY_ALIAS)/);
 });
 
