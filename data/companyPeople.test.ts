@@ -340,7 +340,8 @@ test('the company people migration keeps insert closed and the read narrow', () 
   assert.match(screen, /addNoLoginOperative/);
   assert.match(screen, /attachLogin/);
   assert.match(screen, /person\?\.role === 'operative'/);
-  assert.doesNotMatch(screen, /router\.push/);
+  assert.match(screen, /router\.push\('\/invite'\)/);
+  assert.equal(screen.match(/router\.push\(/g)?.length, 1);
   assert.doesNotMatch(screen, /\/sites\//);
   assert.doesNotMatch(screen, /price/i);
   assert.doesNotMatch(screen, /\.email/);

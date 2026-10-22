@@ -15,6 +15,7 @@ import {
   whatsAppJoinMessage,
   whatsAppShareUrl,
 } from './inviteEntry.ts';
+import { canManageSite } from './repo.ts';
 
 test('join-code routing is none, one, or several, and archived sites are excluded', () => {
   const archived = { id: 'old', name: 'Old yard', archived_at: '2026-01-01T00:00:00.000Z' };
@@ -143,9 +144,8 @@ test('operatives never see the invite buttons', () => {
   const operativeBlock = sites.slice(operativeStart, managerReturn);
   assert.equal(operativeStart > 0 && managerReturn > operativeStart, true);
   assert.doesNotMatch(operativeBlock, /Invite to a site|Invite by email|Create code|JoinSharePanel/);
-  assert.match(sites, /Invite to a site/);
-  assert.match(sites, /Invite by email/);
-  assert.match(sites, /canManageSite|person\.role !== 'operative'/);
+  assert.doesNotMatch(sites, /Invite to a site|Invite by email|Create code|JoinSharePanel/);
+  assert.match(sites, /canManageSite/);
 
   const invite = fs.readFileSync(new URL('../app/(app)/invite.tsx', import.meta.url), 'utf8');
   assert.match(invite, /canManageSite/);
@@ -185,4 +185,34 @@ test('operatives never see the invite buttons', () => {
   assert.match(perSite, /canManageSite/);
   assert.doesNotMatch(perSite, /Copy the message below/);
   assert.doesNotMatch(perSite, /console\.(log|debug|info|warn)/);
+});
+
+test('Home has no invite controls, and People opens /invite for owners and CMs only', () => {
+  assert.equal(canManageSite('owner'), true);
+  assert.equal(canManageSite('cm'), true);
+  assert.equal(canManageSite('operative'), false);
+
+  const home = fs.readFileSync(new URL('../app/(app)/home.tsx', import.meta.url), 'utf8');
+  const sites = fs.readFileSync(new URL('../app/(app)/sites/index.tsx', import.meta.url), 'utf8');
+  const inviteControls = /Invite to a site|Invite by email|label="Invite"|Create code|JoinSharePanel|invite-code/;
+  assert.doesNotMatch(home, inviteControls);
+  assert.doesNotMatch(sites, inviteControls);
+  assert.match(sites, /label="Create site"/);
+  assert.match(sites, /label="Sign out"/);
+
+  const people = fs.readFileSync(new URL('../app/(app)/people.tsx', import.meta.url), 'utf8');
+  const titleAt = people.lastIndexOf('<Title>People</Title>');
+  const groupsAt = people.indexOf('href="/groups"', titleAt);
+  const top = people.slice(titleAt, groupsAt);
+  assert.equal(titleAt > 0 && groupsAt > titleAt, true);
+  assert.match(top, /canManageSite\(person\.role\)/);
+  assert.match(top, /label="Invite"/);
+  assert.match(top, /minHeight=\{56\}/);
+  assert.match(top, /router\.push\('\/invite'\)/);
+  assert.doesNotMatch(top, /variant=/);
+
+  const redirectAt = people.indexOf("if (person?.role === 'operative') return <Redirect href=\"/sites\" />");
+  assert.equal(redirectAt > 0 && redirectAt < titleAt, true);
+  assert.doesNotMatch(people.slice(0, redirectAt), /router\.push\('\/invite'\)/);
+  assert.equal(people.match(/router\.push\('\/invite'\)/g)?.length, 1);
 });

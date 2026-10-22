@@ -158,11 +158,7 @@ export default function SitesScreen() {
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       {resetNotice}
-      <View style={{ gap: 8 }}>
-        {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
-        <Button label="Invite to a site" minHeight={56} onPress={() => router.push('/invite')} />
-        <Button label="Invite by email" variant="secondary" onPress={() => router.push('/invite?email=1')} />
-      </View>
+      {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pressable onPress={() => setOpenOnly((value) => !value)} style={{ paddingVertical: 8 }}>
