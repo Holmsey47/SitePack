@@ -1042,11 +1042,6 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
-alter table storage.objects enable row level security;
-
-grant usage on schema storage to authenticated;
-grant select, insert on table storage.objects to authenticated;
-
 drop policy if exists site_photos_select on storage.objects;
 drop policy if exists site_photos_insert on storage.objects;
 

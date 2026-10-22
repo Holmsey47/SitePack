@@ -17,6 +17,15 @@ esac
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/throwaway-auth.sql
 
+# Hosted Supabase already enables RLS on storage.objects and grants authenticated
+# use of the storage schema and objects table. The table is owned by
+# supabase_storage_admin there, so a migration must not repeat these.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+alter table storage.objects enable row level security;
+grant usage on schema storage to authenticated;
+grant select, insert on table storage.objects to authenticated;
+SQL
+
 for migration in supabase/migrations/*.sql; do
   echo "apply ${migration}"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
