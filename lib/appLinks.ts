@@ -54,6 +54,12 @@ function fingerprint(value: string): string {
   return (hash >>> 0).toString(16);
 }
 
+/** A leading `//` is still an in-app path. Collapse it to one slash before routing. */
+function collapseLeadingSlashes(pathname: string): string {
+  if (!pathname) return '/';
+  return pathname.replace(/^\/{2,}/, '/');
+}
+
 export function parseAppLink(input: string): ParsedLink | null {
   if (!input) return { pathname: '/', search: '', hash: '' };
   if (input.startsWith('/')) {
@@ -61,7 +67,7 @@ export function parseAppLink(input: string): ParsedLink | null {
     const beforeHash = hashAt >= 0 ? input.slice(0, hashAt) : input;
     const queryAt = beforeHash.indexOf('?');
     return {
-      pathname: queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash,
+      pathname: collapseLeadingSlashes(queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash),
       search: queryAt >= 0 ? beforeHash.slice(queryAt) : '',
       hash: hashAt >= 0 ? input.slice(hashAt) : '',
     };
@@ -73,7 +79,7 @@ export function parseAppLink(input: string): ParsedLink | null {
       const rest = url.pathname === '/' ? '' : url.pathname;
       pathname = `/${url.hostname}${rest}`;
     }
-    return { pathname, search: url.search, hash: url.hash };
+    return { pathname: collapseLeadingSlashes(pathname), search: url.search, hash: url.hash };
   } catch {
     return null;
   }
@@ -108,15 +114,29 @@ function tokensFromParams(params: URLSearchParams): AuthTokens | null {
   return { accessToken, refreshToken, type };
 }
 
-/** Invite or recovery session tokens from the hash, then the query string. */
+/** Invite or recovery session tokens from the URL hash. The query string is never a session. */
 export function authTokensFromUrl(url: string | null): AuthTokens | null {
   if (!url) return null;
   const parsed = parseAppLink(url);
-  if (!parsed) return null;
-  const hash = tokensFromParams(new URLSearchParams(parsed.hash.replace(/^#/, '')));
-  if (hash) return hash;
-  const search = parsed.search.startsWith('?') ? parsed.search.slice(1) : parsed.search;
-  return tokensFromParams(new URLSearchParams(search));
+  if (!parsed?.hash) return null;
+  return tokensFromParams(new URLSearchParams(parsed.hash.replace(/^#/, '')));
+}
+
+/**
+ * Native session intake. Hash tokens only, and only on the verified App Link
+ * host for `/set-password` or `/reset`. The `sitepack://` scheme is refused.
+ */
+function nativeSessionFromUrl(url: string): AuthTokens | null {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== APP_LINK_HOST) return null;
+  const parsed = parseAppLink(url);
+  if (!parsed || !isAuthCallbackPath(parsed.pathname)) return null;
+  return authTokensFromUrl(url);
 }
 
 function isAuthCallbackPath(pathname: string): boolean {
@@ -126,7 +146,7 @@ function isAuthCallbackPath(pathname: string): boolean {
 
 /**
  * PKCE `code` on `/set-password` or `/reset`. A join code in the path is not this.
- * Session tokens win when both are present.
+ * Hash session tokens win when both are present. Query tokens are ignored.
  */
 export function pkceCodeFromUrl(url: string | null): string | null {
   if (!url || authTokensFromUrl(url)) return null;
@@ -196,11 +216,11 @@ export function consumePasswordSetup(): boolean {
 }
 
 /** Remember tokens or a PKCE code from a launch URL. A second call with the same URL is a no-op. */
-export function stashAuthCallback(url: string | null): void {
+export function stashAuthCallback(url: string | null, options?: { native?: boolean }): void {
   if (!url) return;
   const id = fingerprint(url);
   if (handled.has(id) || pendingId === id) return;
-  const tokens = authTokensFromUrl(url);
+  const tokens = options?.native ? nativeSessionFromUrl(url) : authTokensFromUrl(url);
   if (tokens) {
     pendingId = id;
     passwordSetup = true;
@@ -214,6 +234,10 @@ export function stashAuthCallback(url: string | null): void {
   pending = { kind: 'pkce', code };
 }
 
+export function peekAuthCallback(): StashedAuth | null {
+  return pending;
+}
+
 export function takeAuthCallback(): StashedAuth | null {
   if (!pending || !pendingId) return null;
   handled.add(pendingId);
@@ -225,7 +249,7 @@ export function takeAuthCallback(): StashedAuth | null {
 
 /** Native entry. Stashes secrets, then returns the path the router may keep. */
 export function captureIncomingLink(input: string): string {
-  stashAuthCallback(input);
+  stashAuthCallback(input, { native: true });
   const parsed = parseAppLink(input);
   if (parsed) {
     const join = joinCodeFromPath(parsed.pathname);

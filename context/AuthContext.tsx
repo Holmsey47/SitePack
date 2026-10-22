@@ -1,5 +1,11 @@
 import { repo, useFixtures } from '@/data/index';
-import { browserPathWithoutAuth, consumePasswordSetup, stashAuthCallback, takeAuthCallback } from '@/lib/appLinks';
+import {
+  browserPathWithoutAuth,
+  consumePasswordSetup,
+  peekAuthCallback,
+  stashAuthCallback,
+  takeAuthCallback,
+} from '@/lib/appLinks';
 import { inviteGrantFromUrl } from '@/lib/inviteGrant';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person } from '@/data/types';
@@ -56,7 +62,21 @@ function stripBrowserAuth(url: string | null) {
   window.history.replaceState(window.history.state, '', next);
 }
 
-/** setSession for hash/query tokens. exchangeCodeForSession for a native PKCE code. */
+function stashLaunchUrl(url: string | null) {
+  stashAuthCallback(url, { native: Platform.OS !== 'web' });
+}
+
+async function nativeSessionAlreadyOpen(): Promise<boolean> {
+  if (useFixtures || !hasSupabaseConfig) return false;
+  try {
+    const { data } = await getSupabase().auth.getSession();
+    return Boolean(data.session);
+  } catch {
+    return false;
+  }
+}
+
+/** setSession for hash tokens. exchangeCodeForSession for a native PKCE code. */
 async function applyStashedAuth(): Promise<boolean> {
   const pending = takeAuthCallback();
   if (!pending) return false;
@@ -93,8 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function boot() {
       const initialUrl = await Linking.getInitialURL();
       const pageUrl = typeof window !== 'undefined' ? window.location.href : initialUrl;
-      stashAuthCallback(pageUrl);
-      if (initialUrl && initialUrl !== pageUrl) stashAuthCallback(initialUrl);
+      stashLaunchUrl(pageUrl);
+      if (initialUrl && initialUrl !== pageUrl) stashLaunchUrl(initialUrl);
       if (!useFixtures && hasSupabaseConfig) {
         const supabase = getSupabase();
         supabase.auth.onAuthStateChange(async (event, session) => {
@@ -132,8 +152,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void boot();
     const sub = Linking.addEventListener('url', ({ url }) => {
-      stashAuthCallback(url);
+      stashLaunchUrl(url);
       void (async () => {
+        if (Platform.OS !== 'web' && (await nativeSessionAlreadyOpen()) && peekAuthCallback()?.kind === 'session') {
+          takeAuthCallback();
+          consumePasswordSetup();
+          return;
+        }
         const accepted = await applyStashedAuth();
         if (!accepted) return;
         writePending(true);

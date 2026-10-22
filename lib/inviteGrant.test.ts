@@ -31,9 +31,11 @@ test('password login code is not an invite', () => {
   assert.equal(inviteGrantFromUrl('http://127.0.0.1:8081/set-password?code=abc'), null);
 });
 
-test('invite tokens in the query string are the new person session', () => {
-  const grant = inviteGrantFromUrl(
-    'https://sitepack-preview.vercel.app/set-password?access_token=aaa&refresh_token=bbb&type=recovery'
+test('invite tokens in the query string are refused', () => {
+  assert.equal(
+    inviteGrantFromUrl(
+      'https://sitepack-preview.vercel.app/set-password?access_token=aaa&refresh_token=bbb&type=recovery'
+    ),
+    null
   );
-  assert.deepEqual(grant, { accessToken: 'aaa', refreshToken: 'bbb' });
 });

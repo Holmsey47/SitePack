@@ -31,16 +31,16 @@ test('join and reset codes come from one path segment', () => {
   assert.equal(resetCodeFromPath('/set-password'), null);
 });
 
-test('session tokens are read from the hash or the query, and a PKCE code is not a token', () => {
+test('session tokens are read from the hash only, and a PKCE code is not a token', () => {
   assert.deepEqual(
     authTokensFromUrl('https://sitepack-preview.vercel.app/set-password#access_token=aaa&refresh_token=bbb&type=invite'),
     { accessToken: 'aaa', refreshToken: 'bbb', type: 'invite' }
   );
-  assert.deepEqual(
+  assert.equal(
     authTokensFromUrl(
       'https://sitepack-preview.vercel.app/reset?access_token=aaa&refresh_token=bbb&type=recovery'
     ),
-    { accessToken: 'aaa', refreshToken: 'bbb', type: 'recovery' }
+    null
   );
   assert.equal(authTokensFromUrl('https://sitepack-preview.vercel.app/set-password'), null);
   assert.equal(authTokensFromUrl('https://sitepack-preview.vercel.app/set-password?code=abc'), null);
@@ -56,6 +56,12 @@ test('session tokens are read from the hash or the query, and a PKCE code is not
   assert.equal(
     pkceCodeFromUrl(
       'https://sitepack-preview.vercel.app/set-password?code=abc&access_token=aaa&refresh_token=bbb&type=invite'
+    ),
+    'abc'
+  );
+  assert.equal(
+    pkceCodeFromUrl(
+      'https://sitepack-preview.vercel.app/set-password?code=abc#access_token=aaa&refresh_token=bbb&type=invite'
     ),
     null
   );
@@ -87,6 +93,7 @@ test('the router path keeps neither the code nor the tokens', () => {
   assert.equal(routerPathFromLink(queryUrl), '/set-password?next=1');
   assert.equal(browserPathWithoutAuth(queryUrl), '/set-password?next=1');
   assert.equal(captureIncomingLink(queryUrl).includes('aaa'), false);
+  assert.equal(takeAuthCallback(), null);
 
   resetAppLinkCapture();
   assert.equal(
@@ -95,6 +102,47 @@ test('the router path keeps neither the code nor the tokens', () => {
   );
   assert.deepEqual(takeAuthCallback(), { kind: 'pkce', code: 'abc' });
   assert.equal(browserPathWithoutAuth('https://sitepack-preview.vercel.app/join/K7QM4XPR'), '/join/K7QM4XPR');
+});
+
+test('a leading double slash collapses to one slash', () => {
+  assert.equal(routerPathFromLink('//evil.example/x'), '/evil.example/x');
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink('//evil.example/x'), '/evil.example/x');
+  assert.equal(takeAuthCallback(), null);
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink('//join/K7QM4XPR'), '/join');
+  assert.equal(peekStagedJoinCode(), 'K7QM4XPR');
+});
+
+test('native session tokens stay on the verified https callback paths', () => {
+  const hash = '#access_token=aaa&refresh_token=bbb&type=invite';
+  resetAppLinkCapture();
+  assert.equal(
+    captureIncomingLink(`https://sitepack-preview.vercel.app/reset${hash.replace('invite', 'recovery')}`),
+    '/reset'
+  );
+  assert.deepEqual(takeAuthCallback(), { kind: 'session', accessToken: 'aaa', refreshToken: 'bbb' });
+
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink(`sitepack://set-password${hash}`), '/set-password');
+  assert.equal(takeAuthCallback(), null);
+
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink(`https://evil.example/set-password${hash}`), '/set-password');
+  assert.equal(takeAuthCallback(), null);
+
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink(`https://sitepack-preview.vercel.app/sites${hash}`), '/sites');
+  assert.equal(takeAuthCallback(), null);
+
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink(`https://sitepack-preview.vercel.app/join/K7QM4XPR${hash}`), '/join');
+  assert.equal(peekStagedJoinCode(), 'K7QM4XPR');
+  assert.equal(takeAuthCallback(), null);
+
+  resetAppLinkCapture();
+  assert.equal(captureIncomingLink(`http://sitepack-preview.vercel.app/set-password${hash}`), '/set-password');
+  assert.equal(takeAuthCallback(), null);
 });
 
 test('assetlinks names the package and the release fingerprint', () => {
@@ -109,6 +157,12 @@ test('assetlinks names the package and the release fingerprint', () => {
 test('app.json opens only the join, set-password, and reset https paths', () => {
   const app = JSON.parse(fs.readFileSync(new URL('../app.json', import.meta.url), 'utf8'));
   assert.equal(app.expo.android.package, 'uk.sitepack.app');
+  assert.deepEqual(app.expo.android.blockedPermissions, [
+    'SYSTEM_ALERT_WINDOW',
+    'RECORD_AUDIO',
+    'READ_EXTERNAL_STORAGE',
+    'WRITE_EXTERNAL_STORAGE',
+  ]);
   const filters = app.expo.android.intentFilters;
   assert.equal(filters.length, 1);
   assert.equal(filters[0].action, 'VIEW');

@@ -5,7 +5,7 @@ export type InviteGrant = {
   refreshToken: string;
 };
 
-/** Invite emails land with the new person's session in the URL hash or query.
+/** Invite emails land with the new person's session in the URL hash.
  * Password login uses PKCE, which ignores that hash and keeps whoever is already signed in.
  * A bare `?code=` is not this grant.
  */

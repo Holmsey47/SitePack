@@ -75,6 +75,25 @@ if (data.length !== expected.size || missing.length || extra.length) {
   process.exit(1);
 }
 
+const blockedPermissions = [
+  'android.permission.SYSTEM_ALERT_WINDOW',
+  'android.permission.RECORD_AUDIO',
+  'android.permission.READ_EXTERNAL_STORAGE',
+  'android.permission.WRITE_EXTERNAL_STORAGE',
+];
+const permissionTags = [...xml.matchAll(/<uses-permission(?:-sdk-\d+)?\b([^>]*?)\/?>/g)].map((match) => match[1]);
+for (const name of blockedPermissions) {
+  const tags = permissionTags.filter((tag) => tag.includes(`android:name="${name}"`));
+  if (tags.length === 0 || xml.split(name).length - 1 !== tags.length) {
+    console.error(`${name} must appear only as a uses-permission tools:node="remove" entry.`);
+    process.exit(1);
+  }
+  if (tags.some((tag) => !/tools:node="remove"/.test(tag))) {
+    console.error(`${name} is granted. Block it with tools:node="remove".`);
+    process.exit(1);
+  }
+}
+
 const roleHits = [];
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
@@ -102,4 +121,5 @@ const start = xml.lastIndexOf('<intent-filter', autoStart);
 const end = xml.indexOf('</intent-filter>', autoStart) + '</intent-filter>'.length;
 console.log(xml.slice(start, end));
 console.log('AndroidManifest autoVerify intent-filter matches uk.sitepack.app App Links.');
+console.log('Blocked permissions are present only as tools:node="remove".');
 console.log('service_role grep: clean.');
