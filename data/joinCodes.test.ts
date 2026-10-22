@@ -11,7 +11,6 @@ import {
   hmacSha256Hex,
   isJoinCodeShape,
   joinFailureMessage,
-  joinShareText,
   loadSecretKey,
   normalizeJoinCode,
   passwordHasLettersAndDigits,
@@ -20,6 +19,7 @@ import {
   publicCodePath,
   resetShareText,
 } from './joinCodes.ts';
+import { joinShareText } from '../supabase/functions/_shared/joinCodes.ts';
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/20261021210000_join_codes.sql', import.meta.url), 'utf8');
 

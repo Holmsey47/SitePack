@@ -2,6 +2,7 @@ import { AppTabs } from '@/components/app-tabs';
 import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
+import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites } from '@/lib/offline';
@@ -14,7 +15,7 @@ import { Pressable, Text, View } from 'react-native';
 export default function SitesScreen() {
   const { person, signOut, acknowledgePasswordReset } = useAuth();
   const router = useRouter();
-  const manager = person != null && person.role !== 'operative';
+  const manager = person != null && canManageSite(person.role);
   const [rows, setRows] = useState<PulseRow[]>([]);
   const [mine, setMine] = useState<HomeSite[]>(readCachedSites());
   const [query, setQuery] = useState('');
@@ -143,9 +144,10 @@ export default function SitesScreen() {
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       {resetNotice}
-      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+      <View style={{ gap: 8 }}>
         {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
-        <Button label="Invite" variant="secondary" onPress={() => router.push('/invite')} />
+        <Button label="Invite to a site" minHeight={56} onPress={() => router.push('/invite')} />
+        <Button label="Invite by email" variant="secondary" onPress={() => router.push('/invite?email=1')} />
       </View>
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>
