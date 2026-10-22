@@ -1568,7 +1568,7 @@ export const fixtureRepo: SitePackRepo = {
     });
   },
 
-  async confirmDrawingSeen(drawingId) {
+  async confirmDrawingSeen(drawingId, seenAt) {
     const person = meOrThrow();
     const drawing = store.drawings.find((row) => row.id === drawingId);
     if (!drawing) throw new Error('drawing_not_found');
@@ -1579,6 +1579,8 @@ export const fixtureRepo: SitePackRepo = {
       site_id: drawing.site_id,
       person_id: person.id,
       revision: drawing.revision,
+      seen_at: seenAt ?? null,
+      received_at: new Date().toISOString(),
     });
     return { seenAt: row.seen_at };
   },

@@ -5,6 +5,7 @@ import {
   memoryDrawingSeenQueue,
   orderedQueue,
   queueSeenTap,
+  rejectedTapNotice,
   SAVED_ON_PHONE,
   storageDrawingSeenQueue,
 } from './drawingSeenQueue.ts';
@@ -63,18 +64,31 @@ test('sync sends the open first and drops a superseded revision', async () => {
     opened: true,
   });
   const calls: string[] = [];
-  await flushDrawingSeenQueue(queue, {
+  const notices = await flushDrawingSeenQueue(queue, {
     async recordOpen(drawingId) {
       calls.push(`open:${drawingId}`);
       if (drawingId === 'old') throw new Error('not_current');
     },
-    async confirm(drawingId) {
-      calls.push(`confirm:${drawingId}`);
+    async confirm(drawingId, seenAt) {
+      calls.push(`confirm:${drawingId}:${seenAt}`);
       if (drawingId === 'old') throw new Error('not_current');
     },
+    async currentRevision(item) {
+      return item.drawingId === 'old' ? 'C' : null;
+    },
   });
-  assert.deepEqual(calls, ['open:old', 'open:new', 'confirm:old', 'confirm:new']);
+  assert.deepEqual(calls, [
+    'open:old',
+    'open:new',
+    'confirm:old:2026-10-22T10:00:00.000Z',
+    'confirm:new:2026-10-22T10:05:00.000Z',
+  ]);
+  assert.deepEqual(
+    notices.map((notice) => notice.message),
+    ['Rev B was replaced — open rev C']
+  );
   assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices())[0]?.message, 'Rev B was replaced — open rev C');
 
   const again = storageDrawingSeenQueue({
     getItem: (key) => storage.get(key) ?? null,
@@ -104,4 +118,28 @@ test('sync sends the open first and drops a superseded revision', async () => {
   });
   assert.equal(opens, 1);
   assert.equal((await again.list()).length, 0);
+});
+
+test('a refused queued tap is kept as a notice', async () => {
+  const queue = memoryDrawingSeenQueue();
+  await queue.put({
+    id: 'confirm:gone',
+    kind: 'confirm',
+    drawingId: 'gone',
+    siteId: 's1',
+    revision: 'B',
+    at: '2026-10-22T10:00:00.000Z',
+  });
+  const notices = await flushDrawingSeenQueue(queue, {
+    async recordOpen() {
+      return undefined;
+    },
+    async confirm() {
+      throw new Error('drawing_not_found');
+    },
+  });
+  assert.equal(rejectedTapNotice('B', 'not_authorized'), 'Rev B was not saved');
+  assert.equal(notices[0]?.message, 'Rev B is gone — open the current sheet');
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 1);
 });

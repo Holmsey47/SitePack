@@ -1,11 +1,11 @@
-import { Card, ChoiceChip, EmptyState, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, Title } from '@/components/ui';
+import { Card, ChoiceChip, EmptyState, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing } from '@/data/types';
-import { confirmQueued, type QueuedSeen } from '@/lib/drawingSeenQueue';
+import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
 import { theme } from '@/lib/theme';
@@ -38,6 +38,7 @@ export default function FolderScreen() {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
   const [showOld, setShowOld] = useState(false);
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
@@ -52,6 +53,7 @@ export default function FolderScreen() {
     if (seen) {
       setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
       setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+      setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
     }
     setSeenSummary(manage ? await loadSiteSeenSummary(siteId) : null);
     setLoaded(true);
@@ -94,6 +96,9 @@ export default function FolderScreen() {
   return (
     <Screen>
       <Title>{folderName}</Title>
+      {seenNotices.map((notice) => (
+        <SeenRejectNotice key={notice.id} message={notice.message} />
+      ))}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {filters ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>

@@ -1,5 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, NewRevBadge, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
@@ -9,7 +9,7 @@ import { archivedRows, contractsManagerLine, operativesLine, workingRows } from 
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
-import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen } from '@/lib/drawingSeenQueue';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
@@ -32,6 +32,7 @@ export default function SitesScreen() {
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
   const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
+  const [notices, setNotices] = useState<SeenNotice[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -83,6 +84,7 @@ export default function SitesScreen() {
           setUnseen(next.unseen);
           setGaps(next.gaps);
           setQueued(next.queued);
+          setNotices(next.notices);
         })
         .catch(() => undefined);
       return () => {
@@ -98,7 +100,8 @@ export default function SitesScreen() {
     const waiting = queued.some((item) => item.kind === 'confirm' && item.siteId === siteId);
     const gap = gaps.find((row) => row.site_id === siteId);
     const line = manager && gap ? siteUnseenLine(gap.not_seen_by_everyone) : null;
-    return { badges, waiting, line };
+    const rejections = notices.filter((notice) => notice.siteId === siteId);
+    return { badges, waiting, line, rejections };
   }
 
   const working = useMemo(() => workingRows(rows), [rows]);
@@ -259,9 +262,9 @@ export default function SitesScreen() {
 function SeenNotes({
   notes,
 }: {
-  notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null };
+  notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
 }) {
-  if (notes.badges.length === 0 && !notes.waiting && !notes.line) return null;
+  if (notes.badges.length === 0 && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
   return (
     <View style={{ gap: 8 }}>
       {notes.line ? (
@@ -269,6 +272,9 @@ function SeenNotes({
           {notes.line}
         </Text>
       ) : null}
+      {notes.rejections.map((notice) => (
+        <SeenRejectNotice key={notice.id} message={notice.message} />
+      ))}
       {notes.badges.map((badge) => (
         <NewRevBadge key={badge.drawing_id} sheet={badge.sheet} revision={badge.revision} />
       ))}

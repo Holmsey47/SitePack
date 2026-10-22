@@ -1,11 +1,11 @@
-import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
-import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen } from '@/lib/drawingSeenQueue';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
@@ -37,6 +37,7 @@ export default function SitePackScreen() {
   const [newJoiners, setNewJoiners] = useState(0);
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
 
   const load = useCallback(async () => {
@@ -61,6 +62,7 @@ export default function SitePackScreen() {
       if (seen) {
         setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
         setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+        setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
       }
       if (manageNow) setSeenSummary(await loadSiteSeenSummary(siteId));
       else setSeenSummary(null);
@@ -207,8 +209,12 @@ export default function SitePackScreen() {
         </Text>
       ) : null}
       {unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision)).length > 0 ||
-      queuedSeen.some((row) => row.kind === 'confirm') ? (
+      queuedSeen.some((row) => row.kind === 'confirm') ||
+      seenNotices.length > 0 ? (
         <View style={{ gap: 8 }}>
+          {seenNotices.map((notice) => (
+            <SeenRejectNotice key={notice.id} message={notice.message} />
+          ))}
           {unseen
             .filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision))
             .map((row) => (

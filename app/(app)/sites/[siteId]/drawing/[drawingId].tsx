@@ -1,5 +1,5 @@
 import { DrawingFrame } from '@/components/drawing-frame';
-import { Button, Muted, NewRevBadge, RevBadge, Screen, OutOfDateBadge, SeenCountChip, Title } from '@/components/ui';
+import { Button, Muted, NewRevBadge, RevBadge, Screen, OutOfDateBadge, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   seenButtonLabel,
@@ -14,13 +14,16 @@ import type { Drawing } from '@/data/types';
 import type { OfflinePackMeta } from '@/lib/offline';
 import {
   confirmQueued,
-  flushDrawingSeenQueue,
   getDrawingSeenQueue,
+  isDroppedSeenCode,
   queueId,
   queueSeenTap,
+  rememberRejectedTap,
   SAVED_ON_PHONE,
   type QueuedSeen,
+  type SeenNotice,
 } from '@/lib/drawingSeenQueue';
+import { currentRevisionAfter, flushQueuedDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { localDrawingUri, readCachedSites, readPackMeta } from '@/lib/offline';
@@ -46,6 +49,7 @@ export default function DrawingViewerScreen() {
   const [proof, setProof] = useState<DrawingProof | null>(null);
   const [roster, setRoster] = useState<DrawingRoster | null>(null);
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [openedLocal, setOpenedLocal] = useState(false);
   const [seenNote, setSeenNote] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -100,10 +104,13 @@ export default function DrawingViewerScreen() {
         if (!cancelled) setProof(next);
       })
       .catch(() => undefined);
-    getDrawingSeenQueue()
+    const queue = getDrawingSeenQueue();
+    queue
       .list()
-      .then((rows) => {
-        if (!cancelled) setQueuedSeen(rows);
+      .then(async (rows) => {
+        if (cancelled) return;
+        setQueuedSeen(rows);
+        setSeenNotices(await queue.listNotices());
       })
       .catch(() => undefined);
     return () => {
@@ -134,22 +141,24 @@ export default function DrawingViewerScreen() {
         if (!cancelled) {
           setOpenedLocal(true);
           setQueuedSeen(await queue.list());
+          setSeenNotices(await queue.listNotices());
         }
         return;
       }
       try {
-        await flushDrawingSeenQueue(queue, {
-          recordOpen: (id) => repo.recordDrawingOpen(id),
-          confirm: (id) => repo.confirmDrawingSeen(id),
-        });
+        await flushQueuedDrawingSeen();
         await repo.recordDrawingOpen(drawing!.id);
         if (cancelled) return;
         setOpenedLocal(true);
         setProof(await repo.myDrawingProof(drawing!.id));
         setQueuedSeen(await queue.list());
+        setSeenNotices(await queue.listNotices());
       } catch (err) {
         const code = err instanceof Error ? err.message : '';
-        if (code === 'not_current' || code === 'not_authorized') return;
+        if (code === 'not_current' || code === 'not_authorized') {
+          if (!cancelled) setSeenNotices(await queue.listNotices());
+          return;
+        }
         await queue.put({
           id: queueId('open', drawing!.id, drawing!.revision),
           kind: 'open',
@@ -161,6 +170,7 @@ export default function DrawingViewerScreen() {
         if (!cancelled) {
           setOpenedLocal(true);
           setQueuedSeen(await queue.list());
+          setSeenNotices(await queue.listNotices());
         }
       }
     }
@@ -192,6 +202,7 @@ export default function DrawingViewerScreen() {
     }
     setConfirming(true);
     setSeenNote('');
+    const tappedAt = new Date().toISOString();
     const queue = getDrawingSeenQueue();
     try {
       const online = await deviceIsOnline();
@@ -200,7 +211,7 @@ export default function DrawingViewerScreen() {
           drawingId: drawing.id,
           siteId: drawing.site_id,
           revision: drawing.revision,
-          at: new Date().toISOString(),
+          at: tappedAt,
           opened: true,
         });
         if (result === 'not_opened') {
@@ -211,14 +222,12 @@ export default function DrawingViewerScreen() {
         setSeenNote(SAVED_ON_PHONE);
         return;
       }
-      await flushDrawingSeenQueue(queue, {
-        recordOpen: (id) => repo.recordDrawingOpen(id),
-        confirm: (id) => repo.confirmDrawingSeen(id),
-      });
+      await flushQueuedDrawingSeen();
       if (!proof?.opened) await repo.recordDrawingOpen(drawing.id);
-      await repo.confirmDrawingSeen(drawing.id);
+      await repo.confirmDrawingSeen(drawing.id, tappedAt);
       setProof(await repo.myDrawingProof(drawing.id));
       setQueuedSeen(await queue.list());
+      setSeenNotices(await queue.listNotices());
       if (manage) setRoster(await repo.drawingSeenRoster(drawing.id));
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
@@ -226,11 +235,27 @@ export default function DrawingViewerScreen() {
         setSeenNote('Open the sheet first.');
         return;
       }
+      if (isDroppedSeenCode(code)) {
+        const currentRevision =
+          code === 'not_current'
+            ? await currentRevisionAfter({ drawingId: drawing.id, siteId: drawing.site_id })
+            : null;
+        await rememberRejectedTap(queue, {
+          drawingId: drawing.id,
+          siteId: drawing.site_id,
+          revision: drawing.revision,
+          code,
+          currentRevision,
+        });
+        setSeenNotices(await queue.listNotices());
+        setQueuedSeen(await queue.list());
+        return;
+      }
       const result = await queueSeenTap(queue, {
         drawingId: drawing.id,
         siteId: drawing.site_id,
         revision: drawing.revision,
-        at: new Date().toISOString(),
+        at: tappedAt,
         opened: openedLocal || Boolean(proof?.opened),
       });
       if (result === 'not_opened') {
@@ -313,6 +338,11 @@ export default function DrawingViewerScreen() {
         {drawing?.is_current && proof?.assigned && !proof.seen_at && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <NewRevBadge sheet={sheetLabel(drawing)} revision={drawing.revision} />
         ) : null}
+        {seenNotices
+          .filter((notice) => notice.drawingId === drawing?.id || notice.siteId === drawing?.site_id)
+          .map((notice) => (
+            <SeenRejectNotice key={notice.id} message={notice.message} />
+          ))}
         {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <View
             accessibilityRole="text"

@@ -137,7 +137,7 @@ export type SitePackRepo = {
   drawingSeenRoster(drawingId: string): Promise<DrawingRoster>;
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;
-  confirmDrawingSeen(drawingId: string): Promise<{ seenAt: string }>;
+  confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
 };
 
 export function canManageSite(role: Role): boolean {

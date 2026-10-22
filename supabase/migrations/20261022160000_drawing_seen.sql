@@ -33,7 +33,8 @@ create table public.drawing_seen (
   site_id uuid not null references public.sites (id) on delete cascade,
   person_id uuid not null references public.people (id) on delete cascade,
   revision text not null,
-  seen_at timestamptz not null default now(),
+  seen_at timestamptz not null,
+  received_at timestamptz not null default now(),
   constraint drawing_seen_revision_len check (char_length(revision) between 1 and 120),
   constraint drawing_seen_once unique (drawing_id, person_id, revision)
 );
@@ -43,6 +44,12 @@ create index drawing_seen_drawing_idx on public.drawing_seen (drawing_id);
 
 comment on table public.drawing_seen is
   'A person tapped seen for this drawing revision. Superseded rows stay as history and do not count for the current revision.';
+
+comment on column public.drawing_seen.seen_at is
+  'Device time the person tapped seen, when that time is not more than 5 minutes ahead of the server and not before their recorded open of this revision. Otherwise this equals received_at.';
+
+comment on column public.drawing_seen.received_at is
+  'Server time the tap was stored.';
 
 create or replace function private.drawing_proof_site_matches()
 returns trigger
@@ -159,10 +166,15 @@ $fn$;
 
 -- ---------------------------------------------------------------------------
 -- Tap "I've seen rev X". Rejects a revision the caller has not opened.
--- The first tap's time is kept.
+-- p_seen_at is the device tap time. It is stored when it is not more than
+-- 5 minutes in the future and not before this person's open of this rev.
+-- Otherwise seen_at falls back to the server receive time. The first tap sticks.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.confirm_drawing_seen(p_drawing_id uuid)
+create or replace function public.confirm_drawing_seen(
+  p_drawing_id uuid,
+  p_seen_at timestamptz default null
+)
 returns jsonb
 language plpgsql
 security definer
@@ -171,6 +183,8 @@ as $fn$
 declare
   v_person uuid;
   v_drawing public.drawings;
+  v_opened timestamptz;
+  v_received timestamptz;
   v_seen timestamptz;
 begin
   v_person := private.drawing_seen_person();
@@ -192,18 +206,27 @@ begin
     raise exception 'not_current';
   end if;
 
-  if not exists (
-    select 1
-    from public.drawing_revision_opens o
-    where o.drawing_id = v_drawing.id
-      and o.person_id = v_person
-      and o.revision = v_drawing.revision
-  ) then
+  select o.opened_at into v_opened
+  from public.drawing_revision_opens o
+  where o.drawing_id = v_drawing.id
+    and o.person_id = v_person
+    and o.revision = v_drawing.revision;
+
+  if v_opened is null then
     raise exception 'not_opened';
   end if;
 
-  insert into public.drawing_seen (drawing_id, site_id, person_id, revision, seen_at)
-  values (v_drawing.id, v_drawing.site_id, v_person, v_drawing.revision, now())
+  v_received := now();
+  v_seen := v_received;
+  if p_seen_at is not null
+     and p_seen_at <= v_received + interval '5 minutes'
+     and p_seen_at >= v_opened
+  then
+    v_seen := p_seen_at;
+  end if;
+
+  insert into public.drawing_seen (drawing_id, site_id, person_id, revision, seen_at, received_at)
+  values (v_drawing.id, v_drawing.site_id, v_person, v_drawing.revision, v_seen, v_received)
   on conflict (drawing_id, person_id, revision) do nothing;
 
   select s.seen_at into v_seen
@@ -561,7 +584,7 @@ end;
 $fn$;
 
 revoke all on function public.record_drawing_open(uuid) from public, anon, authenticated;
-revoke all on function public.confirm_drawing_seen(uuid) from public, anon, authenticated;
+revoke all on function public.confirm_drawing_seen(uuid, timestamptz) from public, anon, authenticated;
 revoke all on function public.my_drawing_proof(uuid) from public, anon, authenticated;
 revoke all on function public.my_unseen_drawings() from public, anon, authenticated;
 revoke all on function public.site_drawing_seen(uuid) from public, anon, authenticated;
@@ -569,7 +592,7 @@ revoke all on function public.drawing_seen_roster(uuid) from public, anon, authe
 revoke all on function public.manager_drawing_gaps() from public, anon, authenticated;
 
 grant execute on function public.record_drawing_open(uuid) to authenticated;
-grant execute on function public.confirm_drawing_seen(uuid) to authenticated;
+grant execute on function public.confirm_drawing_seen(uuid, timestamptz) to authenticated;
 grant execute on function public.my_drawing_proof(uuid) to authenticated;
 grant execute on function public.my_unseen_drawings() to authenticated;
 grant execute on function public.site_drawing_seen(uuid) to authenticated;
