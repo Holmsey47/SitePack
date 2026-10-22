@@ -928,8 +928,12 @@ export const supabaseRepo: SitePackRepo = {
     await rpcJson('record_drawing_open', { p_drawing_id: drawingId });
   },
 
-  async confirmDrawingSeen(drawingId) {
-    return { seenAt: parseSeenAt(await rpcJson('confirm_drawing_seen', { p_drawing_id: drawingId })) };
+  async confirmDrawingSeen(drawingId, seenAt) {
+    return {
+      seenAt: parseSeenAt(
+        await rpcJson('confirm_drawing_seen', { p_drawing_id: drawingId, p_seen_at: seenAt ?? null })
+      ),
+    };
   },
 
   async listSnags(siteId) {

@@ -191,6 +191,15 @@ export function NewRevBadge({ sheet, revision }: { sheet: string; revision: stri
   );
 }
 
+/** A queued seen tap the server refused. A label, not a control. */
+export function SeenRejectNotice({ message }: { message: string }) {
+  return (
+    <View style={styles.seenReject} accessibilityRole="text" accessibilityLabel={message}>
+      <Text style={styles.seenRejectText}>{message}</Text>
+    </View>
+  );
+}
+
 /** Owner or contracts manager count. Tap opens who has and has not seen it. */
 export function SeenCountChip({
   seen,
@@ -359,6 +368,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   newRevText: { color: theme.currentInk, fontSize: 15, fontWeight: '800' },
+  seenReject: {
+    minHeight: 48,
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: theme.surfaceAlt,
+    borderWidth: 2,
+    borderColor: theme.open,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 },
   seenChip: {
     minHeight: 48,
     minWidth: 48,

@@ -9,6 +9,7 @@ import {
   confirmSeen,
   newRevLabel,
   recordOpen,
+  resolveSeenAt,
   seenButtonLabel,
   seenCountLabel,
   siteUnseenLine,
@@ -24,6 +25,40 @@ const sheet = (id: string, revision: string, current: boolean): SeenSheet => ({
   sheet_number: 'A-101',
   revision,
   is_current: current,
+});
+
+test('a tap time is kept when it is after the open and within five minutes', () => {
+  const openedAt = '2026-10-22T09:00:00.000Z';
+  const receivedAt = '2026-10-22T12:00:00.000Z';
+  const tap = '2026-10-22T09:06:00.000Z';
+  assert.equal(resolveSeenAt(tap, openedAt, receivedAt), tap);
+  assert.equal(resolveSeenAt('2026-10-22T12:05:00.000Z', openedAt, receivedAt), '2026-10-22T12:05:00.000Z');
+  assert.equal(resolveSeenAt('2026-10-22T12:06:00.000Z', openedAt, receivedAt), receivedAt);
+  assert.equal(resolveSeenAt('2026-10-22T08:59:00.000Z', openedAt, receivedAt), receivedAt);
+  assert.equal(resolveSeenAt(null, openedAt, receivedAt), receivedAt);
+
+  const opens: ProofOpen[] = [];
+  const seen: ProofSeen[] = [];
+  recordOpen(opens, { drawing_id: 'b', site_id: 'site', person_id: 'amy', revision: 'B', opened_at: openedAt });
+  const kept = confirmSeen(opens, seen, {
+    drawing_id: 'b',
+    site_id: 'site',
+    person_id: 'amy',
+    revision: 'B',
+    seen_at: tap,
+    received_at: receivedAt,
+  });
+  assert.equal(kept.seen_at, tap);
+  assert.equal(kept.received_at, receivedAt);
+  const again = confirmSeen(opens, seen, {
+    drawing_id: 'b',
+    site_id: 'site',
+    person_id: 'amy',
+    revision: 'B',
+    seen_at: '2026-10-22T12:06:00.000Z',
+    received_at: '2026-10-22T13:00:00.000Z',
+  });
+  assert.equal(again.seen_at, tap);
 });
 
 test('labels name the sheet and the revision', () => {
@@ -83,8 +118,9 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.gfRevC), /not_opened/);
   await assert.rejects(() => fixtureRepo.recordDrawingOpen(IDS.yard), /not_authorized/);
   await fixtureRepo.recordDrawingOpen(IDS.gfRevC);
-  const seen = await fixtureRepo.confirmDrawingSeen(IDS.gfRevC);
-  assert.ok(seen.seenAt);
+  const tap = new Date().toISOString();
+  const seen = await fixtureRepo.confirmDrawingSeen(IDS.gfRevC, tap);
+  assert.equal(seen.seenAt, tap);
   const amyUnseen = await fixtureRepo.listMyUnseenDrawings();
   assert.equal(
     amyUnseen.some((row) => row.drawing_id === IDS.gfRevC),
@@ -98,7 +134,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   assert.equal(roster.seen_count, 1);
   assert.equal(roster.assigned_count, 3);
   assert.equal(roster.seen[0]?.display_name, 'Amy Keane');
-  assert.equal(roster.seen[0]?.seen_at, seen.seenAt);
+  assert.equal(roster.seen[0]?.seen_at, tap);
   assert.equal(
     roster.unseen.some((person) => person.person_id === IDS.amy),
     false
@@ -140,6 +176,8 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.match(sql, /create policy drawing_seen_select/);
   assert.match(sql, /create policy drawing_revision_opens_select/);
   assert.match(sql, /not_opened/);
+  assert.match(sql, /received_at timestamptz not null/);
+  assert.match(sql, /interval '5 minutes'/);
   assert.match(sql, /set search_path = ''/);
   assert.match(sql, /private\.can_access_site/);
   assert.doesNotMatch(sql, /storage\.objects/);
@@ -148,6 +186,10 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.doesNotMatch(sql, /service_role/);
   const probe = fs.readFileSync('scripts/drawing-seen-rls.sql', 'utf8');
   assert.match(probe, /cannot confirm a revision that has not been opened/);
+  assert.match(probe, /device tap time is stored as seen_at/);
+  assert.match(probe, /more than 5 minutes in the future/);
+  assert.match(probe, /before the recorded open/);
+  assert.match(probe, /who-list shows the device tap time/);
   assert.match(probe, /replacing rev B with C resets the count/);
   assert.match(probe, /removed people drop out of N/);
   assert.match(probe, /firm Y cannot read firm X/);

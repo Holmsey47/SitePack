@@ -17,6 +17,8 @@
 \set drawb 'd1111111-1111-4111-8111-111111111111'
 \set drawc 'd1111111-1111-4111-8111-111111111112'
 \set drawy 'd2222222-2222-4222-8222-222222222221'
+\set drawd 'd1111111-1111-4111-8111-111111111113'
+\set drawe 'd1111111-1111-4111-8111-111111111114'
 
 begin;
 
@@ -124,7 +126,7 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  not has_function_privilege('anon', 'public.confirm_drawing_seen(uuid)', 'execute')
+  not has_function_privilege('anon', 'public.confirm_drawing_seen(uuid, timestamptz)', 'execute')
   and not has_function_privilege('anon', 'public.record_drawing_open(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.drawing_seen_roster(uuid)', 'execute')
   and not has_table_privilege('anon', 'public.drawing_seen', 'select')
@@ -213,13 +215,42 @@ select pg_temp.ok(
 );
 
 select public.record_drawing_open(:'drawb'::uuid);
-select public.confirm_drawing_seen(:'drawb'::uuid);
+select public.confirm_drawing_seen(
+  :'drawb'::uuid,
+  (
+    select o.opened_at + interval '1 minute'
+    from public.drawing_revision_opens o
+    where o.drawing_id = :'drawb'::uuid
+      and o.person_id = :'opa'::uuid
+  )
+);
 
 select pg_temp.ok(
   (select count(*) from public.drawing_seen) = 1
   and (select revision from public.drawing_seen) = 'B'
-  and (select person_id from public.drawing_seen) = :'opa'::uuid,
-  'operative sees their own confirmation on site A'
+  and (select person_id from public.drawing_seen) = :'opa'::uuid
+  and (select s.seen_at from public.drawing_seen s where s.person_id = :'opa'::uuid)
+    = (
+      select o.opened_at + interval '1 minute'
+      from public.drawing_revision_opens o
+      where o.drawing_id = :'drawb'::uuid
+        and o.person_id = :'opa'::uuid
+    )
+  and (select s.seen_at <> s.received_at from public.drawing_seen s where s.person_id = :'opa'::uuid),
+  'the device tap time is stored as seen_at and received_at stays the server time'
+);
+
+select public.confirm_drawing_seen(:'drawb'::uuid, now() + interval '6 minutes');
+
+select pg_temp.ok(
+  (select s.seen_at from public.drawing_seen s where s.person_id = :'opa'::uuid and s.drawing_id = :'drawb'::uuid)
+    = (
+      select o.opened_at + interval '1 minute'
+      from public.drawing_revision_opens o
+      where o.drawing_id = :'drawb'::uuid
+        and o.person_id = :'opa'::uuid
+    ),
+  'a later tap does not replace the first seen_at'
 );
 
 select pg_temp.ok(
@@ -346,7 +377,15 @@ select pg_temp.ok(
 );
 
 select public.record_drawing_open(:'drawc'::uuid);
-select public.confirm_drawing_seen(:'drawc'::uuid);
+select public.confirm_drawing_seen(
+  :'drawc'::uuid,
+  (
+    select o.opened_at + interval '1 minute'
+    from public.drawing_revision_opens o
+    where o.drawing_id = :'drawc'::uuid
+      and o.person_id = :'opa'::uuid
+  )
+);
 
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
@@ -362,9 +401,14 @@ select pg_temp.ok(
     select 1
     from jsonb_array_elements((public.drawing_seen_roster(:'drawc'::uuid))->'seen') person
     where person->>'person_id' = :'opa'
-      and person->>'seen_at' is not null
+      and (person->>'seen_at')::timestamptz = (
+        select o.opened_at + interval '1 minute'
+        from public.drawing_revision_opens o
+        where o.drawing_id = :'drawc'::uuid
+          and o.person_id = :'opa'::uuid
+      )
   ),
-  'a lad confirmation shows on the owner roster for the current rev'
+  'the who-list shows the device tap time for the current rev'
 );
 
 select pg_temp.ok(
@@ -383,5 +427,56 @@ select pg_temp.ok(
   and (select count(*) from public.drawing_seen where drawing_id = :'drawc'::uuid) = 1,
   'history rows remain after the transaction checks'
 );
+
+reset role;
+
+insert into public.drawings (id, site_id, title, sheet_number, revision, is_current, storage_path, uploaded_by)
+values
+  (:'drawd', :'sitea', 'Future tap', 'A-201', 'A', true, :'firmx' || '/' || :'sitea' || '/d.pdf', :'ownerx'),
+  (:'drawe', :'sitea', 'Early tap', 'A-202', 'A', true, :'firmx' || '/' || :'sitea' || '/e.pdf', :'ownerx');
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select public.record_drawing_open(:'drawd'::uuid);
+select public.confirm_drawing_seen(:'drawd'::uuid, now() + interval '6 minutes');
+
+select pg_temp.ok(
+  (
+    select s.seen_at = s.received_at
+    from public.drawing_seen s
+    where s.drawing_id = :'drawd'::uuid
+      and s.person_id = :'opa'::uuid
+  ),
+  'a tap more than 5 minutes in the future is stored as the server receive time'
+);
+
+select public.record_drawing_open(:'drawe'::uuid);
+select public.confirm_drawing_seen(:'drawe'::uuid, now() - interval '10 minutes');
+
+select pg_temp.ok(
+  (
+    select s.seen_at = s.received_at
+      and s.seen_at > now() - interval '1 minute'
+    from public.drawing_seen s
+    where s.drawing_id = :'drawe'::uuid
+      and s.person_id = :'opa'::uuid
+  ),
+  'a tap before the recorded open is stored as the server receive time'
+);
+
+select public.confirm_drawing_seen(:'drawe'::uuid, now() + interval '5 minutes');
+
+select pg_temp.ok(
+  (
+    select s.seen_at = s.received_at
+    from public.drawing_seen s
+    where s.drawing_id = :'drawe'::uuid
+      and s.person_id = :'opa'::uuid
+  ),
+  'a later acceptable tap does not replace the fallback time'
+);
+
+reset role;
 
 rollback;

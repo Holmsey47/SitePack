@@ -14,7 +14,28 @@ export type ProofSeen = {
   person_id: string;
   revision: string;
   seen_at: string;
+  received_at: string;
 };
+
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+/**
+ * Device tap time is kept when it is at or after the recorded open and at most
+ * 5 minutes ahead of the server receive time. Otherwise the receive time is used.
+ */
+export function resolveSeenAt(
+  tap: string | null | undefined,
+  openedAt: string,
+  receivedAt: string
+): string {
+  const tapMs = tap ? Date.parse(tap) : Number.NaN;
+  const openMs = Date.parse(openedAt);
+  const receivedMs = Date.parse(receivedAt);
+  if (!Number.isFinite(tapMs) || !Number.isFinite(openMs) || !Number.isFinite(receivedMs)) return receivedAt;
+  if (tapMs > receivedMs + FIVE_MINUTES_MS) return receivedAt;
+  if (tapMs < openMs) return receivedAt;
+  return tap as string;
+}
 
 export type UnseenDrawing = {
   site_id: string;
@@ -167,9 +188,9 @@ export function recordOpen(opens: ProofOpen[], row: Omit<ProofOpen, 'opened_at'>
 export function confirmSeen(
   opens: ProofOpen[],
   seen: ProofSeen[],
-  row: Omit<ProofSeen, 'seen_at'> & { seen_at?: string }
+  row: Omit<ProofSeen, 'seen_at' | 'received_at'> & { seen_at?: string | null; received_at?: string }
 ): ProofSeen {
-  const opened = opens.some(
+  const opened = opens.find(
     (item) => item.drawing_id === row.drawing_id && item.person_id === row.person_id && item.revision === row.revision
   );
   if (!opened) throw new Error('not_opened');
@@ -177,12 +198,14 @@ export function confirmSeen(
     (item) => item.drawing_id === row.drawing_id && item.person_id === row.person_id && item.revision === row.revision
   );
   if (existing) return existing;
+  const receivedAt = row.received_at ?? new Date().toISOString();
   const created: ProofSeen = {
     drawing_id: row.drawing_id,
     site_id: row.site_id,
     person_id: row.person_id,
     revision: row.revision,
-    seen_at: row.seen_at ?? new Date().toISOString(),
+    seen_at: resolveSeenAt(row.seen_at, opened.opened_at, receivedAt),
+    received_at: receivedAt,
   };
   seen.push(created);
   return created;
