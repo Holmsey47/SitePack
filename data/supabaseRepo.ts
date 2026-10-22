@@ -14,6 +14,7 @@ import type {
   VariationVersion,
 } from '@/data/variations';
 import { PHOTO_URL_SECONDS } from '@/data/variations';
+import type { CreateSnagInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagStatus } from '@/data/snags';
 import {
   parseDrawingProof,
   parseDrawingRoster,
@@ -879,7 +880,8 @@ export const supabaseRepo: SitePackRepo = {
 
   async uploadSitePhoto(params) {
     const supabase = getSupabase();
-    const storagePath = `${params.companyId}/${params.siteId}/variations/${newId()}`;
+    const folder = params.folder === 'snags' ? 'snags' : 'variations';
+    const storagePath = `${params.companyId}/${params.siteId}/${folder}/${newId()}`;
     const { error } = await supabase.storage.from('site-photos').upload(storagePath, params.bytes, {
       contentType: params.contentType,
       upsert: false,
@@ -929,4 +931,97 @@ export const supabaseRepo: SitePackRepo = {
   async confirmDrawingSeen(drawingId) {
     return { seenAt: parseSeenAt(await rpcJson('confirm_drawing_seen', { p_drawing_id: drawingId })) };
   },
+
+  async listSnags(siteId) {
+    return unwrap(await rpcJson('list_snags', { p_site_id: siteId }), null) as SnagList;
+  },
+
+  async snagReport(siteId) {
+    const data = unwrap(await rpcJson('snag_report', { p_site_id: siteId }), null) as SnagReport;
+    data.rows = await Promise.all(data.rows.map((row) => withSnagPhotoUrls(row)));
+    return data;
+  },
+
+  async getSnag(snagId) {
+    try {
+      const data = unwrap(await rpcJson('snag_detail', { p_snag_id: snagId }), null) as SnagDetail;
+      return withSnagPhotoUrls(data);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_authorized') return null;
+      throw err;
+    }
+  },
+
+  async createSnag(input: CreateSnagInput) {
+    const data = unwrap(
+      await rpcJson('create_snag', {
+        p_site_id: input.siteId,
+        p_note: input.note,
+        p_level_area: input.levelArea ?? null,
+        p_trade_label: input.tradeLabel,
+        p_raised_at: input.raisedAt,
+        p_photos: input.photos.map(photoPayload),
+      }),
+      null
+    ) as { snag_id: string; snag_seq: number };
+    return { snagId: data.snag_id, snagSeq: data.snag_seq };
+  },
+
+  async fixSnag(snagId, fixedAt, photos) {
+    unwrap(
+      await rpcJson('fix_snag', {
+        p_snag_id: snagId,
+        p_fixed_at: fixedAt,
+        p_photos: photos.map(photoPayload),
+      }),
+      null
+    );
+  },
+
+  async signOffSnagAsManager(snagId, signedAt) {
+    unwrap(await rpcJson('sign_off_snag_as_manager', { p_snag_id: snagId, p_signed_at: signedAt }), null);
+  },
+
+  async signOffSnagAsContractor(snagId, signedAt, input) {
+    unwrap(
+      await rpcJson('sign_off_snag_as_contractor', {
+        p_snag_id: snagId,
+        p_signed_at: signedAt,
+        p_signer_name: input.signerName,
+        p_signer_role: input.signerRole,
+        p_signer_company: input.signerCompany,
+        p_signature_png: input.signaturePng,
+      }),
+      null
+    );
+  },
+
+  async snagTradeLabels(siteId) {
+    const data = unwrap(await rpcJson('snag_trade_labels', { p_site_id: siteId }), null);
+    return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
+  },
 };
+
+function photoPayload(photo: { storagePath: string; contentType: string; fileSizeBytes: number }) {
+  return {
+    storage_path: photo.storagePath,
+    content_type: photo.contentType,
+    file_size_bytes: photo.fileSizeBytes,
+  };
+}
+
+async function withSnagPhotoUrls(detail: SnagDetail): Promise<SnagDetail> {
+  const supabase = getSupabase();
+  const photos: SnagPhoto[] = await Promise.all(
+    (detail.photos ?? []).map(async (photo) => {
+      const { data, error } = await supabase.storage.from('site-photos').createSignedUrl(photo.storage_path, PHOTO_URL_SECONDS);
+      if (error || !data?.signedUrl) return { ...photo, signed_url: null, signed_url_expires_at: null };
+      return {
+        ...photo,
+        signed_url: data.signedUrl,
+        signed_url_expires_at: new Date(Date.now() + PHOTO_URL_SECONDS * 1000).toISOString(),
+      };
+    })
+  );
+  return { ...detail, photos, status: detail.status as SnagStatus };
+}

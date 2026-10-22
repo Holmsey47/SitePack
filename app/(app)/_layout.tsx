@@ -19,6 +19,9 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/variations/index" options={{ title: 'Variations' }} />
       <Stack.Screen name="sites/[siteId]/variations/new" options={{ title: 'New variation' }} />
       <Stack.Screen name="sites/[siteId]/variations/[variationId]" options={{ title: 'Variation' }} />
+      <Stack.Screen name="sites/[siteId]/snags/index" options={{ title: 'Snags' }} />
+      <Stack.Screen name="sites/[siteId]/snags/new" options={{ title: 'Raise a snag' }} />
+      <Stack.Screen name="sites/[siteId]/snags/[snagId]" options={{ title: 'Snag' }} />
       <Stack.Screen name="sites/[siteId]/request" options={{ title: 'Request a drawing' }} />
       <Stack.Screen name="sites/[siteId]/upload" options={{ title: 'Upload' }} />
       <Stack.Screen name="sites/[siteId]/drawing/[drawingId]" options={{ title: 'Drawing' }} />

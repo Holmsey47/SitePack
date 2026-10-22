@@ -280,6 +280,7 @@ export default function SitePackScreen() {
 
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
       <Button label="Variations" variant="secondary" onPress={() => router.push(`/sites/${siteId}/variations`)} />
+      <Button label="Snags" variant="secondary" onPress={() => router.push(`/sites/${siteId}/snags`)} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
       {manage ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>

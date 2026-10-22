@@ -66,6 +66,21 @@ import {
   seedFixtureVariations,
   type FixtureVariationBucket,
 } from '@/data/fixtureVariations';
+import {
+  fixtureCreateSnag,
+  fixtureFixSnag,
+  fixtureListSnags,
+  fixtureSignOffContractor,
+  fixtureSignOffManager,
+  fixtureSnagDetail,
+  fixtureSnagPhotoUrl,
+  fixtureSnagReport,
+  fixtureSnagTrades,
+  fixtureUploadSnagPhoto,
+  seedFixtureSnags,
+  type FixtureSnagBucket,
+} from '@/data/fixtureSnags';
+import type { CreateSnagInput } from '@/data/snags';
 
 type GroupRecord = {
   id: string;
@@ -138,6 +153,7 @@ type Store = {
   companyName: string;
   codeSerial: number;
   variations: FixtureVariationBucket;
+  snags: FixtureSnagBucket;
   drawingOpens: ProofOpen[];
   drawingSeen: ProofSeen[];
 };
@@ -431,6 +447,14 @@ function seed(): Store {
       amyId: IDS.amy,
       cmId: IDS.cm,
     }),
+    snags: seedFixtureSnags({
+      companyId: IDS.company,
+      oakId: IDS.oak,
+      warehouseId: IDS.warehouse,
+      amyId: IDS.amy,
+      benId: IDS.ben,
+      cmId: IDS.cm,
+    }),
   };
 }
 
@@ -473,6 +497,15 @@ function meOrThrow(): Person {
   const person = store.people.find((p) => p.id === store.sessionPersonId);
   if (!person) throw new Error('not_authorized');
   return person;
+}
+
+function snagActor(person: Person) {
+  return {
+    id: person.id,
+    role: person.role,
+    company_id: person.company_id,
+    display_name: person.display_name ?? '',
+  };
 }
 
 function canAccessSite(person: Person, siteId: string): boolean {
@@ -1098,14 +1131,67 @@ export const fixtureRepo: SitePackRepo = {
 
   async uploadSitePhoto(params) {
     meOrThrow();
+    if (params.folder === 'snags') {
+      return fixtureUploadSnagPhoto(store.snags, params.companyId, params.siteId, params.bytes, params.contentType);
+    }
     return fixtureUploadPhoto(store.variations, params.companyId, params.siteId, params.bytes, params.contentType);
   },
 
   async signSitePhotoUrl(storagePath) {
     meOrThrow();
-    const signed = fixturePhotoUrl(store.variations, storagePath);
+    const signed = fixturePhotoUrl(store.variations, storagePath) ?? fixtureSnagPhotoUrl(store.snags, storagePath);
     if (!signed) throw new Error('not_found');
     return signed;
+  },
+
+  async listSnags(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureListSnags(store.snags, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
+  },
+
+  async snagReport(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return { rows: fixtureSnagReport(store.snags, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId)) };
+  },
+
+  async getSnag(snagId) {
+    const person = meOrThrow();
+    return fixtureSnagDetail(
+      store.snags,
+      snagActor(person),
+      snagId,
+      (id) => canAccessSite(person, id),
+      (id) => store.sites.find((row) => row.id === id)?.company_id
+    );
+  },
+
+  async createSnag(input: CreateSnagInput) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === input.siteId);
+    return fixtureCreateSnag(store.snags, snagActor(person), input, site?.company_id, canAccessSite(person, input.siteId));
+  },
+
+  async fixSnag(snagId, fixedAt, photos) {
+    const person = meOrThrow();
+    fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id));
+  },
+
+  async signOffSnagAsManager(snagId, signedAt) {
+    const person = meOrThrow();
+    fixtureSignOffManager(store.snags, snagActor(person), snagId, signedAt, store.companyName, (id) => canAccessSite(person, id));
+  },
+
+  async signOffSnagAsContractor(snagId, signedAt, input) {
+    const person = meOrThrow();
+    fixtureSignOffContractor(store.snags, snagActor(person), snagId, signedAt, input, (id) => canAccessSite(person, id));
+  },
+
+  async snagTradeLabels(siteId) {
+    const person = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureSnagTrades(store.people, store.assignments, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId));
   },
 
   async createJoinCode(input): Promise<JoinCodeCreated> {
