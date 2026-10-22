@@ -17,6 +17,7 @@ import { PHOTO_URL_SECONDS } from '@/data/variations';
 import {
   parseDrawingProof,
   parseDrawingRoster,
+  parseNotSeenPeople,
   parseSeenAt,
   parseSiteSeenGaps,
   parseSiteSeenSummary,
@@ -914,6 +915,10 @@ export const supabaseRepo: SitePackRepo = {
 
   async siteDrawingSeen(siteId) {
     return parseSiteSeenSummary(await rpcJson('site_drawing_seen', { p_site_id: siteId }));
+  },
+
+  async siteNotSeen(siteId) {
+    return parseNotSeenPeople(await rpcJson('site_not_seen', { p_site_id: siteId }));
   },
 
   async drawingSeenRoster(drawingId) {

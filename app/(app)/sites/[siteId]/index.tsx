@@ -1,6 +1,6 @@
-import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
+import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
+import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
@@ -201,30 +201,29 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
-      {seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
-        <Text
-          accessibilityRole="text"
-          style={{ color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 }}>
-          {siteUnseenLine(seenSummary.not_seen_by_everyone)}
-        </Text>
+      {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
+        <GlanceRow
+          label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
+          onPress={() => router.push(`/sites/${siteId}/not-seen`)}
+        />
       ) : null}
-      {unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision)).length > 0 ||
-      queuedSeen.some((row) => row.kind === 'confirm') ||
-      seenNotices.length > 0 ? (
-        <View style={{ gap: 8 }}>
-          {seenNotices.map((notice) => (
-            <SeenRejectNotice key={notice.id} message={notice.message} />
-          ))}
-          {unseen
-            .filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision))
-            .map((row) => (
-              <NewRevBadge key={row.drawing_id} sheet={row.sheet} revision={row.revision} />
+      {(() => {
+        const fresh = unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision));
+        const freshLine = manage ? null : newDrawingsLine(fresh.length);
+        const waiting = queuedSeen.some((row) => row.kind === 'confirm');
+        if (!freshLine && !waiting && seenNotices.length === 0) return null;
+        return (
+          <View style={{ gap: 8 }}>
+            {seenNotices.map((notice) => (
+              <SeenRejectNotice key={notice.id} message={notice.message} />
             ))}
-          {queuedSeen.some((row) => row.kind === 'confirm') ? (
-            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
-          ) : null}
-        </View>
-      ) : null}
+            {freshLine ? <GlanceRow label={freshLine} onPress={() => router.push(`/sites/${siteId}/new`)} /> : null}
+            {waiting ? (
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+            ) : null}
+          </View>
+        );
+      })()}
       {phoneRows.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>

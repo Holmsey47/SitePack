@@ -26,6 +26,7 @@ import type {
 import type {
   DrawingProof,
   DrawingRoster,
+  NotSeenPerson,
   SiteSeenGap,
   SiteSeenSummary,
   UnseenDrawing,
@@ -134,6 +135,7 @@ export type SitePackRepo = {
   listMyUnseenDrawings(): Promise<UnseenDrawing[]>;
   myDrawingProof(drawingId: string): Promise<DrawingProof>;
   siteDrawingSeen(siteId: string): Promise<SiteSeenSummary>;
+  siteNotSeen(siteId: string): Promise<NotSeenPerson[]>;
   drawingSeenRoster(drawingId: string): Promise<DrawingRoster>;
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;

@@ -22,6 +22,11 @@ create schema if not exists storage;
 grant usage on schema auth to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
 
+-- Hosted Supabase grants execute on new public functions to anon.
+-- Revoking from public alone still leaves that grant, so an anon probe
+-- fails unless the migration also revokes execute from anon.
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+
 create or replace function auth.uid()
 returns uuid
 language sql
