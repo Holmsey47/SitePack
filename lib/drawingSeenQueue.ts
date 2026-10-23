@@ -1,3 +1,5 @@
+import { currentSheetId } from '@/data/drawingSeen';
+
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 export type QueuedSeen = {
@@ -175,6 +177,20 @@ export function queueId(kind: QueuedSeen['kind'], drawingId: string, revision: s
 export function ownedQueue(rows: QueuedSeen[], ownerId: string | null | undefined): QueuedSeen[] {
   if (!ownerId) return [];
   return rows.filter((row) => row.ownerId === ownerId);
+}
+
+export async function dismissNoticesForOpenedSheet(
+  queue: DrawingSeenQueue,
+  ownerId: string,
+  openedDrawingId: string,
+  drawings: { id: string; supersedes_id: string | null; is_current: boolean }[]
+): Promise<void> {
+  for (const notice of await queue.listNotices()) {
+    if (notice.ownerId !== ownerId) continue;
+    if (currentSheetId(drawings, notice.drawingId) === openedDrawingId) {
+      await queue.removeNotice(notice.id);
+    }
+  }
 }
 
 export function noticesForOwner(notices: SeenNotice[], ownerId: string | null | undefined): SeenNotice[] {

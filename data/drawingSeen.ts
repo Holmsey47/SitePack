@@ -537,3 +537,27 @@ export function parseSeenAt(data: unknown): string {
   if (!seenAt) throw new Error('invalid_input');
   return seenAt;
 }
+
+export type SheetLink = {
+  id: string;
+  supersedes_id: string | null;
+  is_current: boolean;
+};
+
+/** The current sheet at the end of this revision chain, or the sheet itself when it is still current. */
+export function currentSheetId(drawings: SheetLink[], drawingId: string): string | null {
+  const start = drawings.find((row) => row.id === drawingId);
+  let cursor = drawingId;
+  let current: string | null = start?.is_current ? start.id : null;
+  for (let step = 0; step < 8; step += 1) {
+    const next = drawings.find((row) => row.supersedes_id === cursor);
+    if (!next) break;
+    cursor = next.id;
+    if (next.is_current) current = next.id;
+  }
+  return current;
+}
+
+export function replacedNoticePath(siteId: string, sheetId: string): `/sites/${string}/drawing/${string}` {
+  return `/sites/${siteId}/drawing/${sheetId}`;
+}
