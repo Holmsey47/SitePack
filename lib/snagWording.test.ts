@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { outstandingHeading, outstandingLine, snagConfirmation } from './snagWording.ts';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, snagConfirmation } from './snagWording.ts';
 
 const CONTRACTOR = 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of Northbuild.';
 const INTERNAL =
@@ -12,8 +12,13 @@ test('the sign-off sentence names the typed company', () => {
   assert.equal(snagConfirmation('  Northbuild  ', 'internal'), INTERNAL);
   assert.equal(
     snagConfirmation('', 'contractor'),
-    'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of [company].'
+    'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of your company.'
   );
+  assert.equal(snagConfirmation('', 'contractor').includes('Ashfield'), false);
+  assert.equal(snagConfirmation('Ashfield Finishes', 'internal').includes('Ashfield Finishes'), true);
+  assert.equal(contractorPadEnabled(''), false);
+  assert.equal(contractorPadEnabled('  '), false);
+  assert.equal(contractorPadEnabled('Ashfield Finishes'), true);
   assert.equal(outstandingHeading(0), 'No snags are outstanding.');
   assert.equal(outstandingHeading(2), 'Outstanding (not signed off): 2');
   assert.equal(outstandingLine(4, 'Socket box proud of the board', 'Second'), 'S-4 · Socket box proud of the board · Second');
@@ -32,9 +37,15 @@ test('the server stores the same sentence the screen shows', () => {
   );
   assert.match(sql, /, not sign-off by the main contractor\./);
   assert.match(wording, /I confirm the snags marked complete below have been put right to my satisfaction, on behalf of \[Company\]\./);
-  assert.match(screen, /snagConfirmation\(/);
+  assert.doesNotMatch(sql, /your company/);
+  assert.match(screen, /snagConfirmation\(internalCompany, 'internal'\)/);
+  assert.match(screen, /snagConfirmation\(contractorCompany, 'contractor'\)/);
+  assert.match(screen, /Main contractor company/);
+  assert.match(screen, /disabled=\{!contractorPadEnabled\(contractorCompany\)\}/);
   assert.match(screen, /outstandingHeading\(/);
-  assert.match(screen, /disabled=\{!company\.trim\(\)\}/);
+  const signerAt = screen.indexOf('nativeID="signer-block"');
+  const outstandingAt = screen.indexOf('nativeID="outstanding-snags"');
+  assert.ok(signerAt > 0 && outstandingAt > signerAt);
   assert.match(pdf, /SNAG_SIGN_OFF_DISCLAIMER/);
   assert.match(pdf, /Internal check/);
   assert.doesNotMatch(pdf, /snagConfirmation\(/);

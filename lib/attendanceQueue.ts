@@ -1,3 +1,6 @@
+import { rpcErrorCode } from '@/data/repo';
+import { snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
+
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 /** Wait this long, times the attempt count, before a failed tap is sent again. */
@@ -46,11 +49,44 @@ export function isDroppedAttendanceCode(code: string): boolean {
   return DROP.has(code);
 }
 
-export function refusedTapNotice(action: QueuedTap['action'], code: string): string {
+export function refusedTapNotice(action: QueuedTap['action'], code: string, detail?: string): string {
   if (code === 'not_signed_in') return 'Sign out was not saved. You were already signed out.';
-  if (code === 'already_signed_in') return 'Sign in was not saved. You are already signed in.';
+  if (code === 'already_signed_in') {
+    return detail
+      ? `Sign in was not saved. You are still signed in at ${detail}.`
+      : 'Sign in was not saved. You are already signed in.';
+  }
   if (action === 'out') return 'Sign out was not saved.';
   return 'Sign in was not saved.';
+}
+
+/**
+ * Retry a dropped connection, a timeout, 408, 429, and 5xx.
+ * Known business codes and other 4xx (auth, validation) are permanent.
+ * An unexpected error still retries.
+ */
+function knownBusiness(code: string): boolean {
+  return rpcErrorCode(code) === code;
+}
+
+/** Network, timeout, 408, 429, and 5xx retry. Known business codes and other 4xx do not. */
+export function isRetryableAttendanceFailure(err: unknown): boolean {
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'network') return true;
+  if (failure.kind === 'http') {
+    return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
+  }
+  return !knownBusiness(failure.code);
+}
+
+function failureOf(failure: SnagFailure): { code: string; detail?: string } {
+  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail };
+  if (failure.kind === 'http') return { code: String(failure.status) };
+  return { code: failure.message };
+}
+
+function shiftKey(item: QueuedTap): string {
+  return `${item.userId}\n${item.siteId}`;
 }
 
 function copyTap(item: QueuedTap): QueuedTap {
@@ -228,20 +264,17 @@ export function stateAfterQueue(server: 'in' | 'out', queued: QueuedTap[]): 'in'
   return state;
 }
 
-function errorCode(err: unknown): string {
-  return err instanceof Error ? err.message : '';
-}
-
 export async function rememberRefusedTap(
   queue: AttendanceQueueStore,
   item: QueuedTap,
-  code: string
+  code: string,
+  detail?: string
 ): Promise<AttendanceNotice> {
   const notice: AttendanceNotice = {
     id: `reject:${item.localId}`,
     userId: item.userId,
     siteId: item.siteId,
-    message: refusedTapNotice(item.action, code),
+    message: refusedTapNotice(item.action, code, detail),
   };
   await queue.putNotice(notice);
   return notice;
@@ -257,19 +290,25 @@ export async function flushAttendanceQueue(
   send: (item: QueuedTap) => Promise<void>
 ): Promise<AttendanceNotice[]> {
   const created: AttendanceNotice[] = [];
+  const waiting = new Set<string>();
   for (const item of orderedTaps(await queue.list())) {
     if (item.userId !== userId) {
       await queue.remove(item.localId);
       continue;
     }
-    if (item.retryAt && Date.parse(item.retryAt) > Date.now()) continue;
+    const key = shiftKey(item);
+    if (waiting.has(key)) continue;
+    if (item.retryAt && Date.parse(item.retryAt) > Date.now()) {
+      waiting.add(key);
+      continue;
+    }
     try {
       await send(item);
       await queue.remove(item.localId);
     } catch (err) {
-      const code = errorCode(err);
-      if (DROP.has(code)) {
-        created.push(await rememberRefusedTap(queue, item, code));
+      const failure = failureOf(snagFailureFrom(err));
+      if (!isRetryableAttendanceFailure(err)) {
+        created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail));
         await queue.remove(item.localId);
         continue;
       }
@@ -279,6 +318,7 @@ export async function flushAttendanceQueue(
         attempts,
         retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
       });
+      waiting.add(key);
     }
   }
   return created;
@@ -292,14 +332,16 @@ export async function persistThenSendAttendance(
 ): Promise<'sent' | 'queued' | 'refused'> {
   await queue.put(item);
   if (!online) return 'queued';
+  const ahead = orderedTaps(await queue.list()).filter((row) => row.userId === item.userId && row.siteId === item.siteId);
+  if (ahead[0]?.localId !== item.localId) return 'queued';
   try {
     await send(item);
     await queue.remove(item.localId);
     return 'sent';
   } catch (err) {
-    const code = errorCode(err);
-    if (DROP.has(code)) {
-      await rememberRefusedTap(queue, item, code);
+    const failure = failureOf(snagFailureFrom(err));
+    if (!isRetryableAttendanceFailure(err)) {
+      await rememberRefusedTap(queue, item, failure.code, failure.detail);
       await queue.remove(item.localId);
       return 'refused';
     }

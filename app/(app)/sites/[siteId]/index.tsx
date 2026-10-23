@@ -9,7 +9,7 @@ import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
-import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
 import { formatDate, formatWhen } from '@/lib/format';
@@ -269,7 +269,15 @@ export default function SitePackScreen() {
         return (
           <View style={{ gap: 8 }}>
             {seenNotices.map((notice) => (
-              <SeenRejectNotice key={notice.id} message={notice.message} />
+              <SeenRejectNotice
+                key={notice.id}
+                message={notice.message}
+                onPress={() => {
+                  void openReplacedNotice(notice).then((path) => {
+                    if (path) router.push(path);
+                  });
+                }}
+              />
             ))}
             {freshLine ? <GlanceRow label={freshLine} onPress={() => router.push(`/sites/${siteId}/new`)} /> : null}
             {waiting ? (

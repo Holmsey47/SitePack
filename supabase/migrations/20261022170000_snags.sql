@@ -35,6 +35,7 @@ create table public.snags (
   fixed_by_name text,
   fixed_at timestamptz,
   fixed_received_at timestamptz,
+  fixed_client_id uuid,
   created_at timestamptz not null default now(),
   unique (site_id, snag_seq),
   constraint snags_note_len check (char_length(btrim(note)) between 1 and 2000),
@@ -657,7 +658,7 @@ $fn$;
 
 revoke all on function private.snag_signoff_json(uuid) from public, anon, authenticated;
 
--- One immutable sign-off of every snag that is Fixed right now.
+-- One immutable sign-off of the snag ids the signer was shown.
 -- A retry of the same id returns the stored row. A later fix needs a new id.
 create or replace function private.apply_snag_signoff(
   p_signoff_id uuid,
@@ -667,7 +668,9 @@ create or replace function private.apply_snag_signoff(
   p_signer_name text,
   p_signer_role text,
   p_company text,
-  p_signature_png text
+  p_signature_png text,
+  p_covered_ids uuid[],
+  p_outstanding_ids uuid[]
 )
 returns jsonb
 language plpgsql
@@ -684,6 +687,10 @@ declare
   v_outstanding jsonb;
   v_item jsonb;
   v_snag_id uuid;
+  v_fixed_ids uuid[];
+  v_open_ids uuid[];
+  v_given_fixed uuid[];
+  v_given_open uuid[];
 begin
   if p_signoff_id is null or p_site_id is null or p_kind not in ('internal', 'contractor') then
     raise exception 'invalid_input';
@@ -709,9 +716,40 @@ begin
   from public.snags s
   where s.site_id = p_site_id
     and s.company_id = v_actor.company_id
-    and s.status = 'Fixed'
+    and s.status in ('Fixed', 'Open')
   order by s.snag_seq
   for update;
+
+  select coalesce(array_agg(s.id order by s.id), '{}'::uuid[])
+  into v_fixed_ids
+  from public.snags s
+  where s.site_id = p_site_id
+    and s.company_id = v_actor.company_id
+    and s.status = 'Fixed';
+
+  select coalesce(array_agg(s.id order by s.id), '{}'::uuid[])
+  into v_open_ids
+  from public.snags s
+  where s.site_id = p_site_id
+    and s.company_id = v_actor.company_id
+    and s.status = 'Open';
+
+  select coalesce(array_agg(distinct x order by x), '{}'::uuid[])
+  into v_given_fixed
+  from unnest(coalesce(p_covered_ids, '{}'::uuid[])) as x;
+
+  select coalesce(array_agg(distinct x order by x), '{}'::uuid[])
+  into v_given_open
+  from unnest(coalesce(p_outstanding_ids, '{}'::uuid[])) as x;
+
+  if v_fixed_ids is distinct from v_given_fixed
+     or v_open_ids is distinct from v_given_open then
+    raise exception 'snag_list_changed';
+  end if;
+
+  if coalesce(array_length(v_fixed_ids, 1), 0) < 1 then
+    raise exception 'closed';
+  end if;
 
   select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
   into v_covered
@@ -731,9 +769,7 @@ begin
         ), '[]'::jsonb)
       ) as item
     from public.snags s
-    where s.site_id = p_site_id
-      and s.company_id = v_actor.company_id
-      and s.status = 'Fixed'
+    where s.id = any(v_fixed_ids)
   ) covered_rows;
 
   select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
@@ -748,14 +784,8 @@ begin
         'level_area', s.level_area
       ) as item
     from public.snags s
-    where s.site_id = p_site_id
-      and s.company_id = v_actor.company_id
-      and s.status = 'Open'
+    where s.id = any(v_open_ids)
   ) open_rows;
-
-  if jsonb_array_length(v_covered) < 1 then
-    raise exception 'closed';
-  end if;
 
   insert into public.snag_signoffs (
     id, site_id, company_id, kind, signer_name, signer_role, signer_company,
@@ -787,7 +817,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.apply_snag_signoff(uuid, uuid, timestamptz, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function private.apply_snag_signoff(uuid, uuid, timestamptz, text, text, text, text, text, uuid[], uuid[]) from public, anon, authenticated;
 
 create or replace function public.create_snag(
   p_id uuid,
@@ -824,7 +854,13 @@ begin
         'snag_seq', v_existing.snag_seq,
         'status', v_existing.status,
         'raised_at', v_existing.raised_at,
-        'raised_received_at', v_existing.raised_received_at
+        'raised_received_at', v_existing.raised_received_at,
+        'already_existed', true,
+        'photo_paths', coalesce((
+          select jsonb_agg(p.storage_path order by case p.kind when 'before' then 0 else 1 end, p.sort_order)
+          from public.snag_photos p
+          where p.snag_id = v_existing.id
+        ), '[]'::jsonb)
       );
     end if;
     raise exception 'not_authorized';
@@ -850,7 +886,13 @@ begin
     'snag_seq', v_seq,
     'status', 'Open',
     'raised_at', v_raised,
-    'raised_received_at', v_received
+    'raised_received_at', v_received,
+    'already_existed', false,
+    'photo_paths', coalesce((
+      select jsonb_agg(p.storage_path order by p.sort_order)
+      from public.snag_photos p
+      where p.snag_id = p_id
+    ), '[]'::jsonb)
   );
 end;
 $fn$;
@@ -858,7 +900,8 @@ $fn$;
 create or replace function public.fix_snag(
   p_snag_id uuid,
   p_fixed_at timestamptz,
-  p_photos jsonb
+  p_photos jsonb,
+  p_fix_id uuid default null
 )
 returns jsonb
 language plpgsql
@@ -871,15 +914,44 @@ declare
   v_fixed timestamptz;
   v_received timestamptz;
   v_name text;
+  v_same_paths boolean;
 begin
-  select * into v_row from public.snags where id = p_snag_id;
+  select * into v_row from public.snags where id = p_snag_id for update;
   if v_row.id is null then
     raise exception 'not_authorized';
   end if;
 
   select * into v_actor from private.snag_require_site(v_row.site_id);
 
-  if v_row.company_id <> v_actor.company_id or v_row.status <> 'Open' then
+  if v_row.company_id <> v_actor.company_id then
+    raise exception 'not_authorized';
+  end if;
+
+  -- A lost response retries the same client id, or the same after-photo paths.
+  if v_row.status in ('Fixed', 'Signed off') then
+    select (
+      select coalesce(jsonb_agg(p.storage_path order by p.sort_order), '[]'::jsonb)
+      from public.snag_photos p
+      where p.snag_id = v_row.id and p.kind = 'after'
+    ) = (
+      select coalesce(jsonb_agg(item ->> 'storage_path' order by ord), '[]'::jsonb)
+      from jsonb_array_elements(coalesce(p_photos, '[]'::jsonb)) with ordinality as t(item, ord)
+    )
+    into v_same_paths;
+
+    if (p_fix_id is not null and v_row.fixed_client_id = p_fix_id) or v_same_paths then
+      return jsonb_build_object(
+        'snag_id', v_row.id,
+        'status', v_row.status,
+        'fixed_at', v_row.fixed_at,
+        'fixed_received_at', v_row.fixed_received_at,
+        'already_fixed', true
+      );
+    end if;
+    raise exception 'snag_locked';
+  end if;
+
+  if v_row.status <> 'Open' then
     raise exception 'snag_locked';
   end if;
 
@@ -894,14 +966,16 @@ begin
       fixed_by = v_actor.person_id,
       fixed_by_name = v_name,
       fixed_at = v_fixed,
-      fixed_received_at = v_received
+      fixed_received_at = v_received,
+      fixed_client_id = p_fix_id
   where id = v_row.id;
 
   return jsonb_build_object(
     'snag_id', v_row.id,
     'status', 'Fixed',
     'fixed_at', v_fixed,
-    'fixed_received_at', v_received
+    'fixed_received_at', v_received,
+    'already_fixed', false
   );
 end;
 $fn$;
@@ -910,7 +984,9 @@ create or replace function public.sign_off_snags_internal(
   p_signoff_id uuid,
   p_site_id uuid,
   p_signed_at timestamptz,
-  p_company text
+  p_company text,
+  p_covered_ids uuid[],
+  p_outstanding_ids uuid[]
 )
 returns jsonb
 language plpgsql
@@ -934,7 +1010,9 @@ begin
     private.snag_person_label(v_actor.display_name),
     v_role,
     p_company,
-    null
+    null,
+    p_covered_ids,
+    p_outstanding_ids
   );
 end;
 $fn$;
@@ -946,7 +1024,9 @@ create or replace function public.sign_off_snags_contractor(
   p_signer_name text,
   p_signer_role text,
   p_company text,
-  p_signature_png text
+  p_signature_png text,
+  p_covered_ids uuid[],
+  p_outstanding_ids uuid[]
 )
 returns jsonb
 language plpgsql
@@ -975,7 +1055,9 @@ begin
     v_name,
     v_role,
     p_company,
-    p_signature_png
+    p_signature_png,
+    p_covered_ids,
+    p_outstanding_ids
   );
 end;
 $fn$;
@@ -1182,18 +1264,18 @@ end;
 $fn$;
 
 revoke all on function public.create_snag(uuid, uuid, text, text, text, timestamptz, jsonb) from public, anon;
-revoke all on function public.fix_snag(uuid, timestamptz, jsonb) from public, anon;
-revoke all on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text) from public, anon;
-revoke all on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text) from public, anon;
+revoke all on function public.fix_snag(uuid, timestamptz, jsonb, uuid) from public, anon;
+revoke all on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text, uuid[], uuid[]) from public, anon;
+revoke all on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text, uuid[], uuid[]) from public, anon;
 revoke all on function public.list_snags(uuid) from public, anon;
 revoke all on function public.snag_detail(uuid) from public, anon;
 revoke all on function public.snag_report(uuid) from public, anon;
 revoke all on function public.snag_trade_labels(uuid) from public, anon;
 
 grant execute on function public.create_snag(uuid, uuid, text, text, text, timestamptz, jsonb) to authenticated;
-grant execute on function public.fix_snag(uuid, timestamptz, jsonb) to authenticated;
-grant execute on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text) to authenticated;
-grant execute on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text) to authenticated;
+grant execute on function public.fix_snag(uuid, timestamptz, jsonb, uuid) to authenticated;
+grant execute on function public.sign_off_snags_internal(uuid, uuid, timestamptz, text, uuid[], uuid[]) to authenticated;
+grant execute on function public.sign_off_snags_contractor(uuid, uuid, timestamptz, text, text, text, text, uuid[], uuid[]) to authenticated;
 grant execute on function public.list_snags(uuid) to authenticated;
 grant execute on function public.snag_detail(uuid) to authenticated;
 grant execute on function public.snag_report(uuid) to authenticated;

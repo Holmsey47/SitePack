@@ -13,7 +13,7 @@ import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
-import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
 import { formatWhen } from '@/lib/format';
@@ -230,6 +230,7 @@ export default function SitesScreen() {
                 notes={seenNotes(site.id)}
                 onTeam={() => router.push(`/sites/${site.id}/not-seen`)}
                 onNew={() => router.push(`/sites/${site.id}/new`)}
+                onNotice={(notice) => void followNotice(router, notice)}
               />
               {talkNotes(site.id)}
             </Card>
@@ -312,6 +313,7 @@ export default function SitesScreen() {
               notes={seenNotes(row.site_id)}
               onTeam={() => router.push(`/sites/${row.site_id}/not-seen`)}
               onNew={() => router.push(`/sites/${row.site_id}/new`)}
+              onNotice={(notice) => void followNotice(router, notice)}
             />
             {talkNotes(row.site_id)}
           </Card>
@@ -335,16 +337,24 @@ export default function SitesScreen() {
   );
 }
 
+function followNotice(router: { push(path: `/sites/${string}/drawing/${string}`): void }, notice: SeenNotice) {
+  void openReplacedNotice(notice).then((path) => {
+    if (path) router.push(path);
+  });
+}
+
 function SeenNotes({
   manager,
   notes,
   onTeam,
   onNew,
+  onNotice,
 }: {
   manager: boolean;
   notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
   onTeam: () => void;
   onNew: () => void;
+  onNotice: (notice: SeenNotice) => void;
 }) {
   const fresh = manager ? null : newDrawingsLine(notes.badges.length);
   if (!fresh && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
@@ -352,7 +362,7 @@ function SeenNotes({
     <View style={{ gap: 8 }}>
       {notes.line ? <GlanceRow label={notes.line} onPress={onTeam} /> : null}
       {notes.rejections.map((notice) => (
-        <SeenRejectNotice key={notice.id} message={notice.message} />
+        <SeenRejectNotice key={notice.id} message={notice.message} onPress={() => onNotice(notice)} />
       ))}
       {fresh ? <GlanceRow label={fresh} onPress={onNew} /> : null}
       {notes.waiting ? (

@@ -13,7 +13,7 @@ import {
   variationPdfFilename,
 } from './variations.ts';
 import { formatUkDateTime } from '../lib/format.ts';
-import { variationConfirmation } from '../lib/variationWording.ts';
+import { variationConfirmation, variationListAmount, variationScreenAmount } from '../lib/variationWording.ts';
 
 test('pounds parse and the UK clock', () => {
   assert.equal(parsePounds(''), null);
@@ -42,7 +42,7 @@ test('an operative cannot set the amount, another site stays hidden, and a signa
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   const oak = await fixtureRepo.listVariations(IDS.oak);
   assert.equal(oak.open_count, 1);
-  assert.equal(oak.signed_count, 1);
+  assert.equal(oak.signed_count, 2);
   await assert.rejects(() => fixtureRepo.listVariations(IDS.warehouse), /not_authorized/);
   await assert.rejects(
     () =>
@@ -106,11 +106,61 @@ test('an operative read hides the pound amount and a mismatched sign-off is reje
   assert.equal(hidden?.current.value_pence, null);
   assert.equal(hidden?.current.signature?.shown_value_pence, null);
   assert.equal(hidden?.current.signature?.confirmation_text, variationConfirmation('Northbuild', true));
+  assert.equal(mastic.signed_without_price, false);
+  assert.equal(mastic.shown_value_pence, null);
+  const operativePriced = variationScreenAmount({
+    seeValue: false,
+    companyName: 'Ashfield Finishes',
+    status: hidden?.current.status ?? 'Draft',
+    valuePence: hidden?.current.value_pence ?? null,
+    confirmationText: hidden?.current.signature?.confirmation_text ?? null,
+    shownValuePence: hidden?.current.signature?.shown_value_pence ?? null,
+    hasSignature: hidden?.current.signature != null,
+  });
+  assert.equal(operativePriced.line, 'Amount: agreed with the office. Ask Ashfield Finishes for the priced copy.');
+  assert.equal(operativePriced.hint, null);
+  assert.equal(operativePriced.line?.includes('£'), false);
+  assert.equal(variationListAmount(mastic, false), null);
 
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
   const visible = await fixtureRepo.getVariation(mastic.variation_id);
   assert.equal(visible?.current.value_pence, 18000);
   assert.equal(visible?.current.signature?.shown_value_pence, 18000);
+  const agreed = variationScreenAmount({
+    seeValue: true,
+    companyName: 'Ashfield Finishes',
+    status: visible?.current.status ?? 'Draft',
+    valuePence: visible?.current.value_pence ?? null,
+    confirmationText: visible?.current.signature?.confirmation_text ?? null,
+    shownValuePence: visible?.current.signature?.shown_value_pence ?? null,
+    hasSignature: visible?.current.signature != null,
+  });
+  assert.equal(agreed.line, 'Amount · £180.00 + VAT');
+  assert.equal(agreed.hint, null);
+  assert.equal(agreed.line?.includes('not yet agreed'), false);
+  const ownerList = await fixtureRepo.listVariations(IDS.oak);
+  const ownerMastic = ownerList.rows.find((row) => row.title === 'Additional mastic');
+  assert.ok(ownerMastic);
+  assert.equal(variationListAmount(ownerMastic, true), '£180.00 + VAT');
+  const soffit = ownerList.rows.find((row) => row.title === 'Extra angle beads to the soffit');
+  assert.ok(soffit);
+  assert.equal(soffit.value_pence, 14550);
+  assert.equal(soffit.shown_value_pence, null);
+  assert.equal(soffit.signed_without_price, true);
+  assert.equal(variationListAmount(soffit, true), '£145.50 · not agreed');
+  const unsigned = await fixtureRepo.getVariation(soffit.variation_id);
+  const notAgreed = variationScreenAmount({
+    seeValue: true,
+    companyName: 'Ashfield Finishes',
+    status: unsigned?.current.status ?? 'Draft',
+    valuePence: unsigned?.current.value_pence ?? null,
+    confirmationText: unsigned?.current.signature?.confirmation_text ?? null,
+    shownValuePence: unsigned?.current.signature?.shown_value_pence ?? null,
+    hasSignature: unsigned?.current.signature != null,
+  });
+  assert.equal(notAgreed.line, 'Amount · £145.50 + VAT, not yet agreed. Signed before a price was set.');
+  assert.equal(notAgreed.hint, 'To get it signed at this price: Edit as new version, then hand over.');
+  assert.equal(unsigned?.current.signature?.confirmation_text, variationConfirmation('Northbuild', false));
 
   const created = await fixtureRepo.createVariation({
     siteId: IDS.oak,
@@ -199,6 +249,11 @@ test('the migration is one file and names the RLS policies', () => {
   assert.match(sql, /site-photos/);
   assert.match(sql, /set search_path = ''/);
   assert.match(sql, /private\.can_access_site/);
+  assert.match(sql, /private\.variation_signed_without_price/);
+  assert.match(sql, /'shown_value_pence', private\.visible_shown_pence\(ver\.id\)/);
+  assert.match(sql, /'signed_without_price', private\.variation_signed_without_price\(ver\.id\)/);
+  assert.match(sql, /revoke all on function private\.variation_signed_without_price\(uuid\) from public, anon, authenticated/);
+  assert.match(sql, /grant execute on function private\.variation_signed_without_price\(uuid\) to authenticated/);
   assert.match(sql, /strpos\(v_path, '\.\.'\)/);
   assert.doesNotMatch(sql, /service_role/);
   const probe = fs.readFileSync('scripts/variations-rls.sql', 'utf8');
@@ -210,6 +265,10 @@ test('the migration is one file and names the RLS policies', () => {
   assert.match(probe, /operative list, detail and version json return a null pound amount/);
   assert.match(probe, /an operative cannot revise a signed variation/);
   assert.match(probe, /a sign-off rejects an amount that is not the stored value/);
+  assert.match(probe, /an operative list hides the snapshot and marks a sign-off with no price/);
+  assert.match(probe, /a same-company manager lists a signed variation whose snapshot is null/);
+  assert.match(probe, /an operative list of a priced sign-off has a null snapshot/);
+  assert.match(probe, /a manager in another company cannot read the pound amount/);
   const detail = fs.readFileSync('app/(app)/sites/[siteId]/variations/[variationId].tsx', 'utf8');
   assert.match(detail, /canSeeVariationValue/);
   assert.match(detail, /expectedPence: seeValue \? current\.value_pence : null/);
