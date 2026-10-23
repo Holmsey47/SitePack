@@ -102,7 +102,13 @@ export default function SnagsScreen() {
   async function signAgain(notice: SnagNotice) {
     await getSnagQueue().removeNotice(notice.id);
     setNotices((current) => current.filter((row) => row.id !== notice.id));
-    router.push(`/sites/${siteId}/snags/sign`);
+    const query = new URLSearchParams();
+    if (notice.signMode) query.set('signMode', notice.signMode);
+    if (notice.signerName) query.set('signerName', notice.signerName);
+    if (notice.signerRole) query.set('signerRole', notice.signerRole);
+    if (notice.signerCompany) query.set('signerCompany', notice.signerCompany);
+    const suffix = query.toString();
+    router.push(suffix ? `/sites/${siteId}/snags/sign?${suffix}` : `/sites/${siteId}/snags/sign`);
   }
 
   async function saveNoticePhotos(notice: SnagNotice) {

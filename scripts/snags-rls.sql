@@ -579,12 +579,12 @@ select pg_temp.ok(
           and signer_company = 'Northbuild Site'
           and signature_png is null
           and kind = 'internal'
-          and confirmation_text = 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
+          and confirmation_text = 'I''ve checked the 2 snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
           and signed_at = now() - interval '20 minutes'
           and signed_received_at = now()
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'a'))
-  and (select confirmation_text = 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
+  and (select confirmation_text = 'I''ve checked the 2 snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
           and jsonb_array_length(covered) = 2
           and covered->0->>'status' = 'Fixed'
           and covered->0->>'snag_id' = (select v->>'snag_id' from probe where k = 'a')
@@ -723,11 +723,11 @@ select pg_temp.ok(
           and signer_role = 'Site manager'
           and signer_company = 'Northbuild'
           and kind = 'contractor'
-          and confirmation_text = 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of Northbuild.'
+          and confirmation_text = 'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and left(signature_png, 22) = 'data:image/png;base64,'
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'b'))
-  and (select confirmation_text = 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of Northbuild.'
+  and (select confirmation_text = 'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and jsonb_array_length(outstanding) = 0
        from public.snag_signoffs
        where id = 'c3333333-3333-4333-8333-333333333333'::uuid),

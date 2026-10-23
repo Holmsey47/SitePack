@@ -299,7 +299,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
     }
     if (row.signature) {
       const signoffId = newId();
-      const confirmation = snagConfirmation(row.signature.company, row.signature.kind);
+      const confirmation = snagConfirmation(row.signature.company, row.signature.kind, 1);
       const photoPaths = bucket.photos.filter((photo) => photo.snag_id === id).map((photo) => photo.storage_path);
       bucket.signoffs.push({
         id: signoffId,
@@ -626,7 +626,7 @@ export function fixtureSignOffSnags(
   if (fixed.length < 1) throw new Error('closed');
   const signedAt = deviceTime(input.signedAt);
   const received = new Date().toISOString();
-  const confirmation = snagConfirmation(company, kind);
+  const confirmation = snagConfirmation(company, kind, fixed.length);
   const covered = fixed.map((row) => snapshot(bucket, row, 'Fixed'));
   const outstanding = open.map((row) => ({
     snag_id: row.id,

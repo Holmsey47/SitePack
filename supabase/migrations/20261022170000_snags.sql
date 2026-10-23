@@ -621,7 +621,7 @@ revoke all on function private.next_snag_seq(uuid) from public, anon, authentica
 -- Writes
 -- ---------------------------------------------------------------------------
 
-create or replace function private.snag_confirmation(p_kind text, p_company text)
+create or replace function private.snag_confirmation(p_kind text, p_company text, p_count integer)
 returns text
 language plpgsql
 immutable
@@ -630,21 +630,21 @@ as $fn$
 declare
   v_company text;
 begin
-  v_company := btrim(coalesce(p_company, ''));
-  if char_length(v_company) < 1 or char_length(v_company) > 120 then
+  v_company := btrim(replace(coalesce(p_company, ''), '£', ''));
+  if p_count is null or p_count < 1 or char_length(v_company) < 1 or char_length(v_company) > 120 then
     raise exception 'invalid_input';
   end if;
   if p_kind = 'contractor' then
-    return 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of ' || v_company || '.';
+    return 'I confirm the ' || p_count::text || ' snags marked complete above have been put right to my satisfaction, on behalf of ' || v_company || '. Snags listed as outstanding are not signed off.';
   end if;
   if p_kind = 'internal' then
-    return 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
+    return 'I''ve checked the ' || p_count::text || ' snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
   end if;
   raise exception 'invalid_input';
 end;
 $fn$;
 
-revoke all on function private.snag_confirmation(text, text) from public, anon, authenticated;
+revoke all on function private.snag_confirmation(text, text, integer) from public, anon, authenticated;
 
 create or replace function private.guard_snag_signoff()
 returns trigger
@@ -746,7 +746,6 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  v_confirmation := private.snag_confirmation(p_kind, p_company);
   v_signed := private.snag_device_time(p_signed_at);
   v_received := now();
 
@@ -788,6 +787,8 @@ begin
   if coalesce(array_length(v_fixed_ids, 1), 0) < 1 then
     raise exception 'closed';
   end if;
+
+  v_confirmation := private.snag_confirmation(p_kind, p_company, coalesce(array_length(v_fixed_ids, 1), 0));
 
   select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
   into v_covered

@@ -120,7 +120,7 @@ test('a lad marks a snag fixed and a contracts manager signs off only the ones p
     company: 'Northbuild',
     ...shownIds((await fixtureRepo.listSnags(IDS.oak)).rows),
   });
-  assert.equal(first.confirmation_text, snagConfirmation('Northbuild', 'internal'));
+  assert.equal(first.confirmation_text, snagConfirmation('Northbuild', 'internal', first.covered.length));
   assert.equal(first.signer_company, 'Northbuild');
   assert.equal(first.covered.length, fixedCount + 1);
   assert.equal(first.outstanding.length, openCount - 1);
