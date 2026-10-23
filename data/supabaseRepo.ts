@@ -16,6 +16,20 @@ import type {
 import { PHOTO_URL_SECONDS } from '@/data/variations';
 import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagSignoff, SnagStatus } from '@/data/snags';
 import {
+  TALK_URL_SECONDS,
+  talkStoragePath,
+  type AskTalkInput,
+  type CreateTalkInput,
+  type PresenterSignInput,
+  type ReviseTalkInput,
+  type SignTalkInput,
+  type SignTalkResult,
+  type TalkBadge,
+  type TalkDetail,
+  type TalkListItem,
+  type TalkVersionRef,
+} from '@/data/talks';
+import {
   parseDrawingProof,
   parseDrawingRoster,
   parseNotSeenPeople,
@@ -66,6 +80,11 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
+  return throwSnagRpc(await getSupabase().rpc(name, args));
+}
+
+/** Talk writes use the same typed error as snags. Status stays on the postgrest-js response. */
+async function rpcTalk(name: string, args: Record<string, unknown>) {
   return throwSnagRpc(await getSupabase().rpc(name, args));
 }
 
@@ -1055,7 +1074,133 @@ export const supabaseRepo: SitePackRepo = {
     const data = unwrap(await rpcJson('snag_trade_labels', { p_site_id: siteId }), null);
     return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
   },
+
+  async createTalk(input: CreateTalkInput) {
+    return (await rpcJson('create_site_talk', {
+      p_site_id: input.siteId,
+      p_kind: input.kind,
+      p_delivery: input.delivery,
+      p_title: input.title,
+      p_body: input.body,
+      p_pdf_path: input.pdfPath,
+      p_audience: input.audience,
+      p_person_ids: input.personIds,
+      p_presenter_person_id: input.presenterPersonId,
+      p_presenter_role: input.presenterRole,
+      p_presented_at: input.presentedAt,
+    })) as TalkVersionRef;
+  },
+
+  async reviseTalk(talkId, input: ReviseTalkInput) {
+    return (await rpcJson('revise_site_talk', {
+      p_talk_id: talkId,
+      p_title: input.title,
+      p_body: input.body,
+      p_pdf_path: input.pdfPath,
+    })) as TalkVersionRef;
+  },
+
+  async signTalk(input: SignTalkInput) {
+    return (await rpcTalk('sign_site_talk', {
+      p_talk_id: input.talkId,
+      p_version_id: input.versionId,
+      p_person_id: input.personId,
+      p_understood: true,
+      p_signature_png: input.signaturePng,
+      p_device_at: input.deviceAt,
+      p_session: input.sessionId,
+    })) as SignTalkResult;
+  },
+
+  async askTalk(input: AskTalkInput) {
+    return (await rpcTalk('ask_site_talk', {
+      p_talk_id: input.talkId,
+      p_version_id: input.versionId,
+      p_person_id: input.personId,
+      p_body: input.body,
+      p_device_at: input.deviceAt,
+      p_session: input.sessionId,
+    })) as { question_id: string; received_at: string };
+  },
+
+  async setTalkNote(talkId, personId, explained, interpreter) {
+    await rpcTalk('set_talk_person_note', {
+      p_talk_id: talkId,
+      p_person_id: personId,
+      p_explained: explained,
+      p_interpreter: interpreter,
+    });
+  },
+
+  async signTalkPresenter(input: PresenterSignInput) {
+    return (await rpcTalk('sign_talk_presenter', {
+      p_talk_id: input.talkId,
+      p_version_id: input.versionId,
+      p_signature_png: input.signaturePng,
+      p_device_at: input.deviceAt,
+      p_session: input.sessionId,
+    })) as SignTalkResult;
+  },
+
+  async myOutstandingTalks() {
+    return (await rpcJson('my_outstanding_talks', {})) as TalkListItem[];
+  },
+
+  async listTalks(siteId) {
+    return (await rpcJson('list_site_talks', { p_site_id: siteId })) as TalkListItem[];
+  },
+
+  async getTalk(talkId) {
+    try {
+      const detail = (await rpcJson('site_talk_detail', { p_talk_id: talkId })) as TalkDetail;
+      return withTalkPdf(detail);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_authorized') return null;
+      throw err;
+    }
+  },
+
+  async talkMeaningLine(talkId, personId) {
+    const line = await rpcJson('talk_meaning_line', { p_talk_id: talkId, p_person_id: personId });
+    return String(line ?? '');
+  },
+
+  async myTalkBadges() {
+    return (await rpcJson('my_talk_badges', {})) as TalkBadge[];
+  },
+
+  async uploadTalkPdf(input) {
+    const storagePath = talkStoragePath(
+      input.companyId,
+      input.siteId,
+      `${input.companyId}/${input.siteId}/talks/${newId()}.pdf`
+    );
+    const supabase = getSupabase();
+    const body = new Blob([input.bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const { error } = await supabase.storage.from('drawings').upload(storagePath, body, {
+      contentType: 'application/pdf',
+      upsert: false,
+    });
+    if (error) throw new Error(error.message);
+    return { storagePath };
+  },
+
+  async removeTalkPdf(storagePath) {
+    const { error } = await getSupabase().storage.from('drawings').remove([storagePath]);
+    if (error) throw new Error(error.message);
+  },
 };
+
+async function withTalkPdf(detail: TalkDetail): Promise<TalkDetail> {
+  if (!detail.pdf_path) return { ...detail, pdf_url: null, pdf_url_expires_at: null };
+  const { data, error } = await getSupabase().storage.from('drawings').createSignedUrl(detail.pdf_path, TALK_URL_SECONDS);
+  if (error || !data?.signedUrl) return { ...detail, pdf_url: null, pdf_url_expires_at: null };
+  return {
+    ...detail,
+    pdf_url: data.signedUrl,
+    pdf_url_expires_at: new Date(Date.now() + TALK_URL_SECONDS * 1000).toISOString(),
+  };
+}
 
 function photoPayload(photo: { storagePath: string; contentType: string; fileSizeBytes: number }) {
   return {

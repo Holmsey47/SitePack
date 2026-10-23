@@ -90,7 +90,7 @@ export const SNAG_QUEUE_PREFIX = 'sitepack.snag.';
 const DB_NAME = 'sitepack-snags';
 
 const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
-const MAX_SNAG_RETRY_DELAY_MS = 5 * 60 * 1000;
+export const MAX_SNAG_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 export function snagRetryDelayMs(attempts: number): number {
   const index = Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1;

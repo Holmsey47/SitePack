@@ -3,12 +3,12 @@ import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine, putRightLine } from '@/lib/snagWording';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
-import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
+import { PDF_UNSHOWN_NOTE, pdfGlyphs, pdfText } from '@/lib/pdfText';
+import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 export const SNAG_PDF_PAGE_W = 595;
 export const SNAG_PDF_PAGE_H = 842;
-export const SNAG_PDF_UNSHOWN_NOTE =
-  "Some characters can't be shown in this PDF and appear as ?. The signed record in SitePack shows the full text.";
+export const SNAG_PDF_UNSHOWN_NOTE = PDF_UNSHOWN_NOTE;
 export const SNAG_PDF_OUTSTANDING_CONTINUED = 'Outstanding (not signed off), continued';
 const PAGE_W = SNAG_PDF_PAGE_W;
 const PAGE_H = SNAG_PDF_PAGE_H;
@@ -102,24 +102,7 @@ export function snagPhotoMissing(index: number, total: number, kind: 'before' | 
   return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
 }
 
-function pdfFontBytes(encoded: string): Uint8Array {
-  const binary = globalThis.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-/** Keep letters, including accents. A newline or tab becomes one space. Drop other controls, bidi overrides, and a pound sign. */
-function pdfText(value: string): string {
-  return value
-    .normalize('NFC')
-    .replace(/[\t\n\v\f\r]+/g, ' ')
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-    .replace(/£/g, '')
-    .replace(/[–—]/g, '-')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"');
-}
+export { pdfText };
 
 function wrap(text: string, face: Face, size: number, max: number, prepare: Prepare = pdfText): string[] {
   const words = prepare(text).split(/\s+/).filter(Boolean);
@@ -223,21 +206,8 @@ async function drawReport(
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
   const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
-  const boldChars = new Set(bold.getCharacterSet());
-  const drawable = new Set(font.getCharacterSet().filter((code) => boldChars.has(code)));
-  let unshown = false;
-  function showText(value: string): string {
-    let out = '';
-    for (const char of pdfText(value)) {
-      const code = char.codePointAt(0) ?? 0;
-      if (drawable.has(code)) out += char;
-      else {
-        out += '?';
-        unshown = true;
-      }
-    }
-    return out;
-  }
+  const glyphs = pdfGlyphs(font, bold);
+  const showText = glyphs.show;
   doc.setTitle(showText(input.reportId));
   const trace: SnagPdfTrace[] = [];
   let page = doc.addPage([PAGE_W, PAGE_H]);
@@ -578,9 +548,9 @@ async function drawReport(
   const pages = doc.getPages();
   const total = pages.length;
   pages.forEach((sheet, index) => {
-    drawSheetFooter(sheet, showText(input.reportId), showText(input.companyName), index + 1, total, font);
+    drawSheetFooter(sheet, showText(input.reportId), showText(input.companyName), index + 1, total, font, glyphs.ellipsis);
     trace.push({ page: index + 1, kind: 'footer', baseline: 26 });
-    if (unshown && index === total - 1) {
+    if (glyphs.unshown() && index === total - 1) {
       sheet.drawText(SNAG_PDF_UNSHOWN_NOTE, {
         x: MARGIN,
         y: 40,
@@ -659,8 +629,16 @@ function outstandingParts(
   return { heading, items };
 }
 
-function drawSheetFooter(sheet: PDFPage, reportId: string, company: string, page: number, total: number, font: Face) {
-  sheet.drawText(footerLabel(reportId, company, page, total, font), {
+function drawSheetFooter(
+  sheet: PDFPage,
+  reportId: string,
+  company: string,
+  page: number,
+  total: number,
+  font: Face,
+  ellipsis: string
+) {
+  sheet.drawText(footerLabel(reportId, company, page, total, font, ellipsis), {
     x: MARGIN,
     y: 26,
     size: 9,
@@ -669,13 +647,12 @@ function drawSheetFooter(sheet: PDFPage, reportId: string, company: string, page
   });
 }
 
-function footerLabel(reportId: string, company: string, page: number, total: number, font: Face): string {
+function footerLabel(reportId: string, company: string, page: number, total: number, font: Face, ellipsis: string): string {
   const tail = ` · ${reportId} · Page ${page} of ${total}`;
   if (font.widthOfTextAtSize(company + tail, 9) <= CONTENT_W) return `${company}${tail}`;
-  const dots = '\u2026';
   const chars = Array.from(company);
-  while (chars.length > 0 && font.widthOfTextAtSize(`${chars.join('')}${dots}${tail}`, 9) > CONTENT_W) chars.pop();
-  return `${chars.join('')}${dots}${tail}`;
+  while (chars.length > 0 && font.widthOfTextAtSize(`${chars.join('')}${ellipsis}${tail}`, 9) > CONTENT_W) chars.pop();
+  return `${chars.join('')}${ellipsis}${tail}`;
 }
 
 export function signatureStaysWithSnag(trace: SnagPdfTrace[], snagSeq: number): boolean {
