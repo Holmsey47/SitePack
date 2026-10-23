@@ -1,9 +1,11 @@
 import { AppTabs } from '@/components/app-tabs';
+import { TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import type { TalkBadge } from '@/data/talks';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
@@ -11,6 +13,7 @@ import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { refreshTalks } from '@/lib/talkSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -33,6 +36,7 @@ export default function SitesScreen() {
   const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
   const [notices, setNotices] = useState<SeenNotice[]>([]);
+  const [talkBadges, setTalkBadges] = useState<TalkBadge[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -92,6 +96,33 @@ export default function SitesScreen() {
       };
     }, [manager, person])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person?.auth_user_id) return;
+      let active = true;
+      refreshTalks(person.auth_user_id)
+        .then((next) => {
+          if (!active) return;
+          setTalkBadges(next.badges);
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, [person?.auth_user_id])
+  );
+
+  function talkNotes(siteId: string) {
+    const badge = talkBadges.find((row) => row.site_id === siteId);
+    if (!badge) return null;
+    return (
+      <View>
+        <TalkReadRow count={badge.outstanding} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+        <TalkQuestionRow count={badge.questions ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+      </View>
+    );
+  }
 
   function seenNotes(siteId: string) {
     const badges = unseen.filter(
@@ -156,19 +187,25 @@ export default function SitesScreen() {
           <EmptyState title="You’re not on a site yet — ask your owner" />
         ) : (
           workingRows(mine).map((site) => (
-            <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
-                {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
-              </View>
-              {site.address_line ? <Muted>{site.address_line}</Muted> : null}
-              <Muted>{formatWhen(site.updated_at)}</Muted>
-              {(site.my_open_request_count ?? 0) > 0 ? (
-                <Text style={{ color: theme.open, fontWeight: '700' }}>
-                  {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
-                </Text>
-              ) : null}
-              <SeenNotes notes={seenNotes(site.id)} />
+            <Card key={site.id}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push(`/sites/${site.id}`)}
+                style={{ gap: 8, minHeight: 48 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
+                  {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
+                </View>
+                {site.address_line ? <Muted>{site.address_line}</Muted> : null}
+                <Muted>{formatWhen(site.updated_at)}</Muted>
+                {(site.my_open_request_count ?? 0) > 0 ? (
+                  <Text style={{ color: theme.open, fontWeight: '700' }}>
+                    {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
+                  </Text>
+                ) : null}
+                <SeenNotes notes={seenNotes(site.id)} />
+              </Pressable>
+              {talkNotes(site.id)}
             </Card>
           ))
         )}
@@ -211,33 +248,39 @@ export default function SitesScreen() {
         <EmptyState title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'} />
       ) : (
         filtered.map((row) => (
-          <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
-              {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
-              {(row.new_joiner_count ?? 0) > 0 ? (
-                <Text
-                  style={{
-                    color: theme.currentInk,
-                    backgroundColor: theme.current,
-                    fontWeight: '800',
-                    overflow: 'hidden',
-                    borderRadius: 8,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                  }}>
-                  {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
-                </Text>
-              ) : null}
-            </View>
-            {row.address_line ? <Muted>{row.address_line}</Muted> : null}
-            <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
-            <Muted>{operativesLine(row.operative_count)}</Muted>
-            <Muted>{formatWhen(row.last_pack_update)}</Muted>
-            <SeenNotes notes={seenNotes(row.site_id)} />
-            <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
-              {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
-            </Text>
+          <Card key={row.site_id}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push(`/sites/${row.site_id}`)}
+              style={{ gap: 8, minHeight: 48 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
+                {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
+                {(row.new_joiner_count ?? 0) > 0 ? (
+                  <Text
+                    style={{
+                      color: theme.currentInk,
+                      backgroundColor: theme.current,
+                      fontWeight: '800',
+                      overflow: 'hidden',
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                    }}>
+                    {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
+                  </Text>
+                ) : null}
+              </View>
+              {row.address_line ? <Muted>{row.address_line}</Muted> : null}
+              <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
+              <Muted>{operativesLine(row.operative_count)}</Muted>
+              <Muted>{formatWhen(row.last_pack_update)}</Muted>
+              <SeenNotes notes={seenNotes(row.site_id)} />
+              <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
+                {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
+              </Text>
+            </Pressable>
+            {talkNotes(row.site_id)}
           </Card>
         ))
       )}

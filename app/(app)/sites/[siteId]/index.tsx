@@ -1,3 +1,4 @@
+import { InductionWarning, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { SiteSignButton } from '@/components/SiteSignButton';
 import { Button, Card, EmptyState, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -5,9 +6,11 @@ import { siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { refreshTalks } from '@/lib/talkSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
@@ -40,6 +43,8 @@ export default function SitePackScreen() {
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
+  const [talkBadge, setTalkBadge] = useState<TalkBadge | null>(null);
+  const [inductionNames, setInductionNames] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -67,6 +72,14 @@ export default function SitePackScreen() {
       }
       if (manageNow) setSeenSummary(await loadSiteSeenSummary(siteId));
       else setSeenSummary(null);
+      if (person?.auth_user_id) {
+        const talks = await refreshTalks(person.auth_user_id).catch(() => null);
+        setTalkBadge(talks?.badges.find((row) => row.site_id === siteId) ?? null);
+      } else setTalkBadge(null);
+      if (manageNow) {
+        const gaps = await repo.inductionSignInGaps(siteId).catch(() => null);
+        setInductionNames(gaps?.map((row) => row.person_name) ?? []);
+      } else setInductionNames([]);
     } catch {
       const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
       const meta = readPackMeta(siteId);
@@ -203,6 +216,15 @@ export default function SitePackScreen() {
       ) : null}
       <Title>{site.name}</Title>
       <SiteSignButton siteId={site.id} />
+      {manage ? <InductionWarning names={inductionNames} /> : null}
+      <TalkReadRow
+        count={talkBadge?.outstanding ?? 0}
+        onPress={() => router.push(`/sites/${siteId}/talks`)}
+      />
+      <TalkQuestionRow
+        count={talkBadge?.questions ?? 0}
+        onPress={() => router.push(`/sites/${siteId}/talks`)}
+      />
       <Button
         label={manage ? 'On site now' : 'My hours'}
         variant="secondary"
@@ -293,6 +315,7 @@ export default function SitePackScreen() {
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
+      <Button label="Talks" variant="secondary" onPress={() => router.push(`/sites/${siteId}/talks`)} />
       <Button label="Variations" variant="secondary" onPress={() => router.push(`/sites/${siteId}/variations`)} />
       <Button label="Snags" variant="secondary" onPress={() => router.push(`/sites/${siteId}/snags`)} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />

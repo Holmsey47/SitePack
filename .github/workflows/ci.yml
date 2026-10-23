@@ -188,3 +188,31 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/sitepack
         run: bash scripts/run-attendance-rls.sh
+
+  inductions-rls:
+    name: induction RLS
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sitepack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Local migrations and induction RLS
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/sitepack
+        run: bash scripts/run-inductions-rls.sh

@@ -10,6 +10,7 @@ import {
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
 import { adoptAttendanceOwner, wipeAttendanceQueue } from '@/lib/attendanceQueue';
+import { adoptTalkOwner, wipeTalkQueue } from '@/lib/talkQueue';
 import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
@@ -48,10 +49,12 @@ async function bindCache(userId: string | null) {
     if (userId) {
       await adoptCacheOwner(userId);
       await adoptAttendanceOwner(userId);
+      await adoptTalkOwner(userId);
     } else {
       writeRemembered(null);
       await deleteAllDrawingCaches();
       await wipeAttendanceQueue();
+      await wipeTalkQueue();
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.

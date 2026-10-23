@@ -1,3 +1,4 @@
+import { InductionWarning } from '@/components/TalkRows';
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceError, canManageHours, forgotLine, gapLine, type AttendanceEntry, type OnSiteNow } from '@/data/attendance';
@@ -15,6 +16,7 @@ export default function AttendanceScreen() {
   const manage = person ? canManageHours(person.role) : false;
   const [live, setLive] = useState<OnSiteNow | null>(null);
   const [mine, setMine] = useState<AttendanceEntry[]>([]);
+  const [inductionNames, setInductionNames] = useState<string[]>([]);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -26,6 +28,10 @@ export default function AttendanceScreen() {
       ]);
       setLive(now);
       setMine(history);
+      if (manage) {
+        const gaps = await repo.inductionSignInGaps(siteId).catch(() => null);
+        setInductionNames(gaps?.map((row) => row.person_name) ?? []);
+      } else setInductionNames([]);
       setError('');
     } catch (err) {
       setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
@@ -43,6 +49,7 @@ export default function AttendanceScreen() {
   return (
     <Screen>
       <Title>{showSite ? 'On site now' : 'My hours'}</Title>
+      {showSite ? <InductionWarning names={inductionNames} /> : null}
       {error ? <Text style={{ color: theme.danger, fontSize: 16 }}>{error}</Text> : null}
       {showSite && live.rows.length === 0 ? <EmptyState title="Nobody is signed in" /> : null}
       {showSite
