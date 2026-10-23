@@ -87,6 +87,16 @@ export function archivedRows<T extends { archived_at: string | null }>(rows: T[]
   return rows.filter((row) => Boolean(row.archived_at));
 }
 
+/** Owner confirm before a drawing and every revision file is removed. */
+export const DELETE_DRAWING_CONFIRM = 'Are you sure? This removes it for everyone.';
+
+/** Owner confirm before the site leaves Home and member access. */
+export const ARCHIVE_SITE_CONFIRM =
+  'Archive this site? People on it will no longer see it. Drawings, snags, and photos stay.';
+
+/** Owner confirm before an archived site goes back on the working list. */
+export const RESTORE_SITE_CONFIRM = 'Restore this site? It goes back on the working list.';
+
 export function inviteSiteIds(input: { siteId?: string | null; siteIds?: string[] }): string[] {
   const ids = [...(input.siteIds ?? [])];
   if (input.siteId) ids.push(input.siteId);

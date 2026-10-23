@@ -65,6 +65,10 @@ export type SitePackRepo = {
   companySitesPulse(): Promise<PulseRow[]>;
   createSite(input: CreateSiteInput): Promise<Site>;
   archiveSite(siteId: string, archived: boolean): Promise<void>;
+  /** Owner only. Removes every revision row and then the files those rows named. */
+  deleteDrawing(drawingId: string): Promise<string[]>;
+  /** Owner only. Deletes leftover drawing files from a previous storage failure. */
+  sweepDrawingOrphans(): Promise<void>;
   listAssignments(siteId: string): Promise<SiteAssignment[]>;
   contractsManagerNames(siteId: string): Promise<string[]>;
   addAssignment(siteId: string, personId: string): Promise<void>;
@@ -223,6 +227,8 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'not_opened',
     'not_current',
     'drawing_not_found',
+    'site_archived',
+    'storage_orphan',
     'snag_locked',
     'invalid_time',
     'after_photo_required',

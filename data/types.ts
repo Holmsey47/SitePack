@@ -33,6 +33,8 @@ export type Site = {
   what_it_is: string | null;
   /** Manual finished mark. Null means the site is on the working list. */
   archived_at: string | null;
+  /** Person who archived the site. Null while the site is on the working list. */
+  archived_by?: string | null;
   created_at: string;
   updated_at: string;
 };

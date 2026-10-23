@@ -8,7 +8,7 @@ import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate, formatWhen } from '@/lib/format';
-import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
+import { ARCHIVE_SITE_CONFIRM, PACK_DOWNLOAD_ERROR, RESTORE_SITE_CONFIRM } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
 import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
 import { showBackToast } from '@/lib/backToast';
@@ -39,6 +39,7 @@ export default function SitePackScreen() {
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -302,16 +303,35 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       {person?.role === 'owner' ? (
-        <Button
-          label={site.archived_at ? 'Return to the working list' : 'Archive site'}
-          variant="ghost"
-          onPress={() => {
-            void repo
-              .archiveSite(site.id, !site.archived_at)
-              .then(() => load())
-              .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
-          }}
-        />
+        confirmArchive ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>
+              {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
+            </Text>
+            <Button
+              label={site.archived_at ? 'Restore site' : 'Archive site'}
+              variant={site.archived_at ? 'secondary' : 'danger'}
+              minHeight={48}
+              onPress={() => {
+                void repo
+                  .archiveSite(site.id, !site.archived_at)
+                  .then(() => {
+                    setConfirmArchive(false);
+                    return load();
+                  })
+                  .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
+              }}
+            />
+            <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmArchive(false)} />
+          </View>
+        ) : (
+          <Button
+            label={site.archived_at ? 'Restore site' : 'Archive site'}
+            variant={site.archived_at ? 'secondary' : 'ghost'}
+            minHeight={48}
+            onPress={() => setConfirmArchive(true)}
+          />
+        )
       ) : null}
 
       <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>
