@@ -22,6 +22,7 @@
 \set hashop 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 \set hashlook 'abababababababababababababababababababababababababababababababab'
 \set hashspace 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd'
+\set hashrename '1212121212121212121212121212121212121212121212121212121212121212'
 \set cmy 'a2222222-2222-4222-8222-222222222222'
 \set opy 'a2222222-2222-4222-8222-222222222223'
 
@@ -92,11 +93,11 @@ begin
     );
   select count(*) into v_expected from public.share_funcs_expected where not replaced;
   select count(*) into v_replaced from public.share_funcs_expected where replaced;
-  if v_expected <> 24 or v_replaced <> 2 then
-    raise exception 'FAIL: migration list expected 24 new and 2 replaced, found % / %', v_expected, v_replaced;
+  if v_expected <> 27 or v_replaced <> 2 then
+    raise exception 'FAIL: migration list expected 27 new and 2 replaced, found % / %', v_expected, v_replaced;
   end if;
-  if v_count <> 24 then
-    raise exception 'FAIL: expected 24 new functions, found %', v_count;
+  if v_count <> 27 then
+    raise exception 'FAIL: expected 27 new functions, found %', v_count;
   end if;
   if exists (
     select 1
@@ -194,10 +195,11 @@ $catalog$;
 reset role;
 
 select pg_temp.ok(
-  private.share_company_key('  Firm   Y ') = 'Firm Y'
-  and private.share_company_key('  FIRM   y ') = 'FIRM y'
-  and private.share_company_key('  FIRM   y ') is distinct from private.share_company_key('Firm Y'),
-  'a company name matches after trim and collapsed spaces, and keeps its case'
+  private.share_company_key('  Firm   Y ') = 'firm y'
+  and private.share_company_key('  FIRM   y ') = 'firm y'
+  and private.share_company_key('  FIRM   y ') = private.share_company_key('Firm Y')
+  and private.share_company_key('Firm YY') is distinct from private.share_company_key('Firm Y'),
+  'a company name matches after trim, collapsed spaces, and lower case'
 );
 
 insert into auth.users (id, email)
@@ -368,13 +370,14 @@ values
   ('rev', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', false, false, false, false, false, :'hashrev')),
   ('exp', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', false, false, false, false, false, :'hashexp')),
   ('op', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', true, false, false, false, false, :'hashop')),
-  ('look', public.create_site_share_invite(:'sitea'::uuid, '  FIRM   y ', false, false, false, false, false, :'hashlook')),
+  ('look', public.create_site_share_invite(:'sitea'::uuid, 'Firm YY', false, false, false, false, false, :'hashlook')),
+  ('rename', public.create_site_share_invite(:'sitea'::uuid, 'Invited Builders', true, true, true, true, true, :'hashrename')),
   ('space', public.create_site_share_invite(:'sitea'::uuid, '  Firm   Y ', false, false, false, false, false, :'hashspace'));
 
 select pg_temp.ok(
-  (select guest_company_key from public.site_share_invites where guest_company_name = 'FIRM   y') = 'FIRM y'
-  and (select guest_company_key from public.site_share_invites where guest_company_name = 'Firm   Y') = 'Firm Y',
-  'the stored company key collapses spaces and keeps case'
+  (select guest_company_key from public.site_share_invites where guest_company_name = 'Firm   Y') = 'firm y'
+  and (select guest_company_key from public.site_share_invites where guest_company_name = 'Firm YY') = 'firm yy',
+  'the stored company key collapses spaces and lower-cases the name'
 );
 
 select pg_temp.ok(
@@ -397,15 +400,15 @@ where code_hash = decode(:'hashexp', 'hex');
 select pg_temp.jwt(:'ownerz'::uuid);
 set local role authenticated;
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashother') ->> 'error') = 'other_firm',
+  (public.redeem_site_share(:'hashother') ->> 'error') = 'invalid_input',
   'a different firm cannot redeem the code'
 );
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashexp') ->> 'error') = 'code_expired'
-  and (public.redeem_site_share(:'hashrev') ->> 'error') = 'code_revoked',
-  'an expired or revoked code is refused'
+  (public.redeem_site_share(:'hashexp') ->> 'error') = 'invalid_input'
+  and (public.redeem_site_share(:'hashrev') ->> 'error') = 'invalid_input',
+  'an expired or revoked code is refused with the same error as a bad code'
 );
 
 insert into share_probe (k, v)
@@ -432,8 +435,28 @@ from share_probe
 where k = 'redeemed_used';
 
 select pg_temp.jwt(:'ownery'::uuid);
+select pg_temp.ok(
+  (public.redeem_site_share(:'hashused') ->> 'error') = 'invalid_input',
+  'a used code returns the same error as a bad code'
+);
+
 insert into share_probe (k, v)
 values ('redeemed', public.redeem_site_share(:'hashok'));
+
+select pg_temp.ok(
+  (select v ->> 'status' from share_probe where k = 'redeemed') = 'pending'
+  and pg_temp.raises(
+    'select public.shared_drawings(' || quote_literal(:'sitea') || '::uuid)',
+    'not_shared'
+  )
+  and (select count(*) from public.drawings) = 0
+  and (select count(*) from public.sites where id = :'sitea'::uuid) = 0,
+  'a pending share grants no rpc and no table rows'
+);
+
+select pg_temp.jwt(:'cmx'::uuid);
+select public.approve_site_share((select (v ->> 'share_id')::uuid from share_probe where k = 'redeemed'));
+select pg_temp.jwt(:'ownery'::uuid);
 
 select pg_temp.ok(
   not private.can_access_site(:'sitea'::uuid)
@@ -442,10 +465,7 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  (select count(*) from public.drawings where site_id = :'sitea'::uuid and is_current and title = 'Current sheet') = 1
-  and (select count(*) from public.drawings where site_id = :'sitea'::uuid and not is_current) = 0
-  and (select count(*) from public.drawings where site_id = :'siteb'::uuid) = 0
-  and (select count(*) from public.drawings where title = 'OTHER-SITE-SHEET') = 0
+  (select count(*) from public.drawings) = 0
   and jsonb_array_length(public.shared_drawings(:'sitea'::uuid)) = 5
   and exists (
     select 1
@@ -457,31 +477,31 @@ select pg_temp.ok(
 
 select pg_temp.ok(
   pg_temp.raises(
-    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111113''::uuid)',
+    'select public.shared_drawing_url(''51111111-1111-4111-8111-111111111111''::uuid, ''d1111111-1111-4111-8111-111111111113''::uuid)',
     'invalid_path'
   )
   and pg_temp.raises(
-    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111112''::uuid)',
+    'select public.shared_drawing_url(''51111111-1111-4111-8111-111111111111''::uuid, ''d1111111-1111-4111-8111-111111111112''::uuid)',
     'not_current'
   )
   and pg_temp.raises(
-    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111114''::uuid)',
+    'select public.shared_drawing_url(''51111111-1111-4111-8111-111111111111''::uuid, ''d1111111-1111-4111-8111-111111111114''::uuid)',
     'not_shared'
   )
-  and (public.shared_drawing_url('d1111111-1111-4111-8111-111111111111'::uuid) ->> 'path')
+  and (public.shared_drawing_url('51111111-1111-4111-8111-111111111111'::uuid, 'd1111111-1111-4111-8111-111111111111'::uuid) ->> 'path')
     = :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111111.pdf'
-  and (public.shared_drawing_url('d1111111-1111-4111-8111-111111111111'::uuid) ->> 'expires_in') = '300',
+  and (public.shared_drawing_url('51111111-1111-4111-8111-111111111111'::uuid, 'd1111111-1111-4111-8111-111111111111'::uuid) ->> 'expires_in') = '300',
   'a shared drawing URL checks the share and rejects a bad path'
 );
 
 select pg_temp.jwt(:'ownerz'::uuid);
 select pg_temp.ok(
   pg_temp.raises(
-    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111112''::uuid)',
+    'select public.shared_drawing_url(''51111111-1111-4111-8111-111111111111''::uuid, ''d1111111-1111-4111-8111-111111111112''::uuid)',
     'not_shared'
   )
   and pg_temp.raises(
-    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111111''::uuid)',
+    'select public.shared_drawing_url(''51111111-1111-4111-8111-111111111111''::uuid, ''d1111111-1111-4111-8111-111111111111''::uuid)',
     'not_shared'
   ),
   'a drawing outside this caller''s share is not_shared, including a superseded sheet'
@@ -513,7 +533,7 @@ begin
     ]
     loop
       begin
-        perform public.shared_drawing_url(v_drawing);
+        perform public.shared_drawing_url('51111111-1111-4111-8111-111111111111'::uuid, v_drawing);
         raise exception 'FAIL: signed % for %', v_drawing, v_role;
       exception
         when others then
@@ -533,8 +553,8 @@ select pg_temp.ok(
   (select count(*) from public.variation_versions where status = 'Draft') = 0
   and (select count(*) from public.variation_versions where title = 'DRAFT-SECRET-PRICE') = 0
   and (select count(*) from public.variation_versions where title = 'OTHER-SITE-VARIATION') = 0
-  and (select count(*) from public.variation_versions where status in ('Signed', 'Sent')) = 2
-  and (select count(*) from public.variations) = 2
+  and (select count(*) from public.variation_versions where status in ('Signed', 'Sent')) = 0
+  and (select count(*) from public.variations) = 0
   and jsonb_array_length(public.shared_variations(:'sitea'::uuid)) = 2
   and not (public.shared_variations(:'sitea'::uuid)::text like '%424242%')
   and not (public.shared_variations(:'sitea'::uuid)::text like '%515151%')
@@ -543,7 +563,7 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  (select count(*) from public.snags where site_id = :'sitea'::uuid) = 1
+  (select count(*) from public.snags where site_id = :'sitea'::uuid) = 0
   and (select count(*) from public.snags where note = 'OTHER-SITE-SNAG') = 0
   and jsonb_array_length(public.shared_snags(:'sitea'::uuid)) = 1
   and (public.shared_snags(:'sitea'::uuid) -> 0 ->> 'raised_by_name') = 'Łukasz Wójcik'
@@ -566,7 +586,7 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  (select count(*) from public.sites where id = :'sitea'::uuid) = 1
+  (select count(*) from public.sites where id = :'sitea'::uuid) = 0
   and (select count(*) from public.sites where id = :'siteb'::uuid) = 0
   and (select count(*) from public.people where display_name in ('CM X', 'Op Secret', 'Owner X')) = 0
   and (public.shared_site_view(:'sitea'::uuid) ->> 'cm_contact_name') = 'CM X'
@@ -593,10 +613,10 @@ select public.set_site_share_sections(
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (select count(*) from public.site_attendance) = 1
+  (select count(*) from public.site_attendance) = 0
   and (public.shared_sign_in_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
   and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%07000900900%')
-  and (select count(*) from public.site_talks where kind = 'induction') = 1
+  and (select count(*) from public.site_talks where kind = 'induction') = 0
   and (select count(*) from public.site_talks where title = 'TOOLBOX-SECRET') = 0
   and (select count(*) from public.site_talk_questions) = 0
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
@@ -605,10 +625,104 @@ select pg_temp.ok(
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%SIGIMAGE-SECRET%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%signature_png%')
   and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 0
-  and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 1
-  and (select count(*) from public.site_talk_versions) = 1,
+  and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 0
+  and (select count(*) from public.site_talk_versions) = 0,
   'turning a section on shows the register names and still hides the toolbox, questions, and old induction text'
 );
+
+-- Probe guest_direct_reads.
+-- Assertion: guest owner, cm, and operative read 0 rows from every shared table and storage.
+-- Probe guest_signature_policy.
+-- Assertion: site_talk_signatures_select has no guest branch. Putting that branch back fails this suite.
+do $guest_direct_reads$
+declare
+  v_role uuid;
+  v_roles uuid[] := array[
+    'a2222222-2222-4222-8222-222222222221'::uuid,
+    'a2222222-2222-4222-8222-222222222222'::uuid,
+    'a2222222-2222-4222-8222-222222222223'::uuid
+  ];
+  v_count bigint;
+  v_table text;
+  v_tables text[] := array[
+    'sites',
+    'drawings',
+    'variations',
+    'variation_versions',
+    'variation_photos',
+    'variation_signatures',
+    'snags',
+    'site_attendance',
+    'site_talks',
+    'site_talk_versions',
+    'site_talk_signatures'
+  ];
+  v_name text;
+  v_expr text;
+begin
+  execute 'reset role';
+  for v_name, v_expr in
+    select c.relname || '.' || pol.polname,
+      coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')
+        || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '')
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where (n.nspname = 'public' and c.relname = any (v_tables))
+       or (n.nspname = 'storage' and c.relname = 'objects')
+  loop
+    if v_expr like '%can_view_shared%' then
+      raise exception 'FAIL: % still has a guest branch', v_name;
+    end if;
+  end loop;
+
+  if not exists (
+    select 1
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'site_talk_signatures'
+      and pol.polname = 'site_talk_signatures_select'
+      and pg_get_expr(pol.polqual, pol.polrelid) not like '%can_view_shared%'
+      and pg_get_expr(pol.polqual, pol.polrelid) like '%my_role()%'
+  ) then
+    raise exception 'FAIL: site_talk_signatures_select is missing the host branch';
+  end if;
+  raise notice 'ok: guest_signature_policy: site_talk_signatures_select has no guest branch';
+
+  foreach v_role in array v_roles loop
+    perform set_config('request.jwt.claim.sub', v_role::text, true);
+    perform set_config('request.jwt.claim.role', 'authenticated', true);
+    perform set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_role::text, 'role', 'authenticated')::text,
+      true
+    );
+    execute 'set local role authenticated';
+    foreach v_table in array v_tables loop
+      execute format('select count(*) from public.%I', v_table) into v_count;
+      if v_count <> 0 then
+        raise exception 'FAIL: % read % rows from %', v_role, v_count, v_table;
+      end if;
+    end loop;
+    execute 'select count(*) from storage.objects' into v_count;
+    if v_count <> 0 then
+      raise exception 'FAIL: % read % storage.objects rows', v_role, v_count;
+    end if;
+  end loop;
+
+  perform set_config('request.jwt.claim.sub', 'a2222222-2222-4222-8222-222222222221', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a2222222-2222-4222-8222-222222222221', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  raise notice 'ok: guest_direct_reads: guest owner, cm, and operative read 0 rows from every shared table and storage';
+end
+$guest_direct_reads$;
 
 -- Probe guest_signature_image.
 -- Assertion: guest owner, cm, and operative get no signature image from a direct select or any rpc.
@@ -782,6 +896,9 @@ begin
 end
 $write$;
 
+select public.my_shared_sites();
+select public.my_shared_sites();
+
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
@@ -791,9 +908,10 @@ select pg_temp.ok(
   (select count(*) from public.site_share_audit where action = 'created') >= 1
   and (select count(*) from public.site_share_audit where action = 'redeemed') >= 1
   and (select count(*) from public.site_share_audit where action = 'sections_changed') >= 1
+  and (select count(*) from public.site_share_audit where action = 'approved') >= 1
   and (select count(*) from public.site_share_audit where action = 'revoked') >= 1
-  and (select count(*) from public.site_share_audit where action = 'view_granted') >= 1,
-  'create, redeem, section change, revoke, and view grant are audited'
+  and (select count(*) from public.site_share_audit where action = 'view_granted') = 1,
+  'create, redeem, approve, section change, revoke, and one view grant are audited'
 );
 
 select pg_temp.jwt(:'ownery'::uuid);
@@ -815,8 +933,8 @@ select pg_temp.ok(
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashlook') ->> 'error') = 'other_firm',
-  'a lookalike company name does not match'
+  (public.redeem_site_share(:'hashlook') ->> 'error') = 'invalid_input',
+  'a lookalike company name returns the same error as a bad code'
 );
 
 select pg_temp.jwt(:'opy'::uuid);
@@ -866,4 +984,183 @@ select pg_temp.ok(
   (select count(*) from public.site_share_attempts where actor_id = :'ownery'::uuid) = 10,
   'too_many_attempts does not insert another row'
 );
+
+reset role;
+insert into public.site_share_attempts (actor_id, client_ip)
+select :'ownerz'::uuid, private.ip_subject('203.0.113.9')
+from generate_series(1, 40);
+
+do $ip$
+declare
+  v_err text;
+  v_count integer;
+begin
+  perform set_config('request.jwt.claim.sub', 'a3333333-3333-4333-8333-333333333331', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a3333333-3333-4333-8333-333333333331', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  v_err := public.redeem_site_share('abcd', '203.0.113.9') ->> 'error';
+  execute 'reset role';
+  select count(*) into v_count
+  from public.site_share_attempts
+  where client_ip = private.ip_subject('203.0.113.9');
+  if v_err is distinct from 'too_many_attempts' or v_count <> 40 then
+    raise exception 'FAIL: ip limit err % count %', v_err, v_count;
+  end if;
+  raise notice 'ok: an ip that already failed forty times is refused without another row';
+end
+$ip$;
+
+reset role;
+select pg_temp.ok(
+  position(
+    'pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)'
+    in pg_get_functiondef('public.redeem_site_share(text,text)'::regprocedure)
+  ) > 0
+  and position(
+    'share-ip:'
+    in pg_get_functiondef('public.redeem_site_share(text,text)'::regprocedure)
+  ) > 0,
+  'the redeem lock is hashtext of the person id'
+);
+
+do $rename$
+declare
+  v_redeem jsonb;
+  v_row jsonb;
+  v_notice jsonb;
+  v_sql text;
+  v_site uuid := '51111111-1111-4111-8111-111111111111';
+  v_firm uuid := 'c3333333-3333-4333-8333-333333333333';
+  v_calls text[] := array[
+    'shared_site_view',
+    'shared_drawings',
+    'shared_variations',
+    'shared_snags',
+    'shared_sign_in_register',
+    'shared_induction_register'
+  ];
+  v_count bigint;
+begin
+  execute 'reset role';
+  delete from public.site_share_attempts where actor_id = 'a3333333-3333-4333-8333-333333333331';
+  update public.companies set name = 'invited builders' where id = v_firm;
+
+  perform set_config('request.jwt.claim.sub', 'a3333333-3333-4333-8333-333333333331', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a3333333-3333-4333-8333-333333333331', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  v_redeem := public.redeem_site_share('1212121212121212121212121212121212121212121212121212121212121212');
+  if (v_redeem ->> 'status') is distinct from 'pending' then
+    raise exception 'FAIL: rename redeem %', v_redeem;
+  end if;
+  begin
+    perform public.shared_drawings(v_site);
+    raise exception 'FAIL: pending rename share returned drawings';
+  exception
+    when others then
+      if sqlerrm is distinct from 'not_shared' and position('pending rename share returned' in sqlerrm) = 0 then
+        raise exception 'FAIL: pending rename drawings -> %', sqlerrm;
+      end if;
+      if position('pending rename share returned' in sqlerrm) > 0 then
+        raise exception '%', sqlerrm;
+      end if;
+  end;
+  if (select count(*) from public.drawings) <> 0 or (select count(*) from public.sites where id = v_site) <> 0 then
+    raise exception 'FAIL: pending rename saw table rows';
+  end if;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a1111111-1111-4111-8111-111111111111', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  select row into v_row
+  from jsonb_array_elements(public.list_site_shares(v_site) -> 'shares') row
+  where row ->> 'guest_company_id' = v_firm::text;
+  select row into v_notice
+  from jsonb_array_elements(public.my_share_notices()) row
+  where row ->> 'share_id' = v_row ->> 'id';
+  if v_row ->> 'guest_company_name' is distinct from 'invited builders'
+     or v_row ->> 'guest_company_id' is distinct from v_firm::text
+     or v_row ->> 'redeemer_name' is distinct from 'Owner Z'
+     or v_row ->> 'redeemer_email' is distinct from 'ownerz@firmz.test'
+     or v_row ->> 'renamed' is distinct from 'false'
+     or v_row ->> 'status' is distinct from 'pending'
+     or v_notice ->> 'guest_company_name' is distinct from 'invited builders'
+     or v_notice ->> 'redeemer_email' is distinct from 'ownerz@firmz.test'
+  then
+    raise exception 'FAIL: pinned identity % notice %', v_row, v_notice;
+  end if;
+
+  execute 'reset role';
+  update public.companies set name = 'Firm Z Again' where id = v_firm;
+  execute 'set local role authenticated';
+  select row into v_row
+  from jsonb_array_elements(public.list_site_shares(v_site) -> 'shares') row
+  where row ->> 'guest_company_id' = v_firm::text;
+  if v_row ->> 'renamed' is distinct from 'true'
+     or v_row ->> 'current_company_name' is distinct from 'Firm Z Again'
+     or v_row ->> 'guest_company_name' is distinct from 'invited builders'
+  then
+    raise exception 'FAIL: rename flag %', v_row;
+  end if;
+  raise notice 'ok: a renamed firm gets a pending share and the host sees the pinned identity';
+
+  perform public.decline_site_share((v_row ->> 'id')::uuid);
+
+  perform set_config('request.jwt.claim.sub', 'a3333333-3333-4333-8333-333333333331', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a3333333-3333-4333-8333-333333333331', 'role', 'authenticated')::text,
+    true
+  );
+  foreach v_sql in array v_calls loop
+    begin
+      execute format('select public.%I($1)', v_sql) using v_site;
+      raise exception 'FAIL: declined % returned data', v_sql;
+    exception
+      when others then
+        if sqlerrm is distinct from 'not_shared' and position('declined' in sqlerrm) = 0 then
+          raise exception 'FAIL: declined % -> %', v_sql, sqlerrm;
+        end if;
+        if position('declined' in sqlerrm) > 0 and sqlerrm is distinct from 'not_shared' then
+          raise exception '%', sqlerrm;
+        end if;
+    end;
+  end loop;
+  if position(v_site::text in public.my_shared_sites()::text) > 0 then
+    raise exception 'FAIL: declined share is listed';
+  end if;
+  if (select count(*) from public.drawings) <> 0
+     or (select count(*) from public.variations) <> 0
+     or (select count(*) from public.snags) <> 0
+     or (select count(*) from public.sites where id = v_site) <> 0
+     or (select count(*) from public.site_talk_signatures) <> 0
+     or (select count(*) from public.site_attendance) <> 0
+  then
+    raise exception 'FAIL: declined share still has table rows';
+  end if;
+  select count(*) into v_count from storage.objects;
+  if v_count <> 0 then
+    raise exception 'FAIL: declined share saw storage rows';
+  end if;
+  raise notice 'ok: pending and declined shares grant no rpc and no table rows';
+
+  execute 'reset role';
+  update public.companies set name = 'Firm Z' where id = v_firm;
+end
+$rename$;
 

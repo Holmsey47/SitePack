@@ -3,7 +3,9 @@
 -- Redeeming it does not join the host company. The guest stays in their own firm
 -- and can read only the sections the owner left on. Nothing here is a write.
 --
--- Access is private.can_view_shared_section. can_access_site is unchanged.
+-- Guests read through the security-definer shared_* functions. Table policies stay
+-- host-only. can_access_site is unchanged. Redeeming a code creates a pending
+-- share. The host owner or contracts manager approves it before any read works.
 -- Every new function is security definer with search_path empty.
 -- Execute is revoked from public and anon. This file does not alter storage or auth.
 
@@ -45,7 +47,7 @@ comment on column public.site_share_invites.code_hash is
   'HMAC-SHA256 of the normalised code. Never granted to anon, authenticated, or service_role.';
 
 comment on column public.site_share_invites.guest_company_key is
-  'Lower-case company name with the spaces collapsed. Redeem matches this, not a free-text lookalike.';
+  'Company name, trimmed, internal spaces collapsed, then lower-cased. Redeem matches this key.';
 
 create table public.site_shares (
   id uuid primary key default gen_random_uuid(),
@@ -58,10 +60,21 @@ create table public.site_shares (
   share_snags boolean not null default false,
   share_sign_in boolean not null default false,
   share_inductions boolean not null default false,
+  guest_company_name text not null,
+  redeemer_name text not null,
+  redeemer_email text,
   redeemed_by uuid references public.people (id) on delete set null,
   redeemed_at timestamptz not null default now(),
+  status text not null default 'pending',
+  approved_at timestamptz,
+  approved_by uuid references public.people (id) on delete set null,
+  declined_at timestamptz,
+  declined_by uuid references public.people (id) on delete set null,
   revoked_at timestamptz,
-  revoked_by uuid references public.people (id) on delete set null
+  revoked_by uuid references public.people (id) on delete set null,
+  constraint site_shares_status check (status in ('pending', 'approved', 'declined')),
+  constraint site_shares_name_len check (char_length(btrim(guest_company_name)) between 1 and 160),
+  constraint site_shares_redeemer_len check (char_length(btrim(redeemer_name)) between 1 and 120)
 );
 
 create unique index site_shares_one_active
@@ -71,7 +84,13 @@ create unique index site_shares_one_active
 create index site_shares_guest_idx on public.site_shares (guest_company_id, revoked_at);
 
 comment on table public.site_shares is
-  'View-only grant for one guest firm on one host site. Section flags are read on the next request. Revoke is immediate.';
+  'One guest firm on one host site. Pending until the host approves. Firm name, redeemer name, and email are pinned at redeem. Revoke is immediate.';
+
+comment on column public.site_shares.guest_company_name is
+  'The guest firm name at redeem time. A later rename does not change this.';
+
+comment on column public.site_shares.redeemer_email is
+  'The redeeming person''s email at redeem time. Returned to the host by list_site_shares, not by a table select.';
 
 create table public.site_share_audit (
   id uuid primary key default gen_random_uuid(),
@@ -85,7 +104,7 @@ create table public.site_share_audit (
   detail jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   constraint site_share_audit_action check (
-    action in ('created', 'redeemed', 'sections_changed', 'revoked', 'view_granted')
+    action in ('created', 'redeemed', 'approved', 'declined', 'sections_changed', 'revoked', 'view_granted')
   )
 );
 
@@ -98,10 +117,12 @@ comment on table public.site_share_audit is
 create table public.site_share_attempts (
   id uuid primary key default gen_random_uuid(),
   actor_id uuid not null,
+  client_ip text,
   created_at timestamptz not null default now()
 );
 
 create index site_share_attempts_actor_idx on public.site_share_attempts (actor_id, created_at desc);
+create index site_share_attempts_ip_idx on public.site_share_attempts (client_ip, created_at desc);
 
 alter table public.site_share_attempts enable row level security;
 revoke all on table public.site_share_attempts from public, anon, authenticated;
@@ -113,8 +134,7 @@ comment on table public.site_share_attempts is
 -- Helpers
 -- ---------------------------------------------------------------------------
 
--- Trim and collapse spaces, and keep the letters as typed.
--- "  Firm   Y " matches Firm Y. "  FIRM   y " does not.
+-- Trim, collapse spaces, then lower-case. "  FIRM   y " matches Firm Y.
 -- The code is not bound to a company id: the guest firm may not exist yet.
 create or replace function private.share_company_key(p_name text)
 returns text
@@ -123,19 +143,26 @@ immutable
 security definer
 set search_path = ''
 as $fn$
-  select nullif(regexp_replace(btrim(coalesce(p_name, '')), '[[:space:]]+', ' ', 'g'), '');
+  select nullif(lower(regexp_replace(btrim(coalesce(p_name, '')), '[[:space:]]+', ' ', 'g')), '');
 $fn$;
 
 revoke all on function private.share_company_key(text) from public, anon, authenticated;
 
 create or replace function private.share_actor()
-returns table (person_id uuid, company_id uuid, role text, company_name text)
+returns table (
+  person_id uuid,
+  company_id uuid,
+  role text,
+  company_name text,
+  display_name text,
+  email text
+)
 language sql
 stable
 security definer
 set search_path = ''
 as $fn$
-  select p.id, p.company_id, p.role, c.name
+  select p.id, p.company_id, p.role, c.name, p.display_name, p.email
   from public.people p
   join public.companies c on c.id = p.company_id
   where p.auth_user_id = (select auth.uid());
@@ -157,6 +184,7 @@ as $fn$
     where s.site_id = p_site_id
       and s.guest_company_id = p.company_id
       and s.revoked_at is null
+      and s.status = 'approved'
   );
 $fn$;
 
@@ -177,6 +205,7 @@ as $fn$
     where s.site_id = p_site_id
       and s.guest_company_id = p.company_id
       and s.revoked_at is null
+      and s.status = 'approved'
       and (
         (p_section = 'drawings' and s.share_drawings)
         or (p_section = 'variations' and s.share_variations)
@@ -263,9 +292,11 @@ begin
   from public.site_shares s
   where s.site_id = p_site_id
     and s.guest_company_id = v_actor.company_id
-    and s.revoked_at is null;
+    and s.revoked_at is null
+  order by case when s.status = 'approved' then 0 else 1 end
+  limit 1;
 
-  if found then
+  if found and v_share.status = 'approved' then
     if p_section = 'site'
       or (p_section = 'drawings' and v_share.share_drawings)
       or (p_section = 'variations' and v_share.share_variations)
@@ -276,6 +307,12 @@ begin
       return v_share.id;
     end if;
     raise exception 'section_off';
+  end if;
+
+  -- Pending and declined stay closed. An older revoked share must not say
+  -- share_revoked while this firm is still waiting or has been declined.
+  if found then
+    raise exception 'not_shared';
   end if;
 
   select exists (
@@ -371,11 +408,19 @@ grant select (
   share_snags,
   share_sign_in,
   share_inductions,
+  guest_company_name,
+  redeemer_name,
   redeemed_by,
   redeemed_at,
+  status,
+  approved_at,
+  approved_by,
+  declined_at,
+  declined_by,
   revoked_at,
   revoked_by
 ) on table public.site_shares to authenticated;
+revoke select (redeemer_email) on table public.site_shares from public, anon, authenticated;
 
 grant select (
   id,
@@ -403,15 +448,9 @@ drop policy if exists site_shares_select on public.site_shares;
 create policy site_shares_select
   on public.site_shares for select to authenticated
   using (
-    (
-      host_company_id = private.my_company_id()
-      and private.my_role() = 'owner'
-      and private.can_access_site(site_id)
-    )
-    or (
-      guest_company_id = private.my_company_id()
-      and revoked_at is null
-    )
+    host_company_id = private.my_company_id()
+    and private.my_role() = 'owner'
+    and private.can_access_site(site_id)
   );
 
 drop policy if exists site_share_audit_select on public.site_share_audit;
@@ -424,154 +463,95 @@ create policy site_share_audit_select
   );
 
 -- ---------------------------------------------------------------------------
--- Existing reads. The host branch is unchanged. The guest branch is the helper.
+-- Existing reads. Host policies stay as they were. Guests have no branch:
+-- the shared_* functions are security definer and check the approved share.
 -- ---------------------------------------------------------------------------
 
 drop policy if exists sites_select_accessible on public.sites;
 create policy sites_select_accessible
   on public.sites for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and (
-        private.my_role() = 'owner'
-        or private.is_assigned_to_site(id)
-      )
+    company_id = private.my_company_id()
+    and (
+      private.my_role() = 'owner'
+      or private.is_assigned_to_site(id)
     )
-    or private.can_view_shared_site(id)
   );
 
 drop policy if exists drawings_select_accessible on public.drawings;
 create policy drawings_select_accessible
   on public.drawings for select to authenticated
-  using (
-    private.can_access_site(site_id)
-    or (
-      is_current
-      and private.can_view_shared_section(site_id, 'drawings')
-    )
-  );
+  using (private.can_access_site(site_id));
 
 drop policy if exists variations_select on public.variations;
 create policy variations_select
   on public.variations for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-    )
-    or (
-      private.can_view_shared_section(site_id, 'variations')
-      and exists (
-        select 1
-        from public.variation_versions v
-        where v.variation_id = variations.id
-          and v.status in ('Signed', 'Sent')
-      )
-    )
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
   );
 
 drop policy if exists variation_versions_select on public.variation_versions;
 create policy variation_versions_select
   on public.variation_versions for select to authenticated
-  using (
-    private.can_access_site(site_id)
-    or (
-      status in ('Signed', 'Sent')
-      and private.can_view_shared_section(site_id, 'variations')
-    )
-  );
+  using (private.can_access_site(site_id));
 
 drop policy if exists variation_photos_select on public.variation_photos;
 create policy variation_photos_select
   on public.variation_photos for select to authenticated
-  using (
-    private.can_access_site(site_id)
-    or (
-      private.can_view_shared_section(site_id, 'variations')
-      and exists (
-        select 1
-        from public.variation_versions v
-        where v.id = version_id
-          and v.status in ('Signed', 'Sent')
-      )
-    )
-  );
+  using (private.can_access_site(site_id));
 
 drop policy if exists variation_signatures_select on public.variation_signatures;
 create policy variation_signatures_select
   on public.variation_signatures for select to authenticated
-  using (
-    private.can_access_site(site_id)
-    or (
-      private.can_view_shared_section(site_id, 'variations')
-      and exists (
-        select 1
-        from public.variation_versions v
-        where v.id = version_id
-          and v.status in ('Signed', 'Sent')
-      )
-    )
-  );
+  using (private.can_access_site(site_id));
 
 drop policy if exists snags_select on public.snags;
 create policy snags_select
   on public.snags for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-    )
-    or private.can_view_shared_section(site_id, 'snags')
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
   );
 
 drop policy if exists site_attendance_select on public.site_attendance;
 create policy site_attendance_select
   on public.site_attendance for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-      and (
-        person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
-        or private.my_role() in ('owner', 'cm')
-      )
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and (
+      person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      or private.my_role() in ('owner', 'cm')
     )
-    or private.can_view_shared_section(site_id, 'sign_in')
   );
 
 drop policy if exists site_talks_select on public.site_talks;
 create policy site_talks_select
   on public.site_talks for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-      and (
-        private.my_role() in ('owner', 'cm')
-        or presenter_person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
-        or (
-          audience = 'all'
-          and exists (
-            select 1
-            from public.site_assignments a
-            join public.people p on p.id = a.person_id
-            where a.site_id = site_talks.site_id
-              and p.auth_user_id = (select auth.uid())
-              and p.role = 'operative'
-          )
-        )
-        or exists (
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and (
+      private.my_role() in ('owner', 'cm')
+      or presenter_person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      or (
+        audience = 'all'
+        and exists (
           select 1
-          from public.site_talk_required r
-          where r.talk_id = site_talks.id
-            and r.person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+          from public.site_assignments a
+          join public.people p on p.id = a.person_id
+          where a.site_id = site_talks.site_id
+            and p.auth_user_id = (select auth.uid())
+            and p.role = 'operative'
         )
       )
-    )
-    or (
-      kind = 'induction'
-      and private.can_view_shared_section(site_id, 'inductions')
+      or exists (
+        select 1
+        from public.site_talk_required r
+        where r.talk_id = site_talks.id
+          and r.person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      )
     )
   );
 
@@ -579,24 +559,12 @@ drop policy if exists site_talk_versions_select on public.site_talk_versions;
 create policy site_talk_versions_select
   on public.site_talk_versions for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-      and exists (
-        select 1
-        from public.site_talks t
-        where t.id = site_talk_versions.talk_id
-      )
-    )
-    or (
-      is_current
-      and private.can_view_shared_section(site_id, 'inductions')
-      and exists (
-        select 1
-        from public.site_talks t
-        where t.id = talk_id
-          and t.kind = 'induction'
-      )
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and exists (
+      select 1
+      from public.site_talks t
+      where t.id = site_talk_versions.talk_id
     )
   );
 
@@ -755,7 +723,7 @@ $fn$;
 revoke all on function public.create_site_share_invite(uuid, text, boolean, boolean, boolean, boolean, boolean, text) from public, anon;
 grant execute on function public.create_site_share_invite(uuid, text, boolean, boolean, boolean, boolean, boolean, text) to authenticated;
 
-create or replace function public.redeem_site_share(p_code_hash text)
+create or replace function public.redeem_site_share(p_code_hash text, p_client_ip text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -769,24 +737,38 @@ declare
   v_share_id uuid;
   v_site_name text;
   v_failed integer;
+  v_ip text;
+  v_ip_failed integer;
 begin
   select * into v_actor from private.share_actor();
   if not found or v_actor.company_id is null then
     raise exception 'not_authorized';
   end if;
 
-  -- Hold this until the attempt row commits, so parallel redeems cannot all
-  -- read a count under the limit and insert.
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended((select auth.uid())::text, 0)
-  );
+  -- Person lock first, then the count. Parallel redeems wait on this row.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)::bigint);
+
+  v_ip := private.ip_subject(coalesce(p_client_ip, ''));
+  if v_ip is distinct from 'unknown' then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('share-ip:' || v_ip)::bigint);
+  end if;
 
   select count(*) into v_failed
   from public.site_share_attempts a
   where a.actor_id = v_actor.person_id
-    and a.created_at > now() - interval '1 hour';
+    and a.created_at > pg_catalog.now() - interval '1 hour';
   if v_failed >= 10 then
     return jsonb_build_object('error', 'too_many_attempts');
+  end if;
+
+  if v_ip is distinct from 'unknown' then
+    select count(*) into v_ip_failed
+    from public.site_share_attempts a
+    where a.client_ip = v_ip
+      and a.created_at > pg_catalog.now() - interval '15 minutes';
+    if v_ip_failed >= 40 then
+      return jsonb_build_object('error', 'too_many_attempts');
+    end if;
   end if;
 
   begin
@@ -795,8 +777,10 @@ begin
     when others then
       v_hash := null;
   end;
+
   if v_hash is null or octet_length(v_hash) <> 32 then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
     return jsonb_build_object('error', 'invalid_input');
   end if;
 
@@ -805,24 +789,19 @@ begin
   where code_hash = v_hash
   for update;
 
-  if not found then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+  if not found
+     or v_invite.revoked_at is not null
+     or v_invite.expires_at <= pg_catalog.now()
+     or private.share_company_key(v_actor.company_name) is distinct from v_invite.guest_company_key
+  then
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
     return jsonb_build_object('error', 'invalid_input');
   end if;
-  if v_invite.revoked_at is not null then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
-    return jsonb_build_object('error', 'code_revoked');
-  end if;
-  if v_invite.expires_at <= now() then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
-    return jsonb_build_object('error', 'code_expired');
-  end if;
-  if private.share_company_key(v_actor.company_name) is distinct from v_invite.guest_company_key then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
-    return jsonb_build_object('error', 'other_firm');
-  end if;
+
   if v_actor.role not in ('owner', 'cm') then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
     return jsonb_build_object('error', 'not_allowed');
   end if;
 
@@ -837,41 +816,40 @@ begin
       'share_id', v_share.id,
       'site_id', v_invite.site_id,
       'site_name', v_site_name,
-      'sections', jsonb_build_object(
-        'drawings', v_share.share_drawings,
-        'variations', v_share.share_variations,
-        'snags', v_share.share_snags,
-        'sign_in', v_share.share_sign_in,
-        'inductions', v_share.share_inductions
+      'status', v_share.status,
+      'sections', private.share_sections(
+        v_share.share_drawings, v_share.share_variations, v_share.share_snags,
+        v_share.share_sign_in, v_share.share_inductions
       )
     );
   end if;
 
-  if v_invite.uses >= v_invite.max_uses then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
-    return jsonb_build_object('error', 'code_used');
-  end if;
-  if exists (
+  if v_invite.uses >= v_invite.max_uses or exists (
     select 1
     from public.site_shares s
     where s.site_id = v_invite.site_id
       and s.guest_company_id = v_actor.company_id
       and s.revoked_at is null
   ) then
-    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
-    return jsonb_build_object('error', 'already_shared');
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
+    return jsonb_build_object('error', 'invalid_input');
   end if;
 
   insert into public.site_shares (
     invite_id, host_company_id, guest_company_id, site_id,
     share_drawings, share_variations, share_snags, share_sign_in, share_inductions,
-    redeemed_by
+    guest_company_name, redeemer_name, redeemer_email, redeemed_by, status
   )
   values (
     v_invite.id, v_invite.host_company_id, v_actor.company_id, v_invite.site_id,
     v_invite.share_drawings, v_invite.share_variations, v_invite.share_snags,
     v_invite.share_sign_in, v_invite.share_inductions,
-    v_actor.person_id
+    v_actor.company_name,
+    coalesce(nullif(btrim(v_actor.display_name), ''), 'Someone'),
+    v_actor.email,
+    v_actor.person_id,
+    'pending'
   )
   returning id into v_share_id;
 
@@ -884,26 +862,24 @@ begin
   perform private.share_audit(
     v_invite.host_company_id, v_actor.company_id, v_invite.site_id, v_share_id, v_invite.id,
     v_actor.person_id, 'redeemed',
-    jsonb_build_object('guest_company_name', v_actor.company_name)
+    jsonb_build_object('guest_company_id', v_actor.company_id, 'guest_company_name', v_actor.company_name)
   );
 
   return jsonb_build_object(
     'share_id', v_share_id,
     'site_id', v_invite.site_id,
     'site_name', v_site_name,
-    'sections', jsonb_build_object(
-      'drawings', v_invite.share_drawings,
-      'variations', v_invite.share_variations,
-      'snags', v_invite.share_snags,
-      'sign_in', v_invite.share_sign_in,
-      'inductions', v_invite.share_inductions
+    'status', 'pending',
+    'sections', private.share_sections(
+      v_invite.share_drawings, v_invite.share_variations, v_invite.share_snags,
+      v_invite.share_sign_in, v_invite.share_inductions
     )
   );
 end;
 $fn$;
 
-revoke all on function public.redeem_site_share(text) from public, anon;
-grant execute on function public.redeem_site_share(text) to authenticated;
+revoke all on function public.redeem_site_share(text, text) from public, anon;
+grant execute on function public.redeem_site_share(text, text) to authenticated;
 
 create or replace function public.set_site_share_sections(
   p_share_id uuid,
@@ -971,12 +947,15 @@ declare
   v_share public.site_shares;
 begin
   select * into v_actor from private.share_actor();
-  if not found or v_actor.role is distinct from 'owner' then
+  if not found or v_actor.role not in ('owner', 'cm') then
     raise exception 'not_authorized';
   end if;
 
   select * into v_share from public.site_shares where id = p_share_id;
-  if not found or v_share.host_company_id is distinct from v_actor.company_id then
+  if not found
+     or v_share.host_company_id is distinct from v_actor.company_id
+     or not private.can_access_site(v_share.site_id)
+  then
     raise exception 'not_authorized';
   end if;
 
@@ -994,6 +973,102 @@ $fn$;
 
 revoke all on function public.revoke_site_share(uuid) from public, anon;
 grant execute on function public.revoke_site_share(uuid) to authenticated;
+
+create or replace function public.approve_site_share(p_share_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor record;
+  v_share public.site_shares;
+begin
+  select * into v_actor from private.share_actor();
+  if not found or v_actor.role not in ('owner', 'cm') then
+    raise exception 'not_authorized';
+  end if;
+
+  select * into v_share from public.site_shares where id = p_share_id for update;
+  if not found
+     or v_share.host_company_id is distinct from v_actor.company_id
+     or not private.can_access_site(v_share.site_id)
+  then
+    raise exception 'not_authorized';
+  end if;
+  if v_share.revoked_at is not null then
+    raise exception 'share_revoked';
+  end if;
+  if v_share.status = 'declined' then
+    raise exception 'not_authorized';
+  end if;
+  if v_share.status = 'approved' then
+    return;
+  end if;
+
+  update public.site_shares
+  set status = 'approved',
+      approved_at = pg_catalog.now(),
+      approved_by = v_actor.person_id
+  where id = v_share.id;
+
+  perform private.share_audit(
+    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
+    v_actor.person_id, 'approved', '{}'::jsonb
+  );
+end;
+$fn$;
+
+revoke all on function public.approve_site_share(uuid) from public, anon;
+grant execute on function public.approve_site_share(uuid) to authenticated;
+
+create or replace function public.decline_site_share(p_share_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor record;
+  v_share public.site_shares;
+begin
+  select * into v_actor from private.share_actor();
+  if not found or v_actor.role not in ('owner', 'cm') then
+    raise exception 'not_authorized';
+  end if;
+
+  select * into v_share from public.site_shares where id = p_share_id for update;
+  if not found
+     or v_share.host_company_id is distinct from v_actor.company_id
+     or not private.can_access_site(v_share.site_id)
+  then
+    raise exception 'not_authorized';
+  end if;
+  if v_share.revoked_at is not null then
+    raise exception 'share_revoked';
+  end if;
+  if v_share.status = 'declined' then
+    return;
+  end if;
+  if v_share.status = 'approved' then
+    raise exception 'not_authorized';
+  end if;
+
+  update public.site_shares
+  set status = 'declined',
+      declined_at = pg_catalog.now(),
+      declined_by = v_actor.person_id
+  where id = v_share.id;
+
+  perform private.share_audit(
+    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
+    v_actor.person_id, 'declined', '{}'::jsonb
+  );
+end;
+$fn$;
+
+revoke all on function public.decline_site_share(uuid) from public, anon;
+grant execute on function public.decline_site_share(uuid) to authenticated;
 
 create or replace function public.revoke_site_share_invite(p_invite_id uuid)
 returns void
@@ -1041,7 +1116,7 @@ declare
   v_shares jsonb;
 begin
   select * into v_actor from private.share_actor();
-  if not found or v_actor.role is distinct from 'owner' or not private.can_access_site(p_site_id) then
+  if not found or v_actor.role not in ('owner', 'cm') or not private.can_access_site(p_site_id) then
     raise exception 'not_authorized';
   end if;
 
@@ -1052,12 +1127,8 @@ begin
     'uses', i.uses,
     'revoked_at', i.revoked_at,
     'created_at', i.created_at,
-    'sections', jsonb_build_object(
-      'drawings', i.share_drawings,
-      'variations', i.share_variations,
-      'snags', i.share_snags,
-      'sign_in', i.share_sign_in,
-      'inductions', i.share_inductions
+    'sections', private.share_sections(
+      i.share_drawings, i.share_variations, i.share_snags, i.share_sign_in, i.share_inductions
     )
   ) order by i.created_at desc), '[]'::jsonb)
   into v_invites
@@ -1068,20 +1139,27 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', s.id,
     'guest_company_id', s.guest_company_id,
-    'guest_company_name', c.name,
+    'guest_company_name', s.guest_company_name,
+    'current_company_name', c.name,
+    'renamed', private.share_company_key(c.name) is distinct from private.share_company_key(s.guest_company_name),
+    'redeemer_name', s.redeemer_name,
+    'redeemer_email', s.redeemer_email,
     'redeemed_at', s.redeemed_at,
+    'status', s.status,
+    'approved_at', s.approved_at,
+    'approved_by_name', approver.display_name,
+    'declined_at', s.declined_at,
     'revoked_at', s.revoked_at,
-    'sections', jsonb_build_object(
-      'drawings', s.share_drawings,
-      'variations', s.share_variations,
-      'snags', s.share_snags,
-      'sign_in', s.share_sign_in,
-      'inductions', s.share_inductions
+    'site_name', site.name,
+    'sections', private.share_sections(
+      s.share_drawings, s.share_variations, s.share_snags, s.share_sign_in, s.share_inductions
     )
   ) order by s.redeemed_at desc), '[]'::jsonb)
   into v_shares
   from public.site_shares s
   join public.companies c on c.id = s.guest_company_id
+  join public.sites site on site.id = s.site_id
+  left join public.people approver on approver.id = s.approved_by
   where s.site_id = p_site_id
     and s.host_company_id = v_actor.company_id;
 
@@ -1091,6 +1169,49 @@ $fn$;
 
 revoke all on function public.list_site_shares(uuid) from public, anon;
 grant execute on function public.list_site_shares(uuid) to authenticated;
+
+create or replace function public.my_share_notices()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor record;
+  v_rows jsonb;
+begin
+  select * into v_actor from private.share_actor();
+  if not found or v_actor.role not in ('owner', 'cm') then
+    return '[]'::jsonb;
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'share_id', s.id,
+    'site_id', s.site_id,
+    'site_name', site.name,
+    'guest_company_name', s.guest_company_name,
+    'current_company_name', c.name,
+    'renamed', private.share_company_key(c.name) is distinct from private.share_company_key(s.guest_company_name),
+    'redeemer_name', s.redeemer_name,
+    'redeemer_email', s.redeemer_email,
+    'redeemed_at', s.redeemed_at
+  ) order by s.redeemed_at desc), '[]'::jsonb)
+  into v_rows
+  from public.site_shares s
+  join public.sites site on site.id = s.site_id
+  join public.companies c on c.id = s.guest_company_id
+  where s.host_company_id = v_actor.company_id
+    and s.status = 'pending'
+    and s.revoked_at is null
+    and private.can_access_site(s.site_id);
+
+  return v_rows;
+end;
+$fn$;
+
+revoke all on function public.my_share_notices() from public, anon;
+grant execute on function public.my_share_notices() to authenticated;
 
 create or replace function private.share_cm_name(p_site_id uuid)
 returns text
@@ -1166,13 +1287,21 @@ begin
   join public.sites site on site.id = s.site_id
   join public.companies host on host.id = s.host_company_id
   where s.guest_company_id = v_actor.company_id
-    and s.revoked_at is null;
+    and s.revoked_at is null
+    and s.status = 'approved';
 
   for v_share in
     select s.id, s.host_company_id, s.guest_company_id, s.site_id, s.invite_id
     from public.site_shares s
     where s.guest_company_id = v_actor.company_id
       and s.revoked_at is null
+      and s.status = 'approved'
+      and not exists (
+        select 1
+        from public.site_share_audit a
+        where a.share_id = s.id
+          and a.action = 'view_granted'
+      )
   loop
     perform private.share_audit(
       v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
@@ -1210,11 +1339,6 @@ begin
   select * into v_site from public.sites where id = p_site_id;
   select c.name into v_host from public.companies c where c.id = v_share.host_company_id;
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'site')
-  );
-
   return jsonb_build_object(
     'site_id', v_site.id,
     'site_name', v_site.name,
@@ -1249,7 +1373,6 @@ begin
     raise exception 'not_authorized';
   end if;
   v_share_id := private.share_guard(p_site_id, 'drawings');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', d.id,
@@ -1265,10 +1388,6 @@ begin
   where d.site_id = p_site_id
     and d.is_current;
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'drawings')
-  );
   return v_rows;
 end;
 $fn$;
@@ -1276,7 +1395,7 @@ $fn$;
 revoke all on function public.shared_drawings(uuid) from public, anon;
 grant execute on function public.shared_drawings(uuid) to authenticated;
 
-create or replace function public.shared_drawing_url(p_drawing_id uuid)
+create or replace function public.shared_drawing_url(p_site_id uuid, p_drawing_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -1286,7 +1405,6 @@ declare
   v_actor record;
   v_drawing public.drawings;
   v_share_id uuid;
-  v_share public.site_shares;
   v_company uuid;
 begin
   select * into v_actor from private.share_actor();
@@ -1294,15 +1412,17 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  select * into v_drawing from public.drawings where id = p_drawing_id;
+  -- Share before the drawing is loaded. A caller without this section gets
+  -- not_shared for a missing id and a real id alike.
+  v_share_id := private.share_guard(p_site_id, 'drawings');
+
+  select * into v_drawing
+  from public.drawings
+  where id = p_drawing_id
+    and site_id = p_site_id;
   if not found then
     raise exception 'not_shared';
   end if;
-
-  -- Share and section before is_current. A superseded id outside this
-  -- caller's share is not_shared, the same as a drawing that is not shared.
-  v_share_id := private.share_guard(v_drawing.site_id, 'drawings');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   if not v_drawing.is_current then
     raise exception 'not_current';
@@ -1314,11 +1434,6 @@ begin
     raise exception 'invalid_path';
   end if;
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'drawings', 'drawing_id', v_drawing.id)
-  );
-
   return jsonb_build_object(
     'bucket', 'drawings',
     'path', v_drawing.storage_path,
@@ -1327,8 +1442,8 @@ begin
 end;
 $fn$;
 
-revoke all on function public.shared_drawing_url(uuid) from public, anon;
-grant execute on function public.shared_drawing_url(uuid) to authenticated;
+revoke all on function public.shared_drawing_url(uuid, uuid) from public, anon;
+grant execute on function public.shared_drawing_url(uuid, uuid) to authenticated;
 
 create or replace function public.shared_variations(p_site_id uuid)
 returns jsonb
@@ -1347,7 +1462,6 @@ begin
     raise exception 'not_authorized';
   end if;
   v_share_id := private.share_guard(p_site_id, 'variations');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', v.id,
@@ -1368,10 +1482,6 @@ begin
   where v.site_id = p_site_id
     and ver.status in ('Signed', 'Sent');
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'variations')
-  );
   return v_rows;
 end;
 $fn$;
@@ -1396,7 +1506,6 @@ begin
     raise exception 'not_authorized';
   end if;
   v_share_id := private.share_guard(p_site_id, 'snags');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', s.id,
@@ -1413,10 +1522,6 @@ begin
   from public.snags s
   where s.site_id = p_site_id;
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'snags')
-  );
   return v_rows;
 end;
 $fn$;
@@ -1441,7 +1546,6 @@ begin
     raise exception 'not_authorized';
   end if;
   v_share_id := private.share_guard(p_site_id, 'sign_in');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', a.id,
@@ -1453,10 +1557,6 @@ begin
   from public.site_attendance a
   where a.site_id = p_site_id;
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'sign_in')
-  );
   return v_rows;
 end;
 $fn$;
@@ -1481,7 +1581,6 @@ begin
     raise exception 'not_authorized';
   end if;
   v_share_id := private.share_guard(p_site_id, 'inductions');
-  select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', sig.id,
@@ -1498,10 +1597,6 @@ begin
     and t.kind = 'induction'
     and sig.signature_role = 'attendee';
 
-  perform private.share_audit(
-    v_share.host_company_id, v_share.guest_company_id, v_share.site_id, v_share.id, v_share.invite_id,
-    v_actor.person_id, 'view_granted', jsonb_build_object('section', 'inductions')
-  );
   return v_rows;
 end;
 $fn$;
