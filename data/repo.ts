@@ -231,6 +231,7 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'after_photo_required',
     'already_signed_in',
     'not_signed_in',
+    'correction_overlaps',
     'closed',
     'snag_list_changed',
     'not_found',

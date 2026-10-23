@@ -10,13 +10,14 @@ import {
   getAttendanceQueue,
   persistThenSendAttendance,
   SAVED_ON_PHONE,
+  SIGN_IN_AGAIN,
   stateAfterQueue,
   type AttendanceNotice,
   type QueuedTap,
 } from '@/lib/attendanceQueue';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { theme } from '@/lib/theme';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -38,6 +39,7 @@ async function sendTap(item: QueuedTap) {
 
 export function SiteSignButton({ siteId }: { siteId: string }) {
   const { person } = useAuth();
+  const router = useRouter();
   const userId = person?.auth_user_id ?? '';
   const [server, setServer] = useState<MySiteAttendance | null>(null);
   const [queued, setQueued] = useState<QueuedTap[]>([]);
@@ -115,6 +117,15 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
           }}
         />
       ))}
+      {queued.some((item) => item.needsSignIn) ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={SIGN_IN_AGAIN}
+          onPress={() => router.push('/login')}
+          style={{ minHeight: 48, justifyContent: 'center' }}>
+          <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800' }}>{SIGN_IN_AGAIN}</Text>
+        </Pressable>
+      ) : null}
       {queued.length > 0 ? (
         <Text
           accessibilityRole="text"

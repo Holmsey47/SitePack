@@ -742,6 +742,137 @@ select pg_temp.ok(
   'a 22:00 shift is still open at 05:30'
 );
 
+reset role;
+
+insert into probe (k, v)
+values
+  ('dup-night', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '22:00'))),
+  ('dup-six', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '06:00'))),
+  ('dup-seven', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '07:00'))),
+  ('dup-eight', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '08:00'))),
+  ('dup-tap', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '08:05')));
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-six'), true);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111208',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opc'::uuid,
+  'Op C',
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  false
+);
+
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+select public.close_forgotten_attendance();
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-seven'), true);
+
+insert into probe (k, v)
+values (
+  'dup-day',
+  public.sign_in_site(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::timestamptz from probe where k = 'dup-seven')
+  )
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-eight'), true);
+
+select public.sign_out_site(
+  :'sitea'::uuid,
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-eight')
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-tap'), true);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site('
+      || quote_literal(:'sitea')
+      || '::uuid, '
+      || quote_literal((select v #>> '{}' from probe where k = 'dup-tap'))
+      || '::timestamptz)',
+    'not_signed_in'
+  ),
+  'a duplicate sign-out after a later shift is refused'
+);
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select forgot_sign_out and late_out_at is null
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111208'
+  )
+  and (
+    select out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'dup-eight')
+      and late_out_at is null
+      and not forgot_sign_out
+    from public.site_attendance
+    where id = (select (v->>'entry_id')::uuid from probe where k = 'dup-day')
+  ),
+  'a duplicate tap at 08:05 does not become the night shift late sign-out'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+do $overlap$
+declare
+  v_message text;
+  v_detail text;
+  v_expected text;
+  v_day uuid;
+begin
+  select (v->>'entry_id')::uuid into v_day from probe where k = 'dup-day';
+  select to_char(timezone('Europe/London', in_at), 'YYYY-MM-DD HH24:MI')
+    || ' – '
+    || to_char(timezone('Europe/London', out_at), 'YYYY-MM-DD HH24:MI')
+  into v_expected
+  from public.site_attendance
+  where id = '61111111-1111-4111-8111-111111111208';
+  begin
+    perform public.correct_attendance(
+      v_day,
+      (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+      (select (v #>> '{}')::timestamptz from probe where k = 'dup-eight'),
+      'Stretched over the night shift'
+    );
+    raise exception 'FAIL: overlap was saved';
+  exception
+    when others then
+      if sqlerrm = 'FAIL: overlap was saved' then
+        raise;
+      end if;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
+      if v_message <> 'correction_overlaps' or v_detail is distinct from v_expected then
+        raise exception 'FAIL: overlap % / % expected %', v_message, v_detail, v_expected;
+      end if;
+  end;
+end
+$overlap$;
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'dup-eight')
+    from public.site_attendance
+    where id = (select (v->>'entry_id')::uuid from probe where k = 'dup-day')
+  ),
+  'an overlapping correction is refused and the shift is unchanged'
+);
+
 select set_config('sitepack.attendance_now', '', true);
 set local role anon;
 

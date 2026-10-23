@@ -137,6 +137,7 @@ test('a day shift closes before 06:00 and a late sign-out is not labelled Correc
   await fixtureRepo.signOutSite(IDS.oak, early);
   await fixtureRepo.signOut();
 
+  resetFixtureStore();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 22, 0)));
   pin(londonWallIso('2026-10-21', 2, 0));
@@ -156,6 +157,66 @@ test('a day shift closes before 06:00 and a late sign-out is not labelled Correc
   const [row] = buildWeekSheet(spans.filter((span) => span.late), '2026-10-19', seven);
   assert.equal(row?.shifts[0]?.flags.includes(FLAG_LATE), true);
   assert.equal(row?.shifts[0]?.flags.includes(FLAG_CORRECTED), false);
+  delete clock.__SITEPACK_NOW;
+});
+
+test('a duplicate sign-out does not attach to an earlier night shift', async () => {
+  resetFixtureStore();
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const pin = (iso: string) => {
+    clock.__SITEPACK_NOW = iso;
+    return iso;
+  };
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 22, 0)));
+  const morning = pin(londonWallIso('2026-10-21', 7, 0));
+  await fixtureRepo.signInSite(IDS.oak, morning);
+  await fixtureRepo.signOutSite(IDS.oak, pin(londonWallIso('2026-10-21', 8, 0)));
+  const duplicate = pin(londonWallIso('2026-10-21', 8, 5));
+  await assert.rejects(() => fixtureRepo.signOutSite(IDS.oak, duplicate), /not_signed_in/);
+  const history = await fixtureRepo.listMyAttendance(IDS.oak);
+  const night = history.find((row) => row.in_at === londonWallIso('2026-10-20', 22, 0));
+  const day = history.find((row) => row.in_at === morning);
+  assert.equal(night?.forgot_sign_out, true);
+  assert.equal(night?.late_sign_out, false);
+  assert.equal(day?.out_at, londonWallIso('2026-10-21', 8, 0));
+  assert.equal(day?.late_sign_out, false);
+  delete clock.__SITEPACK_NOW;
+});
+
+test('a correction that overlaps another shift names that shift', async () => {
+  resetFixtureStore();
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const pin = (iso: string) => {
+    clock.__SITEPACK_NOW = iso;
+    return iso;
+  };
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const first = await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-21', 7, 0)));
+  await fixtureRepo.signOutSite(IDS.oak, pin(londonWallIso('2026-10-21', 8, 0)));
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-21', 9, 0)));
+  await fixtureRepo.signOutSite(IDS.oak, pin(londonWallIso('2026-10-21', 10, 0)));
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  await assert.rejects(
+    () =>
+      fixtureRepo.correctAttendance(
+        first.entry_id,
+        londonWallIso('2026-10-21', 7, 0),
+        londonWallIso('2026-10-21', 11, 0),
+        'Stretched over the next shift'
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof SnagRequestError);
+      assert.equal(err.failure.kind === 'business' ? err.failure.code : '', 'correction_overlaps');
+      assert.equal(err.failure.kind === 'business' ? err.failure.detail : '', '2026-10-21 09:00 – 2026-10-21 10:00');
+      assert.equal(attendanceError(err), 'That overlaps another shift, 2026-10-21 09:00 – 2026-10-21 10:00.');
+      return true;
+    }
+  );
+  const sheet = await fixtureRepo.weeklyAttendance(IDS.oak, '2026-10-19');
+  const kept = sheet?.entries.find((row) => row.entry_id === first.entry_id);
+  assert.equal(kept?.out_at, londonWallIso('2026-10-21', 8, 0));
   delete clock.__SITEPACK_NOW;
 });
 

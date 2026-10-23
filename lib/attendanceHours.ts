@@ -11,7 +11,11 @@ export const OVERNIGHT_GRACE_HOUR = 6;
 /** Signed in at or after this London hour. A day shift is not held overnight. */
 export const OVERNIGHT_START_HOUR = 14;
 
-/** (24 - start) + grace, so a 14:00 sign-in reaches exactly 06:00. */
+/**
+ * (24 - start) + grace, so a 14:00 sign-in reaches exactly 06:00 on a 24 hour day.
+ * On the October clock-change night a 14:00 BST sign-in loses the hold at 05:00 GMT,
+ * because these 16 hours run out first. That is intended.
+ */
 export const OVERNIGHT_HOLD_HOURS = 24 - OVERNIGHT_START_HOUR + OVERNIGHT_GRACE_HOUR;
 
 export const FLAG_FORGOT = 'Not signed out';

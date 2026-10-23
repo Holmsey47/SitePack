@@ -88,6 +88,8 @@ export function attendanceError(err: unknown): string {
       return 'That time is not valid.';
     case 'invalid_input':
       return 'Check the time and the reason.';
+    case 'correction_overlaps':
+      return detail ? `That overlaps another shift, ${detail}.` : 'That overlaps another shift.';
     default:
       return 'Could not save the hours.';
   }

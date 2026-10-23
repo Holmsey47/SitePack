@@ -119,6 +119,8 @@ test('the phone constants match the migration grace literals', () => {
   assert.equal(count(`time '${String(OVERNIGHT_GRACE_HOUR).padStart(2, '0')}:00'`), 1);
   assert.equal(count(`time '${String(OVERNIGHT_START_HOUR).padStart(2, '0')}:00'`), 1);
   assert.equal(count(`interval '${OVERNIGHT_HOLD_HOURS} hours'`), 1);
+  assert.match(sql, /October clock-change night/);
+  assert.match(sql, /loses the hold at 05:00 GMT/);
 });
 
 test('a sign-out before 06:00 London keeps the real time and 07:00 is a forgotten close', () => {

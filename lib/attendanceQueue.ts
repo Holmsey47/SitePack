@@ -6,6 +6,16 @@ export const SAVED_ON_PHONE = 'Saved on phone, will send';
 /** Wait this long, times the attempt count, before a failed tap is sent again. */
 export const ATTENDANCE_BACKOFF_MS = 30_000;
 
+/** Network and session retries never wait longer than this. */
+export const ATTENDANCE_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+export const SIGN_IN_AGAIN = 'Sign in again to send this.';
+
+export function attendanceRetryDelayMs(attempts: number): number {
+  const delay = ATTENDANCE_BACKOFF_MS * Math.max(attempts, 1);
+  return Math.min(delay, ATTENDANCE_BACKOFF_MAX_MS);
+}
+
 export const ATTENDANCE_QUEUE_KEY = 'sitepack.attendance.queue';
 export const ATTENDANCE_NOTICE_KEY = 'sitepack.attendance.notices';
 export const ATTENDANCE_OWNER_KEY = 'sitepack.attendance.owner';
@@ -18,6 +28,7 @@ export type QueuedTap = {
   deviceAt: string;
   attempts?: number;
   retryAt?: string;
+  needsSignIn?: boolean;
 };
 
 export type AttendanceNotice = {
@@ -61,22 +72,41 @@ export function refusedTapNotice(action: QueuedTap['action'], code: string, deta
 }
 
 /**
- * Retry a dropped connection, a timeout, 408, 429, and 5xx.
- * Known business codes and other 4xx (auth, validation) are permanent.
+ * Retry a dropped connection, a timeout, 408, 429, 5xx, and a 401 for this user.
+ * Known business codes and other 4xx (validation) are permanent.
  * An unexpected error still retries.
  */
 function knownBusiness(code: string): boolean {
   return rpcErrorCode(code) === code;
 }
 
-/** Network, timeout, 408, 429, and 5xx retry. Known business codes and other 4xx do not. */
+/** A 401 or an expired session. The tap stays queued and the screen asks them to sign in. */
+export function isSessionAttendanceFailure(err: unknown): boolean {
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'http' && failure.status === 401) return true;
+  const text = failure.kind === 'business' ? failure.code : failure.message;
+  return /jwt expired/i.test(text) || text === 'session_expired' || text === 'PGRST301';
+}
+
+/** Network, timeout, 408, 429, 5xx, and a same-user 401 retry. Known business codes and other 4xx do not. */
 export function isRetryableAttendanceFailure(err: unknown): boolean {
+  if (isSessionAttendanceFailure(err)) return true;
   const failure = snagFailureFrom(err);
   if (failure.kind === 'network') return true;
   if (failure.kind === 'http') {
     return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
   }
   return !knownBusiness(failure.code);
+}
+
+function queuedAgain(item: QueuedTap, err: unknown): QueuedTap {
+  const attempts = (item.attempts ?? 0) + 1;
+  return {
+    ...item,
+    attempts,
+    retryAt: new Date(Date.now() + attendanceRetryDelayMs(attempts)).toISOString(),
+    needsSignIn: isSessionAttendanceFailure(err),
+  };
 }
 
 function failureOf(failure: SnagFailure): { code: string; detail?: string } {
@@ -103,7 +133,8 @@ function isTap(value: unknown): value is QueuedTap {
     (item.action === 'in' || item.action === 'out') &&
     typeof item.deviceAt === 'string' &&
     (item.attempts == null || typeof item.attempts === 'number') &&
-    (item.retryAt == null || typeof item.retryAt === 'string')
+    (item.retryAt == null || typeof item.retryAt === 'string') &&
+    (item.needsSignIn == null || typeof item.needsSignIn === 'boolean')
   );
 }
 
@@ -312,12 +343,7 @@ export async function flushAttendanceQueue(
         await queue.remove(item.localId);
         continue;
       }
-      const attempts = (item.attempts ?? 0) + 1;
-      await queue.put({
-        ...item,
-        attempts,
-        retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
-      });
+      await queue.put(queuedAgain(item, err));
       waiting.add(key);
     }
   }
@@ -345,12 +371,7 @@ export async function persistThenSendAttendance(
       await queue.remove(item.localId);
       return 'refused';
     }
-    const attempts = (item.attempts ?? 0) + 1;
-    await queue.put({
-      ...item,
-      attempts,
-      retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
-    });
+    await queue.put(queuedAgain(item, err));
     return 'queued';
   }
 }

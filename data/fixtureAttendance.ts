@@ -11,6 +11,7 @@ import {
   isMondayKey,
   LATE_SIGN_OUT_REASON,
   londonDateKey,
+  londonLocalInput,
   londonWeekStart,
 } from '@/lib/attendanceHours';
 
@@ -209,7 +210,16 @@ export function fixtureSignOut(
     return toEntry(bucket, actor, open);
   }
   const late = bucket.rows
-    .filter((item) => item.person_id === actor.id && item.site_id === siteId && item.forgot_sign_out && graceCouldOwn(item.in_at, receivedAt))
+    .filter(
+      (item) =>
+        item.person_id === actor.id &&
+        item.site_id === siteId &&
+        item.forgot_sign_out &&
+        graceCouldOwn(item.in_at, receivedAt) &&
+        !bucket.rows.some(
+          (later) => later.person_id === item.person_id && later.site_id === item.site_id && later.in_at > item.in_at
+        )
+    )
     .sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
   if (!late || late.late_out_at) throw new Error('not_signed_in');
   const before = snapshot(late);
@@ -348,6 +358,19 @@ export function fixtureCorrect(
   if (Number.isNaN(start) || Number.isNaN(end) || end < start) throw new Error('invalid_input');
   const row = bucket.rows.find((item) => item.id === entryId);
   if (!row || row.company_id !== actor.company_id || !canAccess(row.site_id)) throw new Error('not_authorized');
+  const overlap = bucket.rows.find((other) => {
+    if (other.id === row.id || other.person_id !== row.person_id) return false;
+    const otherEnd = other.out_at ? new Date(other.out_at).getTime() : Number.POSITIVE_INFINITY;
+    return new Date(other.in_at).getTime() < end && start < otherEnd;
+  });
+  if (overlap) {
+    const endLabel = overlap.out_at ? londonLocalInput(overlap.out_at) : 'still signed in';
+    throw new SnagRequestError({
+      kind: 'business',
+      code: 'correction_overlaps',
+      detail: `${londonLocalInput(overlap.in_at)} – ${endLabel}`,
+    });
+  }
   const before = snapshot(row);
   row.in_at = new Date(start).toISOString();
   row.out_at = new Date(end).toISOString();

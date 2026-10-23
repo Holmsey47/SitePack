@@ -9,7 +9,10 @@ import {
   ATTENDANCE_OWNER_KEY,
   ATTENDANCE_QUEUE_KEY,
   flushAttendanceQueue,
+  ATTENDANCE_BACKOFF_MAX_MS,
+  attendanceRetryDelayMs,
   isRetryableAttendanceFailure,
+  SIGN_IN_AGAIN,
   memoryAttendanceQueue,
   persistThenSendAttendance,
   refusedTapNotice,
@@ -185,7 +188,7 @@ test('network and timeout retry; a known business code does not', async () => {
   assert.match((await queue.listNotices())[0]?.message ?? '', /Plot 12 – Oak Estate/);
 });
 
-test('a real supabase client keeps response status: 503 and 502 stay queued, 400 and 401 are a notice', async () => {
+test('a real supabase client keeps response status: 5xx and 401 stay queued, 400 is a notice', async () => {
   const siteId = '51111111-1111-4111-8111-111111111111';
   const deviceAt = '2026-10-20T06:00:00.000Z';
   const cases = [
@@ -224,7 +227,8 @@ test('a real supabase client keeps response status: 503 and 502 stay queued, 400
       status: 401,
       contentType: 'application/json',
       body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }),
-      queued: false,
+      queued: true,
+      signIn: true,
     },
   ];
 
@@ -267,12 +271,47 @@ test('a real supabase client keeps response status: 503 and 502 stay queued, 400
       assert.equal(result, 'queued', `${item.status} ${item.contentType}`);
       assert.equal((await queue.list()).length, 1);
       assert.equal((await queue.listNotices()).length, 0);
+      assert.equal((await queue.list())[0]?.needsSignIn ?? false, 'signIn' in item && item.signIn === true);
     } else {
       assert.equal(result, 'refused', `${item.status} ${item.contentType}`);
       assert.equal((await queue.list()).length, 0);
       assert.equal((await queue.listNotices()).length, 1);
     }
   }
+});
+
+test('a 401 stays queued for this user, and a different login still wipes it', async () => {
+  const queue = memoryAttendanceQueue();
+  const kept = storage();
+  await adoptAttendanceOwner('user-a', queue, kept);
+  const result = await persistThenSendAttendance(tap('user-a'), true, async () => {
+    throw new Error('session_expired');
+  }, queue);
+  assert.equal(result, 'queued');
+  assert.equal((await queue.list()).length, 1);
+  assert.equal((await queue.list())[0]?.needsSignIn, true);
+  assert.equal((await queue.listNotices()).length, 0);
+  await adoptAttendanceOwner('user-a', queue, kept);
+  assert.equal((await queue.list()).length, 1);
+  await adoptAttendanceOwner('user-b', queue, kept);
+  assert.equal((await queue.list()).length, 0);
+  const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
+  assert.match(button, /SIGN_IN_AGAIN/);
+  assert.equal(SIGN_IN_AGAIN, 'Sign in again to send this.');
+});
+
+test('network retry backoff stops at 5 minutes', async () => {
+  assert.equal(attendanceRetryDelayMs(1), 30_000);
+  assert.equal(attendanceRetryDelayMs(10), ATTENDANCE_BACKOFF_MAX_MS);
+  assert.equal(attendanceRetryDelayMs(100), ATTENDANCE_BACKOFF_MAX_MS);
+  const queue = memoryAttendanceQueue();
+  const before = Date.now();
+  await persistThenSendAttendance({ ...tap('user-a'), attempts: 40 }, true, async () => {
+    throw new TypeError('Failed to fetch');
+  }, queue);
+  const retryAt = Date.parse((await queue.list())[0]?.retryAt ?? '');
+  assert.ok(retryAt - before <= ATTENDANCE_BACKOFF_MAX_MS + 1000);
+  assert.ok(retryAt - before >= ATTENDANCE_BACKOFF_MAX_MS - 1000);
 });
 
 test('a notice can be dismissed', async () => {

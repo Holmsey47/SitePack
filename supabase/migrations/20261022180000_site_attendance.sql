@@ -261,7 +261,10 @@ revoke all on function private.attendance_require_site(uuid) from public, anon, 
 
 -- A shift the overnight rule can still own: signed in at or after 14:00
 -- Europe/London and still inside the 16 hour hold. 16 is (24 - 14) + 6,
--- so a 14:00 sign-in reaches exactly the 06:00 grace end.
+-- so a 14:00 sign-in reaches exactly 06:00 on a 24 hour day.
+-- On the October clock-change night the civil day is 25 hours. A 14:00–15:00
+-- BST sign-in loses the hold at 05:00 GMT, because the 16 hour limit runs out
+-- before 06:00. That is intended: the hold is absolute time, not civil time.
 create or replace function private.attendance_overnight(p_in timestamptz, p_now timestamptz)
 returns boolean
 language sql
@@ -523,13 +526,21 @@ begin
     return private.attendance_json(v_row.id);
   end if;
 
-  -- Already closed at 23:59. Attach only when this shift is still one the grace could own.
+  -- Already closed at 23:59. Attach only when this shift is still one the grace
+  -- could own, and no later shift exists for this person on this site.
   select a.* into v_row
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
     and a.forgot_sign_out
     and private.attendance_overnight(a.in_at, v_received)
+    and not exists (
+      select 1
+      from public.site_attendance later
+      where later.person_id = a.person_id
+        and later.site_id = a.site_id
+        and later.in_at > a.in_at
+    )
   order by a.in_at desc
   limit 1;
 
@@ -592,6 +603,7 @@ set search_path = ''
 as $fn$
 declare
   v_row public.site_attendance;
+  v_overlap public.site_attendance;
   v_actor record;
   v_reason text;
   v_before jsonb;
@@ -616,6 +628,26 @@ begin
   if p_in_at < private.attendance_now() - interval '2 years'
      or p_out_at > private.attendance_now() + interval '24 hours' then
     raise exception 'invalid_time';
+  end if;
+
+  select other.* into v_overlap
+  from public.site_attendance other
+  where other.person_id = v_row.person_id
+    and other.id <> v_row.id
+    and other.in_at < p_out_at
+    and (other.out_at is null or other.out_at > p_in_at)
+  order by other.in_at
+  limit 1;
+
+  if v_overlap.id is not null then
+    raise exception 'correction_overlaps'
+      using detail =
+        to_char(timezone('Europe/London', v_overlap.in_at), 'YYYY-MM-DD HH24:MI')
+        || ' – '
+        || case
+             when v_overlap.out_at is null then 'still signed in'
+             else to_char(timezone('Europe/London', v_overlap.out_at), 'YYYY-MM-DD HH24:MI')
+           end;
   end if;
 
   v_before := jsonb_build_object(
