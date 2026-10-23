@@ -238,8 +238,11 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
     ownerId: 'user-a',
     siteId: 'site',
     signedAt: '2026-10-22T13:05:00.000Z',
-    mode: 'internal',
+    mode: 'contractor',
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
     signerCompany: 'Northbuild',
+    signaturePng: 'data:image/png;base64,aaaa',
     coveredIds: ['shown-fixed'],
     outstandingIds: ['shown-open'],
   });
@@ -285,6 +288,10 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
   const changedNotice = notices.find((notice) => notice.id.endsWith('stale-sign'));
   assert.equal(changedNotice?.code, 'snag_list_changed');
   assert.equal(changedNotice?.retryItem, undefined);
+  assert.equal(changedNotice?.signMode, 'contractor');
+  assert.equal(changedNotice?.signerName, 'Dave Moran');
+  assert.equal(changedNotice?.signerRole, 'Site manager');
+  assert.equal(changedNotice?.signerCompany, 'Northbuild');
   const signScreen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
   assert.match(signScreen, /function clearSignFields\(\)/);
   assert.match(signScreen, /setSignature\(null\)/);

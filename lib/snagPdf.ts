@@ -93,7 +93,7 @@ function pdfText(value: string): string {
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
-    .replace(/[^\x0A\x0D\x20-\x7E\u00A3\u00B7]/g, '');
+    .replace(/[^\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, '');
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
@@ -215,16 +215,6 @@ async function drawReport(
       y -= line.size + 4;
       if (line.mark) mark(line.mark, snagSeq === undefined ? { baseline } : { snagSeq, baseline });
     }
-  }
-
-  /** Draw a block whole. When it does not fit, start a page and then run `onPage`. */
-  function paintFitted(lines: LineSpec[], onPage?: () => void) {
-    if (lines.length === 0) return;
-    if (y - linesHeight(lines) < bottom) {
-      newPage();
-      onPage?.();
-    }
-    paint(lines);
   }
 
   function drawWrapped(text: string, size: number, weight: 'bold' | 'regular', markKind?: SnagPdfTrace['kind'], snagSeq?: number) {
@@ -362,16 +352,48 @@ async function drawReport(
     return image.height * scale + 8;
   }
 
-  /** Height of the signer block kept with the last photo. The outstanding list flows after it. */
-  function signerBlockHeight(): number {
-    return linesHeight(signerLines) + signatureImageHeight(signoffImage);
+  const disclaimerLines = options.disclaimer
+    ? expanded([{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }], font, bold)
+    : [];
+  const continuedLines = expanded(
+    [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
+    font,
+    bold
+  );
+  const closingH = linesHeight(signerLines) + signatureImageHeight(signoffImage) + linesHeight(disclaimerLines);
+  const outstandingItems = outstanding?.items ?? [];
+  const rowsHeight = (rows: LineSpec[][]) => rows.reduce((sum, row) => sum + linesHeight(row), 0);
+  const outstandingHeadingH = outstanding ? linesHeight(outstanding.heading) : 0;
+  const pageBudget = TOP - bottom;
+  const wholeFitsPage = Boolean(
+    outstanding && outstandingHeadingH + rowsHeight(outstandingItems) + closingH <= pageBudget
+  );
+  // A short list stays with the last photo, so a one-snag sign-off remains one page.
+  // A long list starts after the photos; its last rows share the signer page.
+  const photoTail =
+    options.signoff && outstanding && wholeFitsPage
+      ? 10 + outstandingHeadingH + rowsHeight(outstandingItems) + closingH
+      : 0;
+
+  function paintSignoffClose() {
+    paint(signerLines);
+    if (signoffImage) {
+      const h = signatureImageHeight(signoffImage) - 8;
+      const scale = h / signoffImage.height;
+      const w = signoffImage.width * scale;
+      const imageBottom = y - h;
+      page.drawImage(signoffImage, { x: MARGIN, y: imageBottom, width: w, height: h });
+      y -= h + 8;
+      mark('signature', { baseline: imageBottom });
+    }
+    if (disclaimerLines.length > 0) paint(disclaimerLines);
   }
 
   for (const snag of input.snags) {
     const detail = expanded(detailLines(snag), font, bold);
     const visuals = await visualsFor(snag);
     const reserve = snag.signature ? 6 * 16 + (snag.signature.signaturePng ? 80 : 0) + 16 : 0;
-    const tail = snag === input.snags[input.snags.length - 1] && options.signoff ? 10 + signerBlockHeight() : 0;
+    const tail = snag === input.snags[input.snags.length - 1] ? photoTail : 0;
     const detailH = linesHeight(detail);
     const hold = visuals.length <= 1 ? reserve + tail : 0;
     const available = y - detailH - 8 - bottom - hold;
@@ -432,47 +454,52 @@ async function drawReport(
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
 
   if (options.signoff && outstanding) {
-    const body = signerBlockHeight();
-    const lastSnag = input.snags[input.snags.length - 1];
-    const keptWithPhoto = lastSnag
-      ? trace.some(
-          (item) =>
-            item.page === pageNo &&
-            item.snagSeq === lastSnag.snagSeq &&
-            (item.kind === 'photo' || item.kind === 'missing')
-        )
-      : false;
-    if (!keptWithPhoto && y - body < bottom) newPage();
-    paint(signerLines);
-    if (signoffImage) {
-      const h = signatureImageHeight(signoffImage) - 8;
-      const scale = h / signoffImage.height;
-      const w = signoffImage.width * scale;
-      const imageBottom = y - h;
-      page.drawImage(signoffImage, { x: MARGIN, y: imageBottom, width: w, height: h });
-      y -= h + 8;
-      mark('signature', { baseline: imageBottom });
-    }
-    let started = false;
-    const continued = expanded(
-      [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
-      font,
-      bold
-    );
-    paintFitted(outstanding.heading);
-    started = true;
-    for (const item of outstanding.items) {
-      paintFitted(item, () => {
-        if (started) paint(continued);
-      });
-    }
-    if (options.disclaimer) {
-      const disclaimer = expanded(
-        [{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }],
-        font,
-        bold
-      );
-      paintFitted(disclaimer);
+    const ensure = (height: number, onPage: () => void) => {
+      if (y - height < bottom) {
+        newPage();
+        onPage();
+      }
+    };
+    if (wholeFitsPage) {
+      const blockH = outstandingHeadingH + rowsHeight(outstandingItems) + closingH;
+      if (y - blockH < bottom) newPage();
+      paint(outstanding.heading);
+      for (const item of outstandingItems) paint(item);
+      paintSignoffClose();
+    } else {
+      let used = linesHeight(continuedLines) + closingH;
+      let keep = 0;
+      for (let index = outstandingItems.length - 1; index >= 0; index -= 1) {
+        const height = linesHeight(outstandingItems[index] ?? []);
+        if (used + height > pageBudget) break;
+        used += height;
+        keep += 1;
+      }
+      if (keep < 1 && outstandingItems.length > 0) keep = 1;
+      const prefix = outstandingItems.slice(0, outstandingItems.length - keep);
+      const suffix = outstandingItems.slice(outstandingItems.length - keep);
+      if (prefix.length > 0) {
+        ensure(outstandingHeadingH, () => undefined);
+        paint(outstanding.heading);
+        for (const item of prefix) {
+          ensure(linesHeight(item), () => {
+            paint(continuedLines);
+          });
+          paint(item);
+        }
+      }
+      const suffixHead = prefix.length > 0 ? continuedLines : outstanding.heading;
+      const suffixH = linesHeight(suffixHead) + rowsHeight(suffix) + closingH;
+      const headingAlreadyHere =
+        prefix.length > 0 && trace.some((item) => item.page === pageNo && item.kind === 'outstanding');
+      if (y - suffixH < bottom) {
+        newPage();
+        paint(suffixHead);
+      } else if (!headingAlreadyHere) {
+        paint(suffixHead);
+      }
+      for (const item of suffix) paint(item);
+      paintSignoffClose();
     }
   }
 

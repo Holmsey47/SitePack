@@ -635,10 +635,10 @@ begin
     raise exception 'invalid_input';
   end if;
   if p_kind = 'contractor' then
-    return 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of ' || v_company || '.';
+    return 'I confirm the snags listed above have been put right to my satisfaction, on behalf of ' || v_company || '.';
   end if;
   if p_kind = 'internal' then
-    return 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
+    return 'I''ve checked the snags listed above and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
   end if;
   raise exception 'invalid_input';
 end;

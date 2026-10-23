@@ -2,11 +2,11 @@ import { snagNumber } from '@/data/snags';
 
 /** Legal copy. Change the sentence here and nowhere else. */
 export const SNAG_CONTRACTOR_CONFIRMATION =
-  'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of [Company].';
+  'I confirm the snags listed above have been put right to my satisfaction, on behalf of [Company].';
 
 /** Legal copy. Change the sentence here and nowhere else. */
 export const SNAG_INTERNAL_CONFIRMATION =
-  "I've checked the snags marked complete below and I'm satisfied they've been put right. This is an internal check for [Company], not sign-off by the main contractor.";
+  "I've checked the snags listed above and I'm satisfied they've been put right. This is an internal check for [Company], not sign-off by the main contractor.";
 
 export const SNAG_SIGN_OFF_DISCLAIMER =
   "This sign-off records the snags listed only. It isn't a completion certificate.";
@@ -18,6 +18,11 @@ export function snagConfirmation(company: string, kind: SnagSignoffKind): string
   const shown = company.trim() || 'your company';
   const sentence = kind === 'contractor' ? SNAG_CONTRACTOR_CONFIRMATION : SNAG_INTERNAL_CONFIRMATION;
   return sentence.replace('[Company]', shown);
+}
+
+/** The sign-off form closes after a save, online or on the phone, so the button cannot be tapped again. */
+export function signoffFormOpen(input: { savedOnPhone: boolean; signedOff: boolean }): boolean {
+  return !input.savedOnPhone && !input.signedOff;
 }
 
 /** The contractor pad stays off until its own company field has text. */

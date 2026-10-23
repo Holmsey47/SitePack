@@ -68,6 +68,11 @@ export type SnagNotice = {
   /** Business or HTTP code. `snag_list_changed` must not be sent again. */
   code?: string;
   retryItem?: QueuedSnag;
+  /** Kept for Sign again so the form can be filled without a new signature. */
+  signMode?: 'internal' | 'contractor';
+  signerName?: string;
+  signerRole?: string;
+  signerCompany?: string;
 };
 
 export type SnagQueueStore = {
@@ -251,6 +256,10 @@ function decodeNotice(item: StoredNotice): SnagNotice | null {
       bytes: fromBase64(photo.base64),
     })),
     code: typeof item.code === 'string' ? item.code : undefined,
+    signMode: item.signMode === 'internal' || item.signMode === 'contractor' ? item.signMode : undefined,
+    signerName: typeof item.signerName === 'string' ? item.signerName : undefined,
+    signerRole: typeof item.signerRole === 'string' ? item.signerRole : undefined,
+    signerCompany: typeof item.signerCompany === 'string' ? item.signerCompany : undefined,
     retryItem,
   };
 }
@@ -518,6 +527,7 @@ export async function flushSnagQueue(
       const pending = await queue.list();
       const fixStillSending = pending.some((row) => row.ownerId === item.ownerId && row.siteId === item.siteId && row.kind === 'fix');
       const listChanged = code === 'snag_list_changed';
+      const signed = retrySource.kind === 'sign' ? retrySource : null;
       const notice: SnagNotice = {
         id: `reject:${item.ownerId}:${item.localId}`,
         ownerId: item.ownerId,
@@ -525,6 +535,10 @@ export async function flushSnagQueue(
         message: rejectedSnagNotice(item.kind, code, fixStillSending),
         photos: retrySource.kind === 'sign' ? [] : retrySource.photos.map(copyPhoto),
         code,
+        signMode: signed?.mode,
+        signerName: signed?.signerName,
+        signerRole: signed?.signerRole,
+        signerCompany: signed?.signerCompany,
         retryItem: listChanged ? undefined : copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
       };
       await queue.putNotice(notice);

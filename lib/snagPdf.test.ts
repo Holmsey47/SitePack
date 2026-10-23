@@ -261,7 +261,7 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   const contractorText = decodedPdfText(contractor.bytes);
   assert.match(contractorText, /Snag sign-off/);
   assert.equal(contractorText.includes('Internal check'), false);
-  assert.match(contractorText, /I confirm the snags marked complete below have been put right to my satisfaction, on behalf of/);
+  assert.match(contractorText, /I confirm the snags listed above have been put right to my satisfaction, on behalf of/);
   assert.match(contractorText, /Northbuild\./);
   assert.match(contractorText, /Outstanding \(not signed off\): 1/);
   assert.match(contractorText, /S-2 · Skirting not fixed in the hall · Ground/);
@@ -286,9 +286,9 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   });
   const internalText = decodedPdfText(internalPdf.bytes);
   assert.match(internalText, /Internal check/);
-  assert.match(internalText, /I've checked the snags marked complete below and I'm satisfied they've been put right\./);
+  assert.match(internalText, /I've checked the snags listed above and I'm satisfied they've been put right\./);
   assert.match(internalText, /This is an internal/);
-  assert.match(internalText, /check for Ashfield Finishes, not sign-off by the main contractor\./);
+  assert.match(internalText, /Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /not sign-off by the main contractor\./);
   assert.match(internalText, /No snags are outstanding\./);
   assert.match(internalText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
@@ -323,12 +323,26 @@ test('the signer block stays on the same page as the last photo', async () => {
     siteName: 'Plot 12 - Oak Estate',
     generatedAt: when,
     confirmationText: snagConfirmation('Northbuild', 'contractor'),
-    signerName: 'Dave Moran',
+    signerName: 'José Marín',
     signerRole: 'Site manager',
     signerCompany: 'Northbuild',
     signedAt: when,
     signaturePng,
   };
+  const onePage = await buildSnagSignoffPdf({
+    ...base,
+    covered: [snag(1, snagJpegBytes('beforeWide'), 'Bead missing at the window reveal')],
+    outstanding: [{ snagSeq: 2, note: 'Skirting not fixed in the hall', levelArea: 'Ground' }],
+  });
+  assert.equal((await PDFDocument.load(onePage.bytes)).getPageCount(), 1, 'a 1-snag sign-off is one page');
+  assert.match(decodedPdfText(onePage.bytes), /José Marín/);
+  const oneTrace = onePage.trace;
+  const oneSign = oneTrace.filter((item) => item.kind === 'signature' && item.page === 1 && item.baseline !== undefined);
+  const oneOut = oneTrace.filter((item) => item.kind === 'outstanding' && item.baseline !== undefined);
+  const oneNote = oneTrace.filter((item) => item.kind === 'disclaimer' && item.baseline !== undefined);
+  assert.ok(oneOut.length > 0 && oneSign.length > 0 && oneNote.length > 0);
+  assert.ok(Math.min(...oneOut.map((item) => item.baseline ?? 0)) > Math.max(...oneSign.map((item) => item.baseline ?? 0)));
+  assert.ok(Math.min(...oneNote.map((item) => item.baseline ?? 0)) < Math.min(...oneSign.map((item) => item.baseline ?? 0)));
   const short = await buildSnagSignoffPdf({
     ...base,
     covered: [snag(1, snagJpegBytes('beforeWide'), 'Bead missing at the window reveal')],
@@ -336,6 +350,9 @@ test('the signer block stays on the same page as the last photo', async () => {
   });
   assert.equal(signerSharesLastPhoto(short.trace, 1), true);
   assert.equal(short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
+  assert.equal((await PDFDocument.load(short.bytes)).getPageCount(), 1);
+  assert.match(decodedPdfText(short.bytes), /No snags are outstanding/);
+  assert.match(decodedPdfText(short.bytes), /listed above/);
 
   const tall = await buildSnagSignoffPdf({
     ...base,
@@ -429,8 +446,24 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     if (outstandingPages.size > 1) assert.match(text, /Outstanding \(continued\)/);
     const disclaimer = built.trace.filter((item) => item.kind === 'disclaimer');
     assert.ok(disclaimer.length > 0);
-    assert.ok(disclaimer.every((item) => item.page === pages));
-    assert.equal(signerSharesLastPhoto(built.trace, 1), true, `${count} signer left the photo`);
+    const signature = built.trace.filter((item) => item.kind === 'signature' && item.snagSeq === undefined);
+    assert.ok(signature.length > 0);
+    const signPage = signature[0]?.page;
+    assert.ok(disclaimer.every((item) => item.page === signPage));
+    const onSignPage = built.trace.filter((item) => item.kind === 'outstanding' && item.page === signPage && item.baseline !== undefined);
+    const earlier = built.trace.filter((item) => item.kind === 'outstanding' && item.page !== signPage);
+    assert.ok(onSignPage.length > 0, `${count} signer page has no outstanding rows`);
+    if (count >= 60) {
+      assert.ok(earlier.length > 0, `${count} outstanding list did not continue`);
+      assert.match(text, /Outstanding \(continued\)/);
+    }
+    const signHigh = Math.max(...signature.map((item) => item.baseline ?? 0));
+    const outLow = Math.min(...onSignPage.map((item) => item.baseline ?? 0));
+    const noteLow = Math.min(...disclaimer.map((item) => item.baseline ?? 0));
+    const signLow = Math.min(...signature.map((item) => item.baseline ?? 0));
+    assert.ok(outLow > signHigh, `${count} outstanding is not above the signature`);
+    assert.ok(noteLow < signLow, `${count} disclaimer is not under the signature`);
+    assert.match(text, /listed above/);
     assert.match(text, /This sign-off records the snags listed only/);
   }
 });
