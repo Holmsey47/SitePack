@@ -1,7 +1,7 @@
-import { boldLatinFont, regularLatinFont } from '@/lib/attendanceFonts';
 import { preparedLine, weekRangeLabel, type WeekRow } from '@/lib/attendanceHours';
+import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import fontkit from '@pdf-lib/fontkit';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -24,14 +24,11 @@ function pdfText(value: string): string {
   return value.replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
 }
 
-function fitsWinAnsi(face: Face, text: string): boolean {
-  try {
-    face.widthOfTextAtSize(text, 1);
-    return true;
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('cannot encode')) return false;
-    throw err;
-  }
+function pdfFontBytes(encoded: string): Uint8Array {
+  const binary = globalThis.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
@@ -66,23 +63,13 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   doc.setTitle(`Hours ${pdfText(input.siteName)}`);
-  // Helvetica is WinAnsi, the same encoding the variations PDF draws with.
-  // A name outside that set, such as Ł, uses the embedded Latin face.
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const latin: { regular?: Face; bold?: Face } = {};
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = TOP;
 
-  async function faceFor(text: string, weight: 'bold' | 'regular'): Promise<Face> {
-    const standard = weight === 'bold' ? bold : font;
-    if (fitsWinAnsi(standard, text)) return standard;
-    const cached = latin[weight];
-    if (cached) return cached;
-    const bytes = weight === 'bold' ? boldLatinFont() : regularLatinFont();
-    const embedded = await doc.embedFont(bytes, { subset: true });
-    latin[weight] = embedded;
-    return embedded;
+  function faceFor(weight: 'bold' | 'regular'): Face {
+    return weight === 'bold' ? bold : font;
   }
 
   function newPage() {
@@ -97,7 +84,7 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
 
   async function draw(text: string, size: number, weight: 'bold' | 'regular') {
     const value = pdfText(text);
-    const face = await faceFor(value, weight);
+    const face = faceFor(weight);
     for (const line of wrap(value, face, size, CONTENT_W)) {
       ensure(size + 4);
       page.drawText(line, { x: MARGIN, y: y - size, size, font: face, color: rgb(0.1, 0.1, 0.1) });
@@ -129,7 +116,7 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
 
   const pages = doc.getPages();
   const total = pages.length;
-  const footerFace = await faceFor(`${pdfText(input.siteName)} ${pdfText(input.companyName)}`, 'regular');
+  const footerFace = faceFor('regular');
   const footers = pages.map((_, index) => attendanceFooter(input.siteName, input.companyName, index + 1, total, footerFace));
   pages.forEach((sheet, index) => {
     paintFooter(sheet, footers[index] ?? '', footerFace);

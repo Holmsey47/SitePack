@@ -1,13 +1,14 @@
 import { rpcErrorCode } from '@/data/repo';
-import { snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
+import { isRetryableSnagFailure, snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
+import { MAX_SNAG_RETRY_DELAY_MS } from '@/lib/snagQueue';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 /** Wait this long, times the attempt count, before a failed tap is sent again. */
 export const ATTENDANCE_BACKOFF_MS = 30_000;
 
-/** Network, session, and unknown-error retries never wait longer than this. */
-export const ATTENDANCE_BACKOFF_MAX_MS = 5 * 60 * 1000;
+/** Network, session, and unknown-error retries never wait longer than the shared cap. */
+export const ATTENDANCE_BACKOFF_MAX_MS = MAX_SNAG_RETRY_DELAY_MS;
 
 export const SIGN_IN_AGAIN = 'Sign in again to send this.';
 
@@ -101,14 +102,14 @@ export function isSessionAttendanceFailure(err: unknown): boolean {
   return /jwt expired/i.test(text) || text === 'session_expired' || text === 'PGRST301';
 }
 
-/** Network, timeout, 408, 429, 5xx, and a same-user 401 retry. Known business codes and other 4xx do not. */
+/**
+ * Same retry classes as a snag send, including a 401.
+ * An unexpected error still retries. A known business code and any other 4xx do not.
+ */
 export function isRetryableAttendanceFailure(err: unknown): boolean {
-  if (isSessionAttendanceFailure(err)) return true;
+  if (isSessionAttendanceFailure(err) || isRetryableSnagFailure(err)) return true;
   const failure = snagFailureFrom(err);
-  if (failure.kind === 'network') return true;
-  if (failure.kind === 'http') {
-    return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
-  }
+  if (failure.kind === 'http' || failure.kind === 'network') return false;
   return !knownBusiness(failure.code);
 }
 
