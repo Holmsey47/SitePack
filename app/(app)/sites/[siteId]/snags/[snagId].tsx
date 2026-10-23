@@ -6,9 +6,10 @@ import { snagError, snagNumber, type SnagDetail } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { preparePhoto } from '@/lib/photoPrep';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE, type QueuedPhoto } from '@/lib/snagQueue';
+import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag, type QueuedPhoto } from '@/lib/snagQueue';
+import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Platform, Text, View } from 'react-native';
 
@@ -31,6 +32,7 @@ export default function SnagDetailScreen() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [afterPhotos, setAfterPhotos] = useState<LocalPhoto[]>([]);
+  const [signQueued, setSignQueued] = useState(false);
 
   const load = useCallback(async () => {
     if (!snagId) return;
@@ -43,6 +45,16 @@ export default function SnagDetailScreen() {
       .catch(() => setError('Could not load the snag.'))
       .finally(() => setLoaded(true));
   }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!snagId || !siteId) return;
+      getSnagQueue()
+        .list()
+        .then((items) => setSignQueued(signOffQueuedForSnag(items, person?.auth_user_id, siteId, snagId)))
+        .catch(() => setSignQueued(false));
+    }, [person?.auth_user_id, siteId, snagId])
+  );
 
   async function addBlob(blob: Blob) {
     const prepared = await preparePhoto({ blob });
@@ -131,10 +143,10 @@ export default function SnagDetailScreen() {
         {snagNumber(detail.snag_seq)} · {detail.trade_label}
       </Title>
       <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{detail.status}</Text>
-      <Muted>{detail.note}</Muted>
-      {detail.level_area ? <Muted>Level or area · {detail.level_area}</Muted> : null}
+      <Muted>{snagDisplayText(detail.note)}</Muted>
+      {detail.level_area ? <Muted>Level or area · {snagDisplayText(detail.level_area)}</Muted> : null}
       <Muted>
-        Raised by {detail.raised_by_name} · {formatUkDateTime(detail.raised_at)}
+        Raised by {snagDisplayText(detail.raised_by_name)} · {formatUkDateTime(detail.raised_at)}
       </Muted>
       {detail.fixed_at ? (
         <Muted>
@@ -185,7 +197,11 @@ export default function SnagDetailScreen() {
           <Button label="Mark fixed" minHeight={56} loading={busy} disabled={afterPhotos.length < 1} onPress={() => void onFix()} />
         </View>
       ) : null}
-      {detail.status === 'Fixed' ? (
+      {signQueued ? (
+        <Text nativeID="signoff-waiting" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+          {SIGN_OFF_QUEUED}
+        </Text>
+      ) : showSignOffOnSnag(detail.status) ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
       {Platform.OS === 'web'

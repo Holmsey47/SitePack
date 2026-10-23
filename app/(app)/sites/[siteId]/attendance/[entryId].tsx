@@ -5,14 +5,13 @@ import { repo } from '@/data/index';
 import { formatUkDateTime } from '@/lib/format';
 import { londonLocalInput, parseLondonLocal } from '@/lib/attendanceHours';
 import { theme } from '@/lib/theme';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Text } from 'react-native';
 
 export default function AttendanceEntryScreen() {
   const { entryId } = useLocalSearchParams<{ entryId: string }>();
   const { person } = useAuth();
-  const router = useRouter();
   const manage = person ? canManageHours(person.role) : false;
   const [entry, setEntry] = useState<AttendanceEntry | null>(null);
   const [signedIn, setSignedIn] = useState('');
@@ -20,6 +19,7 @@ export default function AttendanceEntryScreen() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
     if (!entryId) return;
@@ -48,8 +48,7 @@ export default function AttendanceEntryScreen() {
     try {
       const next = await repo.correctAttendance(entryId, parseLondonLocal(signedIn), parseLondonLocal(signedOut), reason.trim());
       setEntry(next);
-      setReason('');
-      router.back();
+      setSaved(true);
     } catch (err) {
       setError(attendanceError(err));
     } finally {
@@ -101,7 +100,7 @@ export default function AttendanceEntryScreen() {
           ))}
         </>
       ) : null}
-      {manage && entry ? (
+      {manage && entry && !saved ? (
         <>
           <Field label="Signed in" value={signedIn} onChangeText={setSignedIn} placeholder="2026-10-22 08:00" autoCapitalize="none" />
           <Field label="Signed out" value={signedOut} onChangeText={setSignedOut} placeholder="2026-10-22 16:30" autoCapitalize="none" />

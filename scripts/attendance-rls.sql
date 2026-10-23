@@ -513,6 +513,13 @@ select pg_temp.ok(
 
 select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'late-seven'), true);
 
+-- The corrected shift used now() minus 8 hours. After 05:00 UTC that lands after
+-- yesterday 22:00, and a later shift blocks this late sign-out. Park it in the morning.
+update public.site_attendance
+set in_at = timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '12:00'),
+    out_at = timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '16:00')
+where id = (select (v->>'entry_id')::uuid from probe where k = 'a-out');
+
 insert into public.site_attendance (
   id, site_id, company_id, person_id, person_name,
   in_device_at, in_received_at, in_at, in_gap
