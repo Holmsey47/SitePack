@@ -495,7 +495,7 @@ test('a presenter sees only their own signature image', () => {
   assert.equal(other?.register, null);
 });
 
-test('revising the words keeps the current PDF, and a used path is rejected', () => {
+test('a new PDF upload is accepted, and a missing, same, or used path is refused', () => {
   const world = gang();
   const owner = actor(world.owner, 'auth-owner');
   const file = `${world.company}/${world.site.id}/talks/brief.pdf`;
@@ -520,35 +520,31 @@ test('revising the words keeps the current PDF, and a used path is rejected', ()
     world.assignments,
     world.access
   );
-  const revised = fixtureReviseTalk(
-    world.bucket,
-    owner,
-    created.talk_id,
-    { title: 'Fire exits', body: 'Muster by the cabin.', pdfPath: null },
-    world.sites,
-    world.access
+  assert.throws(
+    () =>
+      fixtureReviseTalk(
+        world.bucket,
+        owner,
+        created.talk_id,
+        { title: 'Fire exits', body: 'Muster by the cabin.', pdfPath: null },
+        world.sites,
+        world.access
+      ),
+    /pdf_required/
   );
-  assert.equal(revised.version_no, 2);
-  assert.equal(world.bucket.versions.find((row) => row.id === revised.version_id)?.pdf_path, file);
-  const kept = fixtureReviseTalk(
-    world.bucket,
-    owner,
-    created.talk_id,
-    { title: 'Fire exits', body: 'An empty path keeps the file.', pdfPath: '' },
-    world.sites,
-    world.access
+  assert.throws(
+    () =>
+      fixtureReviseTalk(
+        world.bucket,
+        owner,
+        created.talk_id,
+        { title: 'Fire exits', body: 'An empty path drops the file.', pdfPath: '' },
+        world.sites,
+        world.access
+      ),
+    /pdf_required/
   );
-  assert.equal(world.bucket.versions.find((row) => row.id === kept.version_id)?.pdf_path, file);
-  const next = `${world.company}/${world.site.id}/talks/next.pdf`;
-  const replaced = fixtureReviseTalk(
-    world.bucket,
-    owner,
-    created.talk_id,
-    { title: 'Fire exits', body: 'Read the new file.', pdfPath: next },
-    world.sites,
-    world.access
-  );
-  assert.equal(world.bucket.versions.find((row) => row.id === replaced.version_id)?.pdf_path, next);
+  assert.equal(world.bucket.versions.find((row) => row.is_current)?.pdf_path, file);
   assert.throws(
     () =>
       fixtureReviseTalk(
@@ -561,16 +557,110 @@ test('revising the words keeps the current PDF, and a used path is rejected', ()
       ),
     /invalid_path/
   );
+  const next = `${world.company}/${world.site.id}/talks/next.pdf`;
+  const replaced = fixtureReviseTalk(
+    world.bucket,
+    owner,
+    created.talk_id,
+    { title: 'Fire exits', body: 'Read the new file.', pdfPath: next },
+    world.sites,
+    world.access
+  );
+  assert.equal(replaced.version_no, 2);
+  assert.equal(world.bucket.versions.find((row) => row.id === replaced.version_id)?.pdf_path, next);
+  assert.throws(
+    () =>
+      fixtureReviseTalk(
+        world.bucket,
+        owner,
+        created.talk_id,
+        { title: 'Fire exits', body: 'Nope.', pdfPath: next },
+        world.sites,
+        world.access
+      ),
+    /invalid_path/
+  );
 });
 
-test('a presenter role with a line break or a spreadsheet formula is rejected', () => {
+test('a title, presenter role, or question with a line break, a leading spreadsheet mark, or a bidi override is rejected', () => {
   assert.throws(() => talkPlain('Site\nlead'), /invalid_input/);
   assert.throws(() => talkPlain('Site\rlead'), /invalid_input/);
   assert.throws(() => talkPlain('=HYPERLINK("x")\r'), /invalid_input/);
   assert.throws(() => talkPlain('Lead\u0085'), /invalid_input/);
   assert.throws(() => talkPlain('Lead\u2028'), /invalid_input/);
   assert.throws(() => talkPlain('Lead\u202e'), /invalid_input/);
+  assert.throws(() => talkPlain('=Lead'), /invalid_input/);
+  assert.throws(() => talkPlain('+Lead'), /invalid_input/);
+  assert.throws(() => talkPlain('-Lead'), /invalid_input/);
+  assert.throws(() => talkPlain('@Lead'), /invalid_input/);
+  assert.throws(() => talkPlain('  =Lead'), /invalid_input/);
   assert.equal(talkPlain('Site lead'), 'Site lead');
+  const world = gang();
+  const owner = actor(world.owner, 'auth-owner');
+  const sam = world.lads[0];
+  const lee = world.lads[1];
+  if (!sam || !lee) throw new Error('missing gang');
+  const created = fixtureCreateTalk(
+    world.bucket,
+    owner,
+    {
+      siteId: world.site.id,
+      kind: 'toolbox',
+      delivery: 'in_person',
+      title: 'Fire exits',
+      body: 'Walk to the gate.',
+      pdfPath: null,
+      audience: 'all',
+      personIds: [],
+      presenterPersonId: sam.id,
+      presenterRole: 'Operative',
+      presentedAt: new Date().toISOString(),
+    },
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access
+  );
+  assert.throws(
+    () =>
+      fixtureAskTalk(
+        world.bucket,
+        actor(sam),
+        {
+          talkId: created.talk_id,
+          versionId: created.version_id,
+          personId: lee.id,
+          body: 'Where\nis it?',
+          deviceAt: new Date().toISOString(),
+          sessionId: session,
+        },
+        world.sites,
+        world.people,
+        world.assignments,
+        world.access
+      ),
+    /invalid_input/
+  );
+  assert.throws(
+    () =>
+      fixtureAskTalk(
+        world.bucket,
+        actor(sam),
+        {
+          talkId: created.talk_id,
+          versionId: created.version_id,
+          personId: lee.id,
+          body: '=Where is it?',
+          deviceAt: new Date().toISOString(),
+          sessionId: session,
+        },
+        world.sites,
+        world.people,
+        world.assignments,
+        world.access
+      ),
+    /invalid_input/
+  );
 });
 
 test('a talk file path stays inside company/site/talks', () => {

@@ -365,18 +365,19 @@ export function fixtureReviseTalk(
   const site = requireSite(actor, sites.find((row) => row.id === talk.site_id), canAccess(talk.site_id));
   const current = currentVersion(bucket, talk.id);
   const requested = input.pdfPath?.trim() ?? '';
-  let carried: string | null = current.pdf_path;
-  if (requested && (!current.pdf_path || talkStoragePath(site.company_id, site.id, requested) !== current.pdf_path)) {
-    carried = talkStoragePath(site.company_id, site.id, requested);
-    if (bucket.versions.some((row) => row.pdf_path === carried)) fail('invalid_path');
+  let pdfPath: string | null = null;
+  if (!requested) {
+    if (current.pdf_path) fail('pdf_required');
+  } else {
+    pdfPath = talkStoragePath(site.company_id, site.id, requested);
+    if (bucket.versions.some((row) => row.pdf_path === pdfPath)) fail('invalid_path');
   }
-  if (current.pdf_path && !carried) fail('invalid_input');
   const content = assertContent({
     kind: talk.kind,
     delivery: talk.delivery,
     title: input.title,
     body: input.body,
-    pdfPath: carried,
+    pdfPath,
     site,
   });
   const hash = talkContentHash({
@@ -512,6 +513,7 @@ export function fixtureAskTalk(
   if (!talkSessionOk(input.sessionId)) fail('invalid_input');
   const body = input.body.trim();
   if (body.length > 280) fail('invalid_input');
+  if (body) talkPlain(body);
   const person = people.find((row) => row.id === input.personId);
   const received = new Date().toISOString();
   const existing = questionFor(bucket, version.id, input.personId);

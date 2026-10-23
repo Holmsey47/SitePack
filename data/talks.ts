@@ -187,6 +187,8 @@ export function talkError(code: string): string {
       return 'Check the talk and try again.';
     case 'invalid_path':
       return 'That file cannot be attached. Choose the file again.';
+    case 'pdf_required':
+      return 'This talk has a PDF. Attach it again.';
     case 'invalid_time':
       return 'The time on this phone is not valid. Check the clock and try again.';
     case 'already_signed':
@@ -218,10 +220,11 @@ export function talkContentHash(parts: {
 }
 
 const TALK_CONTROLS = /[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/;
+const TALK_FORMULA = /^[=+\-@]/;
 
-/** Rejects C0 controls, DEL, NEL, line separators, and bidi controls. */
+/** Rejects line breaks, bidi controls, and a leading spreadsheet mark. */
 export function talkPlain(value: string): string {
-  if (TALK_CONTROLS.test(value)) throw new Error('invalid_input');
+  if (TALK_CONTROLS.test(value) || TALK_FORMULA.test(value.trim())) throw new Error('invalid_input');
   return value;
 }
 

@@ -200,8 +200,8 @@ $fn$;
 
 revoke all on function private.talk_actor() from public, anon, authenticated;
 
--- U+0000 cannot be stored in text. C0 controls, DEL, NEL, line and paragraph
--- separators, and bidi controls are rejected so a name cannot break a line or a sheet.
+-- U+0000 cannot be stored in text. Line breaks, bidi overrides, and a leading
+-- spreadsheet mark are rejected so a title, role, or question cannot spoof a sheet.
 create or replace function private.talk_plain(p_value text)
 returns text
 language plpgsql
@@ -210,16 +210,19 @@ set search_path = ''
 as $fn$
 begin
   if p_value is not null
-     and p_value ~ (
-       '['
-       || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
-       || pg_catalog.chr(127)
-       || pg_catalog.chr(133)
-       || pg_catalog.chr(8206) || pg_catalog.chr(8207)
-       || pg_catalog.chr(8232) || pg_catalog.chr(8233)
-       || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
-       || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
-       || ']'
+     and (
+       p_value ~ (
+         '['
+         || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
+         || pg_catalog.chr(127)
+         || pg_catalog.chr(133)
+         || pg_catalog.chr(8206) || pg_catalog.chr(8207)
+         || pg_catalog.chr(8232) || pg_catalog.chr(8233)
+         || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
+         || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
+         || ']'
+       )
+       or left(btrim(p_value), 1) in ('=', '+', '-', '@')
      ) then
     raise exception 'invalid_input';
   end if;
@@ -773,21 +776,19 @@ begin
   if char_length(v_title) < 1 or char_length(v_title) > 120 or char_length(v_body) > 8000 then
     raise exception 'invalid_input';
   end if;
-  -- No path, or the path already on this version, keeps that file. A different path is a new upload.
-  if p_pdf_path is null
-     or btrim(p_pdf_path) = ''
-     or btrim(p_pdf_path) is not distinct from v_current.pdf_path then
-    v_pdf := v_current.pdf_path;
-    v_pdf_type := v_current.pdf_content_type;
-    v_pdf_size := v_current.pdf_size_bytes;
-    v_pdf_sha := v_current.pdf_sha256;
+  -- A new file is a new upload. Omitting the file never drops one the current version has.
+  if p_pdf_path is null or btrim(p_pdf_path) = '' then
+    if v_current.pdf_path is not null then
+      raise exception 'pdf_required';
+    end if;
+    v_pdf := null;
+    v_pdf_type := null;
+    v_pdf_size := null;
+    v_pdf_sha := null;
   else
     select claimed.path, claimed.content_type, claimed.size_bytes, claimed.byte_sha256
     into v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha
     from private.talk_storage_path(v_talk.company_id, v_talk.site_id, p_pdf_path) claimed;
-  end if;
-  if v_current.pdf_path is not null and v_pdf is null then
-    raise exception 'invalid_input';
   end if;
   if v_body = '' and v_pdf is null then
     raise exception 'invalid_input';
@@ -1023,8 +1024,11 @@ begin
     raise exception 'invalid_input';
   end if;
   v_body := nullif(btrim(coalesce(p_body, '')), '');
-  if v_body is not null and char_length(v_body) > 280 then
-    raise exception 'invalid_input';
+  if v_body is not null then
+    v_body := private.talk_plain(v_body);
+    if char_length(v_body) > 280 then
+      raise exception 'invalid_input';
+    end if;
   end if;
   if not exists (select 1 from private.talk_required_ids(v_talk.id) req(person_id) where req.person_id = p_person_id) then
     raise exception 'not_required';
@@ -1750,6 +1754,19 @@ grant execute on function public.talk_meaning_line(uuid, uuid) to authenticated;
 grant execute on function public.induction_sign_in_gaps(uuid) to authenticated;
 grant execute on function public.my_talk_badges() to authenticated;
 
+-- A joined person cannot rename themselves. The owner or a contracts manager can.
+drop policy if exists people_update_self_or_owner on public.people;
+create policy people_update_self_or_owner
+  on public.people for update to authenticated
+  using (
+    private.my_role() in ('owner', 'cm')
+    and company_id = private.my_company_id()
+  )
+  with check (
+    private.my_role() in ('owner', 'cm')
+    and company_id = private.my_company_id()
+  );
+
 -- Display names reject bidi overrides, zero-width characters, and a leading spreadsheet mark.
 -- Replacing the attendance trigger function. It already existed, so this is not a new function.
 do $replace_name$
@@ -1767,7 +1784,9 @@ begin
            '['
            || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
            || pg_catalog.chr(127)
+           || pg_catalog.chr(133)
            || pg_catalog.chr(8203) || '-' || pg_catalog.chr(8207)
+           || pg_catalog.chr(8232) || pg_catalog.chr(8233)
            || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
            || pg_catalog.chr(8288)
            || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)

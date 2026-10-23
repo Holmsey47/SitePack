@@ -345,8 +345,48 @@ select pg_temp.ok(
       || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Title'' || chr(8232), ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, '
       || quote_literal('Lead' || chr(8238)) || ', now())',
     'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''=Bad'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''+Bad'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''-Bad'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''@Bad'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Title'' || chr(8238), ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''=Lead'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Fine'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''+Lead'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Fine'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''-Lead'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Fine'', ''Body'', null, ''all'', array[]::uuid[], ' || quote_literal(:'ownerx') || '::uuid, ''@Lead'', now())',
+    'invalid_input'
   ),
-  'a presenter role with LF, CR, or a spreadsheet formula is rejected, and NEL, line separators, and bidi controls are rejected'
+  'a title or presenter role with a line break, a bidi override, or a leading spreadsheet mark is rejected'
 );
 
 select pg_temp.ok(
@@ -720,28 +760,23 @@ select pg_temp.ok(
   'the same talk file cannot be recorded twice, and its type and size are the object''s'
 );
 
-insert into probe (k, v)
-values (
-  'pdf-body',
-  public.revise_site_talk(
-    (select (v->>'talk_id')::uuid from probe where k = 'pdf'),
-    'Stored file',
-    'Read the updated file.',
-    null
-  )
-);
-
 select pg_temp.ok(
-  (select (v->>'version_no')::int = 2
-      and v->>'version_id' is distinct from (select p.v->>'version_id' from probe p where p.k = 'pdf')
-   from probe where k = 'pdf-body')
-  and (select pdf_path = :'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf'
-       and pdf_content_type = 'application/pdf'
-       and pdf_size_bytes = 1800
-       and is_current
+  pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Read the updated file.'', null)',
+    'pdf_required'
+  )
+  and pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Read the updated file.'', '''')',
+    'pdf_required'
+  )
+  and (select version_no = 1
+          and pdf_path = :'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf'
+          and is_current
        from public.site_talk_versions
-       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-body')),
-  'revising the words of a talk with a PDF keeps that PDF on the new version'
+       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf')),
+  'revising a talk that has a PDF without a new file is refused and the PDF stays'
 );
 
 select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/next.pdf', :'ownerx'::uuid, 'drawings', 'application/pdf', 3100);
@@ -758,45 +793,22 @@ values (
 );
 
 select pg_temp.ok(
-  (select (v->>'version_no')::int = 3
-      and v->>'version_id' is distinct from (select p.v->>'version_id' from probe p where p.k = 'pdf-body')
+  (select (v->>'version_no')::int = 2
+      and v->>'version_id' is distinct from (select p.v->>'version_id' from probe p where p.k = 'pdf')
    from probe where k = 'pdf-new')
   and (select pdf_path = :'firmx' || '/' || :'sitea' || '/talks/next.pdf'
        and pdf_content_type = 'application/pdf'
        and pdf_size_bytes = 3100
+       and pdf_sha256 is not null
        and is_current
        from public.site_talk_versions
-       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new')),
-  'revising with a new uploaded PDF is accepted'
-);
-
-insert into probe (k, v)
-values (
-  'pdf-blank',
-  public.revise_site_talk(
-    (select (v->>'talk_id')::uuid from probe where k = 'pdf'),
-    'Stored file',
-    'An empty path keeps the file.',
-    ''
-  )
-);
-
-select pg_temp.ok(
-  (select (v->>'version_no')::int = 4 from probe where k = 'pdf-blank')
-  and (select blank.pdf_path = kept.pdf_path
-          and blank.pdf_sha256 = kept.pdf_sha256
-          and blank.pdf_sha256 is not null
-          and blank.pdf_path = :'firmx' || '/' || :'sitea' || '/talks/next.pdf'
-       from public.site_talk_versions blank
-       join public.site_talk_versions kept
-         on kept.id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new')
-       where blank.id = (select (v->>'version_id')::uuid from probe where k = 'pdf-blank'))
+       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new'))
   and (select a.pdf_sha256 is distinct from b.pdf_sha256
        from public.site_talk_versions a
        join public.site_talk_versions b
          on b.id = (select (v->>'version_id')::uuid from probe where k = 'pdf')
        where a.id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new')),
-  'an empty path keeps the current PDF and its digest, and two files do not share a digest'
+  'revising with a new uploaded PDF is accepted and stores a digest of that file'
 );
 
 select pg_temp.ok(
@@ -817,8 +829,14 @@ select pg_temp.ok(
       || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Nope.'', '
       || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf') || ')',
     'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Nope.'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/next.pdf') || ')',
+    'invalid_path'
   ),
-  'revising with someone else''s file or a path already used is invalid_path'
+  'revising with the same path, someone else''s file, or a path already used is invalid_path'
 );
 
 reset role;
@@ -1118,6 +1136,58 @@ values (
   )
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('Where' || chr(10) || 'is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('=Where is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('+Where is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('-Where is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('@Where is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.ask_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'opd') || '::uuid, '
+      || quote_literal('Where' || chr(8238) || ' is it?') || ', now(), ''session-opa-2'')',
+    'invalid_input'
+  ),
+  'a question with a line break, a leading spreadsheet mark, or a bidi override is rejected'
+);
+
 insert into probe (k, v)
 values (
   'mask-question',
@@ -1361,6 +1431,40 @@ reset role;
 select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
 
+with upd as (
+  update public.people set display_name = 'Op B' where id = :'opa'::uuid
+  returning 1
+)
+insert into storage_touch (k, n) select 'self-rename', count(*) from upd;
+
+select pg_temp.ok(
+  (select n = 0 from storage_touch where k = 'self-rename')
+  and (select display_name from public.people where id = :'opa'::uuid) = 'Op A',
+  'an operative cannot change their own display name'
+);
+
+reset role;
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+with upd as (
+  update public.people set display_name = 'Op C renamed' where id = :'opc'::uuid
+  returning 1
+)
+insert into storage_touch (k, n) select 'cm-rename', count(*) from upd;
+
+update public.people set display_name = 'Op C' where id = :'opc'::uuid;
+
+select pg_temp.ok(
+  (select n = 1 from storage_touch where k = 'cm-rename')
+  and (select display_name from public.people where id = :'opc'::uuid) = 'Op C',
+  'a contracts manager can change a joined person''s display name'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
 select pg_temp.ok(
   pg_temp.raises(
     'update public.people set display_name = ''Op'' || chr(8234) || ''A'' where id = ' || quote_literal(:'opa') || '::uuid',
@@ -1391,6 +1495,14 @@ select pg_temp.ok(
     'invalid_display_name'
   )
   and pg_temp.raises(
+    'update public.people set display_name = ''Op'' || chr(133) || ''A'' where id = ' || quote_literal(:'opa') || '::uuid',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
+    'update public.people set display_name = ''Op'' || chr(8232) || ''A'' where id = ' || quote_literal(:'opa') || '::uuid',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
     'update public.people set display_name = ''=Op A'' where id = ' || quote_literal(:'opa') || '::uuid',
     'invalid_display_name'
   )
@@ -1411,10 +1523,14 @@ select pg_temp.ok(
     'invalid_display_name'
   )
   and (select display_name from public.people where id = :'opa'::uuid) = 'Op A',
-  'a display name with a bidi override, a zero-width character, or a leading spreadsheet mark is rejected on update'
+  'a display name with a line break, a bidi override, a zero-width character, or a leading spreadsheet mark is rejected on update'
 );
 
 update public.people set display_name = 'Op B' where id = :'opa'::uuid;
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
 
 insert into probe (k, v)
 values (
