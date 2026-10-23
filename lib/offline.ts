@@ -96,16 +96,17 @@ function writeOwner(userId: string) {
 function clearLocalMetadata() {
   try {
     const store = globalThis.localStorage;
-    if (!store) return;
-    const keys: string[] = [];
-    for (let index = 0; index < store.length; index += 1) {
-      const key = store.key(index);
-      if (!key) continue;
-      if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.') || key.startsWith('sitepack.variation.')) keys.push(key);
+    if (store) {
+      const keys: string[] = [];
+      for (let index = 0; index < store.length; index += 1) {
+        const key = store.key(index);
+        if (!key) continue;
+        if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.') || key.startsWith('sitepack.variation.')) keys.push(key);
+      }
+      for (const key of keys) store.removeItem(key);
+      removeDrawingSeenKeys(store);
+      removeSnagQueueKeys(store);
     }
-    for (const key of keys) store.removeItem(key);
-    removeDrawingSeenKeys(store);
-    removeSnagQueueKeys(store);
   } catch {
     // The file delete still runs.
   }
