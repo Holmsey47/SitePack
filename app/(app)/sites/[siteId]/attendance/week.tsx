@@ -175,8 +175,8 @@ export default function WeeklyHoursScreen() {
                   onPress={() => router.push(`/sites/${siteId}/attendance/${entry.entry_id}`)}
                   style={{ minHeight: 48, justifyContent: 'center' }}>
                   <Text style={{ color: theme.text, fontSize: 16 }}>
-                    {formatUkDateTime(entry.in_at)}
-                    {entry.out_at ? ` – ${formatUkDateTime(entry.out_at)}` : ' · still in'}
+                    {card.line ??
+                      `${formatUkDateTime(entry.in_at)}${entry.out_at ? ` – ${formatUkDateTime(entry.out_at)}` : ' · still in'}`}
                   </Text>
                   {card.correction ? (
                     <Text style={{ color: theme.text, fontWeight: '800' }}>{card.correction}</Text>

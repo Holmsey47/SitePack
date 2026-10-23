@@ -306,7 +306,7 @@ test('a 401 stays queued for this user, and a different login still wipes it', a
   assert.equal((await queue.list()).length, 0);
   const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
   assert.match(button, /SIGN_IN_AGAIN/);
-  assert.equal(SIGN_IN_AGAIN, 'Sign in again to send this.');
+  assert.equal(SIGN_IN_AGAIN, 'Sign in again to send what is saved on this phone.');
 });
 
 test('network retry backoff stops at 5 minutes', async () => {
@@ -446,6 +446,27 @@ test('a late sign-out notice belongs to the tap owner', () => {
   assert.equal(notice.id, 'late:user-b-out');
   const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
   assert.match(button, /lateSignOutNotice\(item,/);
+});
+
+test('a flush the server refuses drops the tap, and the next flush does not send it', async () => {
+  const queue = memoryAttendanceQueue();
+  await queue.put(tap('user-a', 'out'));
+  let calls = 0;
+  const first = await flushAttendanceQueue(queue, 'user-a', async () => {
+    calls += 1;
+    throw new Error('not_signed_in');
+  });
+  assert.equal(calls, 1);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal(first.length, 1);
+  assert.equal((await queue.listNotices()).length, 1);
+  const again = await flushAttendanceQueue(queue, 'user-a', async () => {
+    calls += 1;
+    throw new Error('not_signed_in');
+  });
+  assert.equal(calls, 1);
+  assert.equal(again.length, 0);
+  assert.equal((await queue.listNotices()).length, 1);
 });
 
 test('a refused tap is removed so a later flush does not send it again', async () => {

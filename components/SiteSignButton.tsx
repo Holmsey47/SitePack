@@ -2,7 +2,7 @@ import { SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { MySiteAttendance } from '@/data/attendance';
-import { attendanceError, signOutThenSignIn } from '@/data/attendance';
+import { attemptSiteSwitch, attendanceError, SWITCH_NEEDS_SIGNAL } from '@/data/attendance';
 import { clientNowIso, forgotYesterday, LATE_SIGN_OUT_NOTICE, LATE_SIGN_OUT_REASON } from '@/lib/attendanceHours';
 import { formatUkDateTime } from '@/lib/format';
 import {
@@ -48,12 +48,15 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
   const [yesterday, setYesterday] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState(true);
   const live = useRef(true);
 
   const load = useCallback(async () => {
     if (!siteId || !userId) return;
     const queue = getAttendanceQueue();
-    if (await deviceIsOnline()) {
+    const connected = await deviceIsOnline();
+    if (live.current) setOnline(connected);
+    if (connected) {
       await flushAttendanceQueue(queue, userId, sendTap).catch(() => undefined);
     }
     const pending = pendingTapsForUser(await queue.list(), userId, siteId);
@@ -130,29 +133,40 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
   }
 
   async function switchSite(notice: AttendanceNotice) {
-    if (busy || !notice.openSiteId) return;
+    if (busy || !notice.openSiteId || !notice.openSiteName) return;
     setBusy(true);
     setError('');
     const deviceAt = clientNowIso();
+    let signOutError: unknown = null;
     try {
-      await signOutThenSignIn(
+      const connected = await deviceIsOnline();
+      if (live.current) setOnline(connected);
+      const result = await attemptSiteSwitch(
+        connected,
         notice.openSiteId,
+        notice.openSiteName,
         siteId,
         deviceAt,
         (id, at) => repo.signOutSite(id, at),
         (id, at) => repo.signInSite(id, at)
       );
-      await getAttendanceQueue().dismissNotice(notice.id);
-    } catch (err) {
-      const stillThere = await repo
-        .mySiteAttendance(notice.openSiteId)
-        .then((row) => row.state === 'in')
-        .catch(() => true);
-      if (!stillThere) await getAttendanceQueue().dismissNotice(notice.id);
-      setError(attendanceError(err));
+      if (result.kind === 'done') {
+        await getAttendanceQueue().dismissNotice(notice.id);
+      } else if (result.kind === 'signed_out') {
+        await getAttendanceQueue().dismissNotice(notice.id);
+        await getAttendanceQueue().putNotice({
+          id: `switch:${notice.openSiteId}:${deviceAt}`,
+          userId,
+          siteId,
+          message: result.notice,
+        });
+      } else if (result.kind === 'sign_out_failed') {
+        signOutError = result.error;
+      }
     } finally {
       setBusy(false);
       await load().catch(() => undefined);
+      if (signOutError) setError(attendanceError(signOutError));
     }
   }
 
@@ -178,26 +192,35 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
             }}
           />
           {notice.openSiteId && notice.openSiteName ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Sign out of ${notice.openSiteName} and sign in here`}
-              disabled={busy}
-              onPress={() => void switchSite(notice)}
-              style={{
-                minHeight: 48,
-                borderRadius: 12,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: theme.surface,
-                borderWidth: 1,
-                borderColor: theme.current,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-              }}>
-              <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
-                {`Sign out of ${notice.openSiteName} and sign in here`}
-              </Text>
-            </Pressable>
+            <View style={{ gap: 4 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Sign out of ${notice.openSiteName} and sign in here`}
+                accessibilityState={{ disabled: busy || !online }}
+                disabled={busy || !online}
+                onPress={() => void switchSite(notice)}
+                style={{
+                  minHeight: 48,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: theme.surface,
+                  borderWidth: 1,
+                  borderColor: theme.current,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  opacity: online ? 1 : 0.45,
+                }}>
+                <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
+                  {`Sign out of ${notice.openSiteName} and sign in here`}
+                </Text>
+              </Pressable>
+              {online ? null : (
+                <Text accessibilityRole="text" style={{ color: theme.muted, fontSize: 16 }}>
+                  {SWITCH_NEEDS_SIGNAL}
+                </Text>
+              )}
+            </View>
           ) : null}
         </View>
       ))}

@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { SnagRequestError } from './snagFailure.ts';
-import { attendanceError, hourSpans, shiftCard, signOutThenSignIn } from './attendance.ts';
+import {
+  attemptSiteSwitch,
+  attendanceError,
+  hourSpans,
+  shiftCard,
+  signedOutOfSiteNotice,
+  signOutThenSignIn,
+  SWITCH_NEEDS_SIGNAL,
+  type AttendanceEntry,
+} from './attendance.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import {
@@ -120,6 +129,7 @@ test('a correction then a fresh load shows the new total in the sheet and the CS
   assert.match(screen, /row\.dayLines/);
   assert.match(screen, /row\.totalLine/);
   assert.match(screen, /shiftCard\(entry\)/);
+  assert.match(screen, /card\.line/);
   assert.equal(screen.includes('WEEK_DAYS.map'), false);
   assert.equal(screen.includes('useEffect('), false);
   const entryScreen = fs.readFileSync('app/(app)/sites/[siteId]/attendance/[entryId].tsx', 'utf8');
@@ -128,8 +138,11 @@ test('a correction then a fresh load shows the new total in the sheet and the CS
   const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
   assert.match(button, /forgotYesterday\(/);
   assert.match(button, /markForgotSeen\(/);
-  assert.match(button, /signOutThenSignIn\(/);
+  assert.match(button, /attemptSiteSwitch\(/);
   assert.match(button, /Sign out of \$\{notice\.openSiteName\} and sign in here/);
+  assert.match(button, /disabled=\{busy \|\| !online\}/);
+  assert.match(button, /SWITCH_NEEDS_SIGNAL/);
+  assert.equal(SWITCH_NEEDS_SIGNAL, 'Needs signal');
 });
 
 test('a day shift closes before 06:00 and a late sign-out is not labelled Corrected', async () => {
@@ -341,6 +354,103 @@ test('sign out of the open site and sign in here follows the normal close rules'
   assert.equal(forgotten?.late_out_at, seven);
   assert.equal((await fixtureRepo.mySiteAttendance(IDS.riverside)).state, 'in');
   delete clock.__SITEPACK_NOW;
+});
+
+function closedEntry(inAt: string, outAt: string, forgot: boolean, audit: AttendanceEntry['audit']): AttendanceEntry {
+  return {
+    entry_id: 'entry-1',
+    site_id: IDS.oak,
+    person_id: IDS.amy,
+    person_name: 'Amy Keane',
+    in_device_at: inAt,
+    in_received_at: inAt,
+    in_at: inAt,
+    in_gap: false,
+    out_device_at: outAt,
+    out_received_at: outAt,
+    out_at: outAt,
+    out_gap: false,
+    forgot_sign_out: forgot,
+    late_sign_out: false,
+    late_out_device_at: null,
+    late_out_received_at: null,
+    late_out_at: null,
+    state: 'out',
+    audit,
+  };
+}
+
+test('an uncorrected not-signed-out shift hides the placeholder close time', () => {
+  const inAt = londonWallIso('2026-10-21', 8, 0);
+  const placeholder = londonWallIso('2026-10-21', 23, 59);
+  const open = shiftCard(closedEntry(inAt, placeholder, true, null));
+  assert.equal(open.line, 'In 8:00am, not signed out');
+  assert.equal(open.line?.includes('11:59pm'), false);
+  const corrected = shiftCard(
+    closedEntry(inAt, londonWallIso('2026-10-21', 16, 30), true, [
+      {
+        id: 'audit-1',
+        reason: 'Left at four',
+        corrected_by_name: 'Jordan Hale',
+        before_entry: { forgot_sign_out: true },
+        after_entry: {},
+        created_at: inAt,
+      },
+    ])
+  );
+  assert.equal(corrected.line, null);
+  assert.equal(corrected.correction, 'Corrected by Jordan Hale: was not signed out');
+});
+
+test('a sign-in failure after sign-out names the old site, and offline or a failed sign-out does not continue', async () => {
+  const calls: string[] = [];
+  const signOut = async (siteId: string) => {
+    calls.push(`out:${siteId}`);
+  };
+  const signIn = async (siteId: string) => {
+    calls.push(`in:${siteId}`);
+    throw new Error('not_signed_in');
+  };
+  const switched = await attemptSiteSwitch(true, IDS.oak, 'Plot 12 – Oak Estate', IDS.riverside, '2026-10-21T08:00:00.000Z', signOut, signIn);
+  assert.equal(switched.kind, 'signed_out');
+  assert.equal(switched.kind === 'signed_out' ? switched.notice : '', signedOutOfSiteNotice('Plot 12 – Oak Estate'));
+  assert.equal(switched.kind === 'signed_out' ? switched.notice : '', 'You are signed out of Plot 12 – Oak Estate. Tap Sign in again.');
+  assert.deepEqual(calls, [`out:${IDS.oak}`, `in:${IDS.riverside}`]);
+
+  calls.length = 0;
+  const refused = await attemptSiteSwitch(
+    true,
+    IDS.oak,
+    'Plot 12 – Oak Estate',
+    IDS.riverside,
+    '2026-10-21T08:00:00.000Z',
+    async () => {
+      calls.push('out');
+      throw new Error('timeout');
+    },
+    async () => {
+      calls.push('in');
+    }
+  );
+  assert.equal(refused.kind, 'sign_out_failed');
+  assert.deepEqual(calls, ['out']);
+
+  calls.length = 0;
+  const offline = await attemptSiteSwitch(
+    false,
+    IDS.oak,
+    'Plot 12 – Oak Estate',
+    IDS.riverside,
+    '2026-10-21T08:00:00.000Z',
+    async () => {
+      calls.push('out');
+    },
+    async () => {
+      calls.push('in');
+    }
+  );
+  assert.equal(offline.kind, 'offline');
+  assert.deepEqual(calls, []);
 });
 
 test('a correction reason drops control characters and an empty one is refused', async () => {
