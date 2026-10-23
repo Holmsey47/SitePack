@@ -5,12 +5,14 @@ import {
   SHARE_COMPANY_PLACEHOLDER,
   SHARE_SECTION_DEFAULTS,
   classifyShareFailure,
+  pendingInviteLabel,
   pendingShareInvites,
   shareFailureNotice,
   type ShareInviteRow,
   type ShareSections,
   type SiteShareRow,
 } from '@/data/sharing';
+import { formatUkDateTime } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -137,7 +139,8 @@ export default function ShareSiteScreen() {
       {invites.map((invite) => (
         <Card key={invite.id}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{invite.guest_company_name}</Text>
-          <Muted>Unused. Cancel it if you do not want it opened.</Muted>
+          <Muted>{pendingInviteLabel(invite)}</Muted>
+          <Muted>{`Expires ${formatUkDateTime(invite.expires_at)}`}</Muted>
           <Button label="Cancel" variant="danger" minHeight={56} onPress={() => setCancelInvite(invite)} />
         </Card>
       ))}

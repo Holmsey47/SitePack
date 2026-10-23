@@ -116,6 +116,7 @@ export type SharedSignInRow = {
 };
 
 export type SharedInductionRow = {
+  id: string;
   talk_id: string;
   title: string;
   person_name: string;
@@ -178,9 +179,16 @@ export function shareCompanyKey(name: string): string {
   return name.trim().replace(/\s+/g, ' ');
 }
 
-/** Unused codes the owner can still cancel. */
+/** Unused codes the owner can still cancel, including ones that have expired. */
 export function pendingShareInvites<T extends { revoked_at: string | null; uses: number }>(invites: readonly T[]): T[] {
   return invites.filter((row) => !row.revoked_at && row.uses < 1);
+}
+
+/** Pending card status. An unused code past its expiry reads Expired. */
+export function pendingInviteLabel(invite: { expires_at: string }, now = Date.now()): string {
+  const expired = new Date(invite.expires_at).getTime() <= now;
+  const state = expired ? 'Expired' : 'Unused';
+  return `${state}. Cancel it if you do not want it opened.`;
 }
 
 export function shareInviteText(input: { company: string; site: string; code: string; origin?: string }): string {

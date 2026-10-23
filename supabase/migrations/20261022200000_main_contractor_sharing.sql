@@ -600,6 +600,28 @@ create policy site_talk_versions_select
     )
   );
 
+-- A table-level select cannot be narrowed by revoking one column. Grant every
+-- column except the image. Security-definer talk functions still read it.
+revoke select on table public.site_talk_signatures from public, anon, authenticated;
+grant select (
+  id,
+  talk_id,
+  version_id,
+  site_id,
+  company_id,
+  person_id,
+  person_name,
+  captured_by,
+  session_id,
+  shared_device,
+  signature_role,
+  meaning,
+  device_at,
+  received_at,
+  content_hash,
+  created_at
+) on table public.site_talk_signatures to authenticated;
+
 drop policy if exists site_talk_signatures_select on public.site_talk_signatures;
 create policy site_talk_signatures_select
   on public.site_talk_signatures for select to authenticated
@@ -759,6 +781,12 @@ begin
   if not found or v_actor.company_id is null then
     raise exception 'not_authorized';
   end if;
+
+  -- Hold this until the attempt row commits, so parallel redeems cannot all
+  -- read a count under the limit and insert.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended((select auth.uid())::text, 0)
+  );
 
   select count(*) into v_failed
   from public.site_share_attempts a
@@ -1277,12 +1305,16 @@ begin
   if not found then
     raise exception 'not_shared';
   end if;
+
+  -- Share and section before is_current. A superseded id outside this
+  -- caller's share is not_shared, the same as a drawing that is not shared.
+  v_share_id := private.share_guard(v_drawing.site_id, 'drawings');
+  select * into v_share from public.site_shares where id = v_share_id;
+
   if not v_drawing.is_current then
     raise exception 'not_current';
   end if;
 
-  v_share_id := private.share_guard(v_drawing.site_id, 'drawings');
-  select * into v_share from public.site_shares where id = v_share_id;
   select s.company_id into v_company from public.sites s where s.id = v_drawing.site_id;
 
   if not private.share_path_ok(v_drawing.storage_path, v_company, v_drawing.site_id) then
@@ -1459,12 +1491,13 @@ begin
   select * into v_share from public.site_shares where id = v_share_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
+    'id', sig.id,
     'talk_id', t.id,
     'title', t.title,
     'person_name', sig.person_name,
     'meaning', sig.meaning,
     'received_at', sig.received_at
-  ) order by t.title, sig.person_name), '[]'::jsonb)
+  ) order by t.title, sig.person_name, sig.id), '[]'::jsonb)
   into v_rows
   from public.site_talks t
   join public.site_talk_signatures sig on sig.talk_id = t.id

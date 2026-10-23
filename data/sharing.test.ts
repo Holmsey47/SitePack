@@ -8,6 +8,7 @@ import {
   droppedSharedSiteIds,
   forgetSharedSiteStorage,
   rememberSharedSiteIds,
+  pendingInviteLabel,
   pendingShareInvites,
   shareCompanyKey,
   shareFailureNotice,
@@ -50,12 +51,21 @@ test('a company key collapses spaces and keeps the typed case', () => {
 
 test('an unused code can be cancelled and a used one cannot', () => {
   resetShareFixture();
+  const now = Date.parse('2026-10-23T12:00:00.000Z');
   const pending = pendingShareInvites(fixtureListSiteShares(IDS.oak).invites);
-  assert.equal(pending.length, 1);
-  assert.equal(pending[0]?.guest_company_name, 'Main Contractor Ltd');
-  fixtureRevokeSiteShareInvite(pending[0]!.id);
-  assert.equal(pendingShareInvites(fixtureListSiteShares(IDS.oak).invites).length, 0);
-  assert.throws(() => fixtureRevokeSiteShareInvite(pending[0]!.id), /not_authorized/);
+  assert.equal(pending.length, 2);
+  const unused = pending.find((row) => row.guest_company_name === 'Main Contractor Ltd');
+  const expired = pending.find((row) => row.guest_company_name === 'Old Contractor Ltd');
+  assert.ok(unused);
+  assert.ok(expired);
+  assert.match(pendingInviteLabel(unused, now), /^Unused/);
+  assert.match(pendingInviteLabel(expired, now), /^Expired/);
+  assert.match(pendingInviteLabel(unused, now), /Cancel it if you do not want it opened/);
+  fixtureRevokeSiteShareInvite(unused.id);
+  const left = pendingShareInvites(fixtureListSiteShares(IDS.oak).invites);
+  assert.equal(left.length, 1);
+  assert.equal(left[0]?.guest_company_name, 'Old Contractor Ltd');
+  assert.throws(() => fixtureRevokeSiteShareInvite(unused.id), /not_authorized/);
 });
 
 test('a guest view includes the sign-in and induction registers without contact details', () => {
@@ -65,6 +75,7 @@ test('a guest view includes the sign-in and induction registers without contact 
   const signIn = fixtureSharedSignIn(HARBOUR_SITE_ID);
   const inductions = fixtureSharedInductions(HARBOUR_SITE_ID);
   assert.equal(signIn[0]?.person_name, 'Łukasz Wójcik');
+  assert.equal(inductions[0]?.id, '99999999-9999-4999-8999-9999999999b4');
   assert.equal(inductions[0]?.person_name, 'Łukasz Wójcik');
   assert.equal(inductions[0]?.title, 'Site induction');
   const packed = JSON.stringify({ signIn, inductions, view });
@@ -81,6 +92,10 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(share, /revokeSiteShareInvite/);
   assert.match(share, /Cancel code/);
   assert.match(share, /PENDING CODES/);
+  assert.match(share, /pendingInviteLabel/);
+  assert.match(share, /formatUkDateTime\(invite\.expires_at\)/);
+  assert.match(shared, /key=\{row\.id\}/);
+  assert.equal(shared.includes('${row.talk_id}-${row.person_name}'), false);
   assert.match(shared, /SIGN-IN/);
   assert.match(shared, /INDUCTIONS/);
   assert.match(shared, /label="Retry"/);

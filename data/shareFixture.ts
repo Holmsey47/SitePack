@@ -48,6 +48,17 @@ export function resetShareFixture() {
       created_at: '2026-10-22T09:00:00.000Z',
       sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
     },
+    {
+      id: '99999999-9999-4999-8999-9999999999ab',
+      siteId: IDS.oak,
+      code: 'WXYZ6789',
+      guest_company_name: 'Old Contractor Ltd',
+      expires_at: '2026-10-01T09:00:00.000Z',
+      uses: 0,
+      revoked_at: null,
+      created_at: '2026-09-24T09:00:00.000Z',
+      sections: { ...SHARE_SECTION_DEFAULTS },
+    },
   ];
   shares = [
     {
@@ -245,6 +256,7 @@ export function fixtureSharedInductions(siteId: string): SharedInductionRow[] {
   if (siteId !== HARBOUR_SITE_ID) throw new Error('section_off');
   return [
     {
+      id: '99999999-9999-4999-8999-9999999999b4',
       talk_id: '99999999-9999-4999-8999-9999999999b3',
       title: 'Site induction',
       person_name: 'Łukasz Wójcik',

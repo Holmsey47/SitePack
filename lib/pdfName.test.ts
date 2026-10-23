@@ -138,14 +138,6 @@ test('a snag report keeps José Müller', async () => {
       },
     ],
   });
-  const winAnsi = streamList(snag.bytes)
-    .flatMap((stream) => [...stream.matchAll(/<([0-9A-Fa-f\s]+)>/g)])
-    .map((match) => {
-      const hex = (match[1] ?? '').replace(/\s/g, '');
-      if (hex.length < 2 || hex.length % 2 !== 0) return '';
-      return Buffer.from(hex, 'hex').toString('latin1');
-    })
-    .join('');
-  assert.match(winAnsi, /José Müller/);
-  assert.equal(winAnsi.includes('Jos Mller'), false);
+  assert.equal(pdfShows(snag.bytes, 'José Müller'), true);
+  assert.equal(pdfShows(snag.bytes, 'Jos Mller'), false);
 });

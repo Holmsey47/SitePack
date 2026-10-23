@@ -208,7 +208,7 @@ export default function SharedSiteScreen() {
               ) : null}
               {!inductions.failed && inductions.rows.length === 0 ? <Muted>No induction signatures.</Muted> : null}
               {inductions.rows.map((row) => (
-                <Card key={`${row.talk_id}-${row.person_name}`}>
+                <Card key={row.id}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
                   <Muted>{row.title}</Muted>
                   <Muted>{row.meaning}</Muted>

@@ -474,6 +474,20 @@ select pg_temp.ok(
   'a shared drawing URL checks the share and rejects a bad path'
 );
 
+select pg_temp.jwt(:'ownerz'::uuid);
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111112''::uuid)',
+    'not_shared'
+  )
+  and pg_temp.raises(
+    'select public.shared_drawing_url(''d1111111-1111-4111-8111-111111111111''::uuid)',
+    'not_shared'
+  ),
+  'a drawing outside this caller''s share is not_shared, including a superseded sheet'
+);
+select pg_temp.jwt(:'ownery'::uuid);
+
 do $paths$
 declare
   v_role uuid;
@@ -586,7 +600,18 @@ select pg_temp.ok(
   and (select count(*) from public.site_talks where title = 'TOOLBOX-SECRET') = 0
   and (select count(*) from public.site_talk_questions) = 0
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
+  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'id') is not null
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%' || repeat('a', 40) || '%')
+  and not has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select')
+  and has_column_privilege('authenticated', 'public.site_talk_signatures', 'person_name', 'select')
+  and pg_temp.raises(
+    'select signature_png from public.site_talk_signatures',
+    'permission denied for table site_talk_signatures'
+  )
+  and (select person_name from public.site_talk_signatures) = 'Łukasz Wójcik'
+  and (select meaning from public.site_talk_signatures) = 'I have read the induction.'
+  and (select received_at from public.site_talk_signatures) is not null
   and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 0
   and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 1
   and (select count(*) from public.site_talk_versions) = 1,

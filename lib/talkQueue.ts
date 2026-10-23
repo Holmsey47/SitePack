@@ -304,8 +304,8 @@ function isDuplicateTalk(err: unknown): boolean {
 }
 
 /**
- * A thrown session rejection wipes the queue.
- * An HTTP 401 from throwSnagRpc is a notice: the status already lives on the response.
+ * A thrown session rejection with no HTTP status wipes the queue.
+ * An HTTP 401 stays queued, the same as the shared snag helper, so a refreshed session can send it.
  */
 function isSessionRejected(err: unknown): boolean {
   const failure = snagFailureFrom(err);
@@ -315,7 +315,7 @@ function isSessionRejected(err: unknown): boolean {
 }
 
 /**
- * Classify with the shared snag failure. Network, timeout, 408, 429, and 5xx stay queued.
+ * Classify with the shared snag failure. Network, timeout, 401, 408, 429, and 5xx stay queued.
  * Talk policy on top: 23505 is success, and a session rejection with no HTTP status wipes the queue.
  */
 export function classifyTalkFailure(err: unknown): TalkFailure {

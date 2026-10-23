@@ -79,3 +79,56 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /tmp/share_funcs_expected.sql
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sharing-rls.sql
 echo "sharing RLS ok"
+
+# Committed schema, separate sessions. The probe above rolls back, so this
+# seed is the only rate-limit actor. The lock must leave 10 rows from 80 calls.
+rate_actor='b4444444-4444-4444-8444-444444444441'
+rate_company='c4444444-4444-4444-8444-444444444441'
+cleanup_rate() {
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q <<SQL
+delete from public.site_share_attempts where actor_id = '${rate_actor}';
+delete from public.people where id = '${rate_actor}';
+delete from auth.users where id = '${rate_actor}';
+delete from public.companies where id = '${rate_company}';
+SQL
+}
+cleanup_rate
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q <<SQL
+insert into auth.users (id, email) values ('${rate_actor}', 'rate@parallel.test');
+insert into public.companies (id, name) values ('${rate_company}', 'Parallel Firm');
+insert into public.people (id, auth_user_id, company_id, role, display_name, email)
+values ('${rate_actor}', '${rate_actor}', '${rate_company}', 'owner', 'Rate Owner', 'rate@parallel.test');
+SQL
+rate_dir="$(mktemp -d)"
+rate_pids=()
+for i in 1 2 3 4 5 6 7 8; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q >"${rate_dir}/${i}.out" 2>"${rate_dir}/${i}.err" <<SQL &
+select set_config('request.jwt.claim.sub', '${rate_actor}', false);
+select set_config('request.jwt.claim.role', 'authenticated', false);
+select set_config('request.jwt.claims', json_build_object('sub', '${rate_actor}', 'role', 'authenticated')::text, false);
+set role authenticated;
+select public.redeem_site_share('abcd') from generate_series(1, 10);
+SQL
+  rate_pids+=("$!")
+done
+rate_fail=0
+for pid in "${rate_pids[@]}"; do
+  if ! wait "$pid"; then
+    rate_fail=1
+  fi
+done
+if [[ "$rate_fail" -ne 0 ]]; then
+  echo "parallel redeem sessions failed" >&2
+  cat "${rate_dir}"/*.err >&2 || true
+  cleanup_rate
+  exit 1
+fi
+rate_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select count(*) from public.site_share_attempts where actor_id = '${rate_actor}'")"
+rate_count="$(echo "$rate_count" | tr -d '[:space:]')"
+cleanup_rate
+rm -rf "$rate_dir"
+if [[ "$rate_count" != "10" ]]; then
+  echo "parallel redeems left ${rate_count} attempt rows, expected 10" >&2
+  exit 1
+fi
+echo "parallel rate limit ok"
