@@ -11,6 +11,7 @@ import {
   detailsStayWithHeading,
   headingStaysWithFirstPhoto,
   signatureStaysWithSnag,
+  SNAG_PDF_SIGN_BOTTOM,
   snagPdfFilename,
   snagReportId,
   type SnagPdfSnag,
@@ -367,4 +368,69 @@ test('the signer block stays on the same page as the last photo', async () => {
     ],
   });
   assert.equal(signerSharesLastPhoto(many.trace, 6), true);
+});
+
+test('outstanding snags continue onto later pages and stay above the footer', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const covered: SnagPdfSnag = {
+    snagSeq: 1,
+    note: 'Bead missing at the window reveal',
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+    signature: null,
+  };
+  for (const count of [30, 60, 120]) {
+    const outstanding = Array.from({ length: count }, (_, index) => ({
+      snagSeq: index + 2,
+      note: `Hole beside the riser ${index + 2}`,
+      levelArea: index % 2 === 0 ? 'Ground' : 'First',
+    }));
+    const built = await buildSnagSignoffPdf({
+      reportId: 'SO-22Oct2026',
+      kind: 'contractor',
+      companyName: 'Ashfield Finishes',
+      siteName: 'Plot 12 - Oak Estate',
+      generatedAt: when,
+      confirmationText: snagConfirmation('Northbuild', 'contractor'),
+      signerName: 'Dave Moran',
+      signerRole: 'Site manager',
+      signerCompany: 'Northbuild',
+      signedAt: when,
+      signaturePng,
+      covered: [covered],
+      outstanding,
+    });
+    const text = decodedPdfText(built.bytes);
+    for (const row of outstanding) {
+      const id = `S-${row.snagSeq}`;
+      const found = text.match(new RegExp(`S-${row.snagSeq}(?!\\d)`, 'g')) ?? [];
+      assert.equal(found.length, 1, `${count} outstanding, ${id} x${found.length}`);
+    }
+    const pages = (await PDFDocument.load(built.bytes)).getPageCount();
+    const footers = built.trace.filter((item) => item.kind === 'footer');
+    assert.equal(footers.length, pages, `${count} missing a footer`);
+    for (const item of built.trace) {
+      if (item.kind === 'footer' || item.baseline === undefined) continue;
+      assert.ok(
+        item.baseline >= SNAG_PDF_SIGN_BOTTOM,
+        `${count} ${item.kind} on page ${item.page} crosses the bottom (${item.baseline})`
+      );
+    }
+    const outstandingPages = new Set(
+      built.trace.filter((item) => item.kind === 'outstanding').map((item) => item.page)
+    );
+    if (outstandingPages.size > 1) assert.match(text, /Outstanding \(continued\)/);
+    const disclaimer = built.trace.filter((item) => item.kind === 'disclaimer');
+    assert.ok(disclaimer.length > 0);
+    assert.ok(disclaimer.every((item) => item.page === pages));
+    assert.equal(signerSharesLastPhoto(built.trace, 1), true, `${count} signer left the photo`);
+    assert.match(text, /This sign-off records the snags listed only/);
+  }
 });

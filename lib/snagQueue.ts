@@ -65,6 +65,8 @@ export type SnagNotice = {
   siteId: string;
   message: string;
   photos: QueuedPhoto[];
+  /** Business or HTTP code. `snag_list_changed` must not be sent again. */
+  code?: string;
   retryItem?: QueuedSnag;
 };
 
@@ -247,6 +249,7 @@ function decodeNotice(item: StoredNotice): SnagNotice | null {
       contentType: photo.contentType,
       bytes: fromBase64(photo.base64),
     })),
+    code: typeof item.code === 'string' ? item.code : undefined,
     retryItem,
   };
 }
@@ -501,13 +504,15 @@ export async function flushSnagQueue(
       const retrySource = code === 'invalid_path' ? dropUploadedPaths(current) : current;
       const pending = await queue.list();
       const fixStillSending = pending.some((row) => row.ownerId === item.ownerId && row.siteId === item.siteId && row.kind === 'fix');
+      const listChanged = code === 'snag_list_changed';
       const notice: SnagNotice = {
         id: `reject:${item.ownerId}:${item.localId}`,
         ownerId: item.ownerId,
         siteId: item.siteId,
         message: rejectedSnagNotice(item.kind, code, fixStillSending),
         photos: retrySource.kind === 'sign' ? [] : retrySource.photos.map(copyPhoto),
-        retryItem: copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
+        code,
+        retryItem: listChanged ? undefined : copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
       };
       await queue.putNotice(notice);
       await queue.remove(item.localId);

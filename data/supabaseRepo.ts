@@ -48,8 +48,7 @@ import type {
   Role,
   Site,
 } from '@/data/types';
-import { SnagRequestError, snagRpcError, snagStorageError } from '@/data/snagFailure';
-import { rpcCall, rpcCallOrNull } from '@/data/rpcCall';
+import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
@@ -71,7 +70,14 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
-  return rpcCall<unknown>(getSupabase(), name, args);
+  return throwSnagRpc(await getSupabase().rpc(name, args));
+}
+
+function rpcOrNull<T>(response: { data: T | null; error: unknown; status?: number }): T | null {
+  if (response.error || (typeof response.status === 'number' && response.status >= 400)) {
+    throw snagRpcError(response.error, response.status);
+  }
+  return response.data;
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
@@ -1043,11 +1049,15 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signInSite(siteId, deviceAt) {
-    return rpcCall<AttendanceEntry>(getSupabase(), 'sign_in_site', { p_site_id: siteId, p_device_at: deviceAt });
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_in_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
   },
 
   async signOutSite(siteId, deviceAt) {
-    return rpcCall<AttendanceEntry>(getSupabase(), 'sign_out_site', { p_site_id: siteId, p_device_at: deviceAt });
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_out_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
   },
 
   async mySiteAttendance(siteId) {
@@ -1060,14 +1070,13 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async listOnSiteNow(siteId) {
-    return rpcCallOrNull<OnSiteNow>(getSupabase(), 'list_on_site_now', { p_site_id: siteId });
+    return rpcOrNull<OnSiteNow>(await getSupabase().rpc('list_on_site_now', { p_site_id: siteId }));
   },
 
   async weeklyAttendance(siteId, weekStart) {
-    return rpcCallOrNull<WeeklyAttendance>(getSupabase(), 'weekly_attendance', {
-      p_site_id: siteId,
-      p_week_start: weekStart,
-    });
+    return rpcOrNull<WeeklyAttendance>(
+      await getSupabase().rpc('weekly_attendance', { p_site_id: siteId, p_week_start: weekStart })
+    );
   },
 
   async attendanceEntry(entryId) {

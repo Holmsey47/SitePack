@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { createClient } from '@supabase/supabase-js';
 import { PostgrestError } from '@supabase/postgrest-js';
-import { snagRpcError, snagStorageError } from '../data/snagFailure.ts';
+import { snagRpcError, snagStorageError, throwSnagRpc } from '../data/snagFailure.ts';
 import {
   flushSnagQueue,
   isRetryableSnagFailure,
@@ -276,7 +277,12 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
   assert.match(screen, /Save photo/);
   assert.match(screen, /Try again/);
   assert.match(screen, /notice\.retryItem \?/);
+  assert.match(screen, /Sign again/);
+  assert.match(screen, /notice\.code === 'snag_list_changed'/);
   assert.doesNotMatch(screen, /notice\.photos\.length > 0 && notice\.retryItem/);
+  const changedNotice = notices.find((notice) => notice.id.endsWith('stale-sign'));
+  assert.equal(changedNotice?.code, 'snag_list_changed');
+  assert.equal(changedNotice?.retryItem, undefined);
   const signScreen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
   assert.match(signScreen, /function clearSignFields\(\)/);
   assert.match(signScreen, /setSignature\(null\)/);
@@ -430,7 +436,88 @@ test('a path refusal re-uploads, and a queued fix changes the list-changed notic
   const notices = await queue.listNotices();
   const pathNotice = notices.find((notice) => notice.retryItem?.localId === 'local-1');
   assert.equal(pathNotice?.retryItem?.kind === 'create' ? pathNotice.retryItem.uploadedPhotos : 'no', undefined);
-  const changed = notices.find((notice) => notice.retryItem?.localId === 'sign-stale');
+  const changed = notices.find((notice) => notice.id.endsWith('sign-stale'));
   assert.equal(changed?.message, "A fix you made is still sending. Wait until it's sent, then sign again.");
+  assert.equal(changed?.code, 'snag_list_changed');
+  assert.equal(changed?.retryItem, undefined);
   assert.equal((await queue.list()).some((row) => row.localId === 'fix-waiting'), true);
+});
+
+test('a real supabase client keeps gateway 502 and 503 queued and turns 4xx into a notice', async () => {
+  const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
+  assert.match(repo, /return throwSnagRpc\(await getSupabase\(\)\.rpc\(name, args\)\)/);
+  const bodies = [
+    {
+      status: 503,
+      body: JSON.stringify({
+        code: 'PGRST002',
+        details: null,
+        hint: null,
+        message: 'Could not query the database for the schema cache. Retrying.',
+      }),
+      type: 'application/json',
+      queued: true,
+    },
+    { status: 503, body: 'upstream connect error', type: 'text/plain', queued: true },
+    { status: 502, body: '<html><body><h1>502 Bad Gateway</h1></body></html>', type: 'text/html', queued: true },
+    {
+      status: 400,
+      body: JSON.stringify({ code: 'PGRST202', details: null, hint: null, message: 'Could not find the function' }),
+      type: 'application/json',
+      queued: false,
+    },
+    {
+      status: 401,
+      body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }),
+      type: 'application/json',
+      queued: false,
+    },
+    { status: 404, body: 'No function matches that path', type: 'text/plain', queued: false },
+  ];
+  const now = Date.parse('2026-10-22T12:00:00.000Z');
+  for (const [index, shape] of bodies.entries()) {
+    const client = createClient('https://example.supabase.co', 'sb_publishable_test_key', {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: {
+        fetch: async () => new Response(shape.body, { status: shape.status, headers: { 'content-type': shape.type } }),
+      },
+    });
+    const response = await client.rpc('sign_off_snags_contractor', {
+      p_site_id: '00000000-0000-0000-0000-000000000001',
+    });
+    assert.equal(response.status, shape.status, String(shape.status));
+    assert.equal((response.error as { status?: number } | null)?.status, undefined);
+    let thrown: unknown;
+    try {
+      throwSnagRpc(response);
+    } catch (err) {
+      thrown = err;
+    }
+    assert.equal(isRetryableSnagFailure(thrown), shape.queued, `${shape.status} ${shape.type}`);
+    const queue = memorySnagQueue();
+    await queue.put({
+      kind: 'sign',
+      localId: `sign-${index}`,
+      ownerId: 'user-a',
+      siteId: 'site',
+      signedAt: '2026-10-22T13:05:00.000Z',
+      mode: 'contractor',
+      signerName: 'Dave Moran',
+      signerRole: 'Site manager',
+      signerCompany: 'Northbuild',
+      signaturePng: 'data:image/png;base64,aaaa',
+      coveredIds: ['fixed-1'],
+      outstandingIds: [],
+    });
+    await flushSnagQueue(queue, async () => {
+      throw thrown;
+    }, 'user-a', () => now);
+    if (shape.queued) {
+      assert.equal((await queue.list()).length, 1, `${shape.status} left the queue`);
+      assert.equal((await queue.listNotices()).length, 0);
+    } else {
+      assert.equal((await queue.list()).length, 0, `${shape.status} stayed queued`);
+      assert.equal((await queue.listNotices()).length, 1);
+    }
+  }
 });

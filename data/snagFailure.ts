@@ -84,9 +84,41 @@ export function snagFailureCode(err: unknown): string {
   return failure.message;
 }
 
-/** The error unwrap throws for an RPC failure. */
-export function snagRpcError(error: unknown): SnagRequestError {
-  return new SnagRequestError(snagFailureFrom(error));
+/**
+ * postgrest-js keeps the HTTP status on the response (`{ data, error, status }`),
+ * not on `error`. Copy it onto the failure so a 503 is not read as a business code.
+ */
+function attachStatus(error: unknown, status?: number): unknown {
+  if (typeof status !== 'number' || !Number.isFinite(status)) return error;
+  const record =
+    error && typeof error === 'object'
+      ? (error as { details?: string | null; hint?: string | null; code?: string | null })
+      : {};
+  return {
+    message: messageOf(error) || String(status),
+    details: record.details ?? null,
+    hint: record.hint ?? null,
+    code: record.code ?? null,
+    status,
+  };
+}
+
+/** The error unwrap throws for an RPC failure. `status` is the HTTP status from the response. */
+export function snagRpcError(error: unknown, status?: number): SnagRequestError {
+  return new SnagRequestError(snagFailureFrom(attachStatus(error, status)));
+}
+
+/** Throw the typed snag failure for a PostgREST response, using `response.status`. */
+export function throwSnagRpc<T>(
+  response: { data: T | null; error: unknown; status?: number },
+  fallback?: string
+): T {
+  const status = response.status;
+  if (response.error || (typeof status === 'number' && status >= 400)) {
+    throw snagRpcError(response.error ?? { message: typeof status === 'number' ? String(status) : 'unknown' }, status);
+  }
+  if (response.data == null) throw new Error(fallback ?? 'not_found');
+  return response.data;
 }
 
 /**

@@ -9,7 +9,9 @@ const MARGIN = 40;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const TOP = 800;
 const BOTTOM = 48;
-const SIGN_BOTTOM = 64;
+/** Content stays above the page number. The disclaimer is drawn in the flow, not in this band. */
+export const SNAG_PDF_SIGN_BOTTOM = 64;
+const SIGN_BOTTOM = SNAG_PDF_SIGN_BOTTOM;
 const GAP = 8;
 
 export type SnagPdfPhoto = {
@@ -66,10 +68,12 @@ export type SnagSignoffPdfInput = {
 
 export type SnagPdfTrace = {
   page: number;
-  kind: 'header' | 'heading' | 'detail' | 'photo' | 'missing' | 'signature' | 'outstanding' | 'footer';
+  kind: 'header' | 'heading' | 'detail' | 'photo' | 'missing' | 'signature' | 'outstanding' | 'disclaimer' | 'footer';
   snagSeq?: number;
   width?: number;
   pair?: boolean;
+  /** Baseline of the drawn text. Content baselines stay at or above the page bottom. */
+  baseline?: number;
 };
 
 type Face = PDFFont;
@@ -205,11 +209,22 @@ async function drawReport(
 
   function paint(lines: LineSpec[], snagSeq?: number) {
     for (const line of lines) {
+      const baseline = y - line.size;
       const face = line.weight === 'bold' ? bold : font;
-      page.drawText(line.text, { x: MARGIN, y: y - line.size, size: line.size, font: face, color: rgb(0.1, 0.1, 0.1) });
+      page.drawText(line.text, { x: MARGIN, y: baseline, size: line.size, font: face, color: rgb(0.1, 0.1, 0.1) });
       y -= line.size + 4;
-      if (line.mark) mark(line.mark, snagSeq === undefined ? {} : { snagSeq });
+      if (line.mark) mark(line.mark, snagSeq === undefined ? { baseline } : { snagSeq, baseline });
     }
+  }
+
+  /** Draw a block whole. When it does not fit, start a page and then run `onPage`. */
+  function paintFitted(lines: LineSpec[], onPage?: () => void) {
+    if (lines.length === 0) return;
+    if (y - linesHeight(lines) < bottom) {
+      newPage();
+      onPage?.();
+    }
+    paint(lines);
   }
 
   function drawWrapped(text: string, size: number, weight: 'bold' | 'regular', markKind?: SnagPdfTrace['kind'], snagSeq?: number) {
@@ -255,8 +270,9 @@ async function drawReport(
       const x = MARGIN + index * ((CONTENT_W - gap) / 2 + gap);
       const imageTop = top - (height - itemH);
       page.drawImage(item.image, { x, y: imageTop - itemH, width, height: itemH });
-      page.drawText(pdfText(item.caption), { x, y: imageTop - itemH - 12, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
-      mark('photo', { snagSeq, width, pair });
+      const captionBaseline = imageTop - itemH - 12;
+      page.drawText(pdfText(item.caption), { x, y: captionBaseline, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
+      mark('photo', { snagSeq, width, pair, baseline: captionBaseline });
     });
     y = top - height - captionH - 4;
   }
@@ -331,7 +347,7 @@ async function drawReport(
   y -= 8;
 
   const signerLines = options.signoff ? signerBlock(options.signoff, font, bold) : [];
-  const outstandingLines = options.signoff ? outstandingBlock(options.signoff, font, bold) : [];
+  const outstanding = options.signoff ? outstandingParts(options.signoff, font, bold) : null;
   let signoffImage: PDFImage | null = null;
   if (options.signoff?.signaturePng) {
     try {
@@ -346,16 +362,16 @@ async function drawReport(
     return image.height * scale + 8;
   }
 
-  /** Height of the signer and outstanding block, matching the draw below. */
-  function signoffBlockHeight(): number {
-    return linesHeight(signerLines) + signatureImageHeight(signoffImage) + linesHeight(outstandingLines);
+  /** Height of the signer block kept with the last photo. The outstanding list flows after it. */
+  function signerBlockHeight(): number {
+    return linesHeight(signerLines) + signatureImageHeight(signoffImage);
   }
 
   for (const snag of input.snags) {
     const detail = expanded(detailLines(snag), font, bold);
     const visuals = await visualsFor(snag);
     const reserve = snag.signature ? 6 * 16 + (snag.signature.signaturePng ? 80 : 0) + 16 : 0;
-    const tail = snag === input.snags[input.snags.length - 1] && options.signoff ? 10 + signoffBlockHeight() : 0;
+    const tail = snag === input.snags[input.snags.length - 1] && options.signoff ? 10 + signerBlockHeight() : 0;
     const detailH = linesHeight(detail);
     const hold = visuals.length <= 1 ? reserve + tail : 0;
     const available = y - detailH - 8 - bottom - hold;
@@ -415,8 +431,8 @@ async function drawReport(
 
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
 
-  if (options.signoff) {
-    const body = signoffBlockHeight();
+  if (options.signoff && outstanding) {
+    const body = signerBlockHeight();
     const lastSnag = input.snags[input.snags.length - 1];
     const keptWithPhoto = lastSnag
       ? trace.some(
@@ -432,18 +448,39 @@ async function drawReport(
       const h = signatureImageHeight(signoffImage) - 8;
       const scale = h / signoffImage.height;
       const w = signoffImage.width * scale;
-      page.drawImage(signoffImage, { x: MARGIN, y: y - h, width: w, height: h });
+      const imageBottom = y - h;
+      page.drawImage(signoffImage, { x: MARGIN, y: imageBottom, width: w, height: h });
       y -= h + 8;
-      mark('signature');
+      mark('signature', { baseline: imageBottom });
     }
-    paint(outstandingLines);
+    let started = false;
+    const continued = expanded(
+      [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
+      font,
+      bold
+    );
+    paintFitted(outstanding.heading);
+    started = true;
+    for (const item of outstanding.items) {
+      paintFitted(item, () => {
+        if (started) paint(continued);
+      });
+    }
+    if (options.disclaimer) {
+      const disclaimer = expanded(
+        [{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }],
+        font,
+        bold
+      );
+      paintFitted(disclaimer);
+    }
   }
 
   const pages = doc.getPages();
   const total = pages.length;
   pages.forEach((sheet, index) => {
-    drawSheetFooter(sheet, input.reportId, input.companyName, index + 1, total, font, options.disclaimer);
-    trace.push({ page: index + 1, kind: 'footer' });
+    drawSheetFooter(sheet, input.reportId, input.companyName, index + 1, total, font);
+    trace.push({ page: index + 1, kind: 'footer', baseline: 26 });
   });
 
   return { bytes: await doc.save(), trace };
@@ -474,39 +511,34 @@ function signerBlock(input: SnagSignoffPdfInput, font: Face, bold: Face): LineSp
   );
 }
 
-function outstandingBlock(input: SnagSignoffPdfInput, font: Face, bold: Face): LineSpec[] {
-  const lines: LineSpec[] = [
-    {
-      text: input.outstanding.length === 0 ? 'No snags are outstanding.' : outstandingHeading(input.outstanding.length),
-      size: 12,
-      weight: input.outstanding.length === 0 ? 'regular' : 'bold',
-      mark: 'outstanding',
-    },
-  ];
-  for (const row of input.outstanding) {
-    lines.push({ text: outstandingLine(row.snagSeq, row.note, row.levelArea), size: 11, weight: 'regular', mark: 'outstanding' });
-  }
-  return expanded(lines, font, bold);
+function outstandingParts(
+  input: SnagSignoffPdfInput,
+  font: Face,
+  bold: Face
+): { heading: LineSpec[]; items: LineSpec[][] } {
+  const heading = expanded(
+    [
+      {
+        text: input.outstanding.length === 0 ? 'No snags are outstanding.' : outstandingHeading(input.outstanding.length),
+        size: 12,
+        weight: input.outstanding.length === 0 ? 'regular' : 'bold',
+        mark: 'outstanding',
+      },
+    ],
+    font,
+    bold
+  );
+  const items = input.outstanding.map((row) =>
+    expanded(
+      [{ text: outstandingLine(row.snagSeq, row.note, row.levelArea), size: 11, weight: 'regular', mark: 'outstanding' }],
+      font,
+      bold
+    )
+  );
+  return { heading, items };
 }
 
-function drawSheetFooter(
-  sheet: PDFPage,
-  reportId: string,
-  company: string,
-  page: number,
-  total: number,
-  font: Face,
-  disclaimer: boolean
-) {
-  if (disclaimer) {
-    sheet.drawText(pdfText(SNAG_SIGN_OFF_DISCLAIMER), {
-      x: MARGIN,
-      y: 40,
-      size: 8,
-      font,
-      color: rgb(0.25, 0.25, 0.25),
-    });
-  }
+function drawSheetFooter(sheet: PDFPage, reportId: string, company: string, page: number, total: number, font: Face) {
   sheet.drawText(footerLabel(reportId, company, page, total, font), {
     x: MARGIN,
     y: 26,

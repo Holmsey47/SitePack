@@ -86,7 +86,7 @@ export default function SnagsScreen() {
   }
 
   async function retryNotice(notice: SnagNotice) {
-    if (!notice.retryItem || !ownerId) return;
+    if (!notice.retryItem || !ownerId || notice.code === 'snag_list_changed') return;
     const queue = getSnagQueue();
     await queue.put({ ...notice.retryItem, attempts: 0, retryAt: undefined });
     await queue.removeNotice(notice.id);
@@ -94,6 +94,12 @@ export default function SnagsScreen() {
       await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
     }
     await load();
+  }
+
+  async function signAgain(notice: SnagNotice) {
+    await getSnagQueue().removeNotice(notice.id);
+    setNotices((current) => current.filter((row) => row.id !== notice.id));
+    router.push(`/sites/${siteId}/snags/sign`);
   }
 
   async function saveNoticePhotos(notice: SnagNotice) {
@@ -211,7 +217,9 @@ export default function SnagsScreen() {
             {notice.photos.length > 0 ? (
               <Button label="Save photo" variant="secondary" minHeight={48} onPress={() => void saveNoticePhotos(notice)} />
             ) : null}
-            {notice.retryItem ? (
+            {notice.code === 'snag_list_changed' ? (
+              <Button label="Sign again" variant="secondary" minHeight={48} onPress={() => void signAgain(notice)} />
+            ) : notice.retryItem ? (
               <Button label="Try again" variant="secondary" minHeight={48} onPress={() => void retryNotice(notice)} />
             ) : null}
             <Button label="Dismiss" variant="secondary" minHeight={48} onPress={() => void dismissNotice(notice.id)} />

@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { createClient } from '@supabase/supabase-js';
-import { rpcCall } from '../data/rpcCall.ts';
-import { SnagRequestError } from '../data/snagFailure.ts';
+import { SnagRequestError, throwSnagRpc } from '../data/snagFailure.ts';
 import {
   adoptAttendanceOwner,
   ATTENDANCE_NOTICE_KEY,
@@ -237,9 +236,12 @@ test('a real supabase client keeps response status: 503 and 502 stay queued, 400
       },
     });
     const args = { p_site_id: siteId, p_device_at: deviceAt };
+    const response = await client.rpc('sign_in_site', args);
+    assert.equal(response.status, item.status);
+    assert.equal(response.error == null || !('status' in response.error), true);
     let thrown: unknown;
     try {
-      await rpcCall(client, 'sign_in_site', args);
+      throwSnagRpc(response);
       assert.fail(`${item.status} ${item.contentType} should fail`);
     } catch (err) {
       thrown = err;
@@ -247,16 +249,17 @@ test('a real supabase client keeps response status: 503 and 502 stay queued, 400
     assert.ok(thrown instanceof SnagRequestError, `${item.status} ${item.contentType}`);
     assert.equal(thrown.failure.kind, 'http', `${item.status} ${item.contentType}`);
     assert.equal(thrown.failure.kind === 'http' ? thrown.failure.status : 0, item.status);
-    const raw = await client.rpc('sign_in_site', args);
-    assert.equal(raw.status, item.status);
-    assert.equal(raw.error == null || !('status' in raw.error), true);
+    const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
+    assert.match(repo, /signInSite\(siteId, deviceAt\) \{[\s\S]*?throwSnagRpc</);
+    assert.match(repo, /signOutSite\(siteId, deviceAt\) \{[\s\S]*?throwSnagRpc</);
+    assert.match(repo, /snagRpcError\(response\.error, response\.status\)/);
 
     const queue = memoryAttendanceQueue();
     const result = await persistThenSendAttendance(
       { ...tap('user-a'), localId: `http-${item.status}-${item.contentType}` },
       true,
       async () => {
-        await rpcCall(client, 'sign_in_site', args);
+        throwSnagRpc(await client.rpc('sign_in_site', args));
       },
       queue
     );
