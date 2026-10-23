@@ -2,6 +2,8 @@
 -- One current version per variation. A signed or sent version is locked:
 -- content edits insert a new version and keep the old one, including its signature.
 -- The £ amount is value_pence. Only an owner or contracts manager can set it.
+-- v0: operatives cannot see it either. private.can_see_variation_value() is the one switch.
+-- The column is revoked from authenticated. Reads return null through the definer helper.
 -- Photos live in the private bucket site-photos at company_id/site_id/...
 -- 6.3 reuses that bucket. This migration does not add snags.
 -- Writes are SECURITY DEFINER with search_path pinned to empty.
@@ -94,20 +96,29 @@ create table public.variation_signatures (
   version_id uuid not null unique references public.variation_versions (id) on delete cascade,
   site_id uuid not null references public.sites (id) on delete cascade,
   signer_name text not null,
-  signer_role_company text not null,
+  signer_role text not null,
+  signer_company text not null,
+  confirmation_text text not null,
+  shown_value_pence integer,
   signature_png text not null,
   signed_at timestamptz not null,
   recorded_by uuid not null references public.people (id),
   created_at timestamptz not null default now(),
   constraint variation_signatures_name_len check (char_length(btrim(signer_name)) between 1 and 120),
-  constraint variation_signatures_role_len check (char_length(btrim(signer_role_company)) between 1 and 160),
+  constraint variation_signatures_role_len check (char_length(btrim(signer_role)) between 1 and 120),
+  constraint variation_signatures_company_len check (char_length(btrim(signer_company)) between 1 and 160),
+  constraint variation_signatures_confirmation_len check (char_length(btrim(confirmation_text)) between 1 and 400),
+  constraint variation_signatures_shown_range check (shown_value_pence is null or (shown_value_pence >= 0 and shown_value_pence <= 100000000)),
   constraint variation_signatures_png_len check (char_length(signature_png) between 40 and 300000)
 );
 
 create index variation_signatures_site_id_idx on public.variation_signatures (site_id);
 
 comment on table public.variation_signatures is
-  'Hand-the-phone sign-off for one version. Typed name, role or company, drawn PNG, server timestamp. Kept when a later version is added.';
+  'Hand-the-phone sign-off for one version. Typed name, role, company, the server confirmation sentence, the £ the signer was shown, drawn PNG, server timestamp. Kept when a later version is added.';
+
+comment on column public.variation_signatures.shown_value_pence is
+  'The amount on the signer''s phone, in pence. Null when that phone was not shown a price. v0 operatives are not shown a price.';
 
 -- ---------------------------------------------------------------------------
 -- Actor and guards. search_path is empty. Names are schema-qualified.
@@ -125,8 +136,52 @@ as $fn$
   where p.auth_user_id = (select auth.uid());
 $fn$;
 
-revoke all on function private.variation_actor() from public;
+revoke all on function private.variation_actor() from public, anon, authenticated;
 grant execute on function private.variation_actor() to authenticated;
+
+-- v0 hides £ from operatives. Flip this one function if operatives should see prices.
+create or replace function private.can_see_variation_value()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select coalesce(private.is_cm_or_owner(), false);
+$fn$;
+
+revoke all on function private.can_see_variation_value() from public, anon, authenticated;
+grant execute on function private.can_see_variation_value() to authenticated;
+
+create or replace function private.visible_variation_pence(p_version_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select case when private.can_see_variation_value() then v.value_pence end
+  from public.variation_versions v
+  where v.id = p_version_id;
+$fn$;
+
+revoke all on function private.visible_variation_pence(uuid) from public, anon, authenticated;
+grant execute on function private.visible_variation_pence(uuid) to authenticated;
+
+create or replace function private.visible_shown_pence(p_version_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select case when private.can_see_variation_value() then s.shown_value_pence end
+  from public.variation_signatures s
+  where s.version_id = p_version_id;
+$fn$;
+
+revoke all on function private.visible_shown_pence(uuid) from public, anon, authenticated;
+grant execute on function private.visible_shown_pence(uuid) to authenticated;
 
 create or replace function private.variation_content_same(
   p_old public.variation_versions,
@@ -151,7 +206,7 @@ as $fn$
     and p_old.locked_at is not distinct from p_new.locked_at;
 $fn$;
 
-revoke all on function private.variation_content_same(public.variation_versions, public.variation_versions) from public;
+revoke all on function private.variation_content_same(public.variation_versions, public.variation_versions) from public, anon, authenticated;
 
 create or replace function private.guard_variation_version()
 returns trigger
@@ -219,7 +274,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_variation_version() from public;
+revoke all on function private.guard_variation_version() from public, anon, authenticated;
 
 create trigger variation_versions_guard
   before insert or update on public.variation_versions
@@ -250,7 +305,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_variation_photo() from public;
+revoke all on function private.guard_variation_photo() from public, anon, authenticated;
 
 create trigger variation_photos_guard
   before insert or update on public.variation_photos
@@ -285,7 +340,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.guard_variation_signature() from public;
+revoke all on function private.guard_variation_signature() from public, anon, authenticated;
 
 create trigger variation_signatures_guard
   before insert or update on public.variation_signatures
@@ -312,7 +367,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.variation_version_needs_photos() from public;
+revoke all on function private.variation_version_needs_photos() from public, anon, authenticated;
 
 create constraint trigger variation_versions_need_photos
   after insert on public.variation_versions
@@ -338,9 +393,19 @@ revoke all on table public.variation_signatures from public, anon, authenticated
 
 grant select on table public.variation_counters to authenticated;
 grant select on table public.variations to authenticated;
-grant select on table public.variation_versions to authenticated;
 grant select on table public.variation_photos to authenticated;
-grant select on table public.variation_signatures to authenticated;
+-- Table-level SELECT would keep value_pence visible. Grant every other column.
+grant select (
+  id, variation_id, site_id, version_no, title, description, level_area, quantity_text,
+  status, is_current, created_by, created_at, locked_at
+) on table public.variation_versions to authenticated;
+grant select (
+  id, version_id, site_id, signer_name, signer_role, signer_company, confirmation_text,
+  signature_png, signed_at, recorded_by, created_at
+) on table public.variation_signatures to authenticated;
+
+revoke select (value_pence) on table public.variation_versions from public, anon, authenticated;
+revoke select (shown_value_pence) on table public.variation_signatures from public, anon, authenticated;
 
 create policy variation_counters_select
   on public.variation_counters for select to authenticated
@@ -418,6 +483,7 @@ begin
 
     if char_length(v_path) < char_length(v_prefix) + 1
        or left(v_path, char_length(v_prefix)) <> v_prefix
+       or left(v_path, 1) = '/'
        or strpos(v_path, '..') > 0
        or strpos(v_path, chr(92)) > 0
        or strpos(v_path, '//') > 0
@@ -442,7 +508,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.variation_take_photos(uuid, uuid, uuid, jsonb) from public;
+revoke all on function private.variation_take_photos(uuid, uuid, uuid, jsonb) from public, anon, authenticated;
 
 create or replace function private.variation_text(
   p_title text,
@@ -473,7 +539,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.variation_text(text, text, text, text) from public;
+revoke all on function private.variation_text(text, text, text, text) from public, anon, authenticated;
 
 create or replace function private.next_vo_seq(p_site_id uuid)
 returns integer
@@ -494,7 +560,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.next_vo_seq(uuid) from public;
+revoke all on function private.next_vo_seq(uuid) from public, anon, authenticated;
 
 create or replace function private.variation_require_site(p_site_id uuid)
 returns table (person_id uuid, company_id uuid, role text)
@@ -532,7 +598,7 @@ begin
 end;
 $fn$;
 
-revoke all on function private.variation_require_site(uuid) from public;
+revoke all on function private.variation_require_site(uuid) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Writes
@@ -694,8 +760,10 @@ $fn$;
 create or replace function public.sign_variation(
   p_version_id uuid,
   p_signer_name text,
-  p_role_company text,
-  p_signature_png text
+  p_role text,
+  p_company text,
+  p_signature_png text,
+  p_expected_pence integer
 )
 returns jsonb
 language plpgsql
@@ -707,6 +775,10 @@ declare
   v_actor record;
   v_name text;
   v_role text;
+  v_company text;
+  v_confirmation text;
+  v_shown integer;
+  v_priced boolean;
   v_signed_at timestamptz;
 begin
   select * into v_row from public.variation_versions where id = p_version_id;
@@ -721,9 +793,11 @@ begin
   end if;
 
   v_name := btrim(coalesce(p_signer_name, ''));
-  v_role := btrim(coalesce(p_role_company, ''));
+  v_role := btrim(coalesce(p_role, ''));
+  v_company := btrim(coalesce(p_company, ''));
   if char_length(v_name) < 1 or char_length(v_name) > 120
-     or char_length(v_role) < 1 or char_length(v_role) > 160
+     or char_length(v_role) < 1 or char_length(v_role) > 120
+     or char_length(v_company) < 1 or char_length(v_company) > 160
      or p_signature_png is null
      or left(p_signature_png, 22) <> 'data:image/png;base64,'
      or char_length(p_signature_png) < 40
@@ -731,12 +805,29 @@ begin
     raise exception 'invalid_input';
   end if;
 
+  if p_expected_pence is not null and (p_expected_pence < 0 or p_expected_pence > 100000000) then
+    raise exception 'invalid_input';
+  end if;
+
+  -- The caller can only confirm the amount their phone was allowed to show.
+  v_shown := case when private.can_see_variation_value() then v_row.value_pence else null end;
+  if p_expected_pence is distinct from v_shown then
+    raise exception 'value_mismatch';
+  end if;
+
+  v_priced := private.can_see_variation_value() and v_row.value_pence is not null;
+  if v_priced then
+    v_confirmation := 'I confirm I instructed this extra work on behalf of ' || v_company || ' and agree the amount shown.';
+  else
+    v_confirmation := 'I confirm I instructed this extra work on behalf of ' || v_company || '. The price is still to be agreed.';
+  end if;
+
   v_signed_at := now();
 
   insert into public.variation_signatures (
-    version_id, site_id, signer_name, signer_role_company, signature_png, signed_at, recorded_by
+    version_id, site_id, signer_name, signer_role, signer_company, confirmation_text, shown_value_pence, signature_png, signed_at, recorded_by
   ) values (
-    v_row.id, v_row.site_id, v_name, v_role, p_signature_png, v_signed_at, v_actor.person_id
+    v_row.id, v_row.site_id, v_name, v_role, v_company, v_confirmation, v_shown, p_signature_png, v_signed_at, v_actor.person_id
   );
 
   update public.variation_versions
@@ -747,7 +838,9 @@ begin
   return jsonb_build_object(
     'version_id', v_row.id,
     'status', 'Signed',
-    'signed_at', v_signed_at
+    'signed_at', v_signed_at,
+    'confirmation_text', v_confirmation,
+    'shown_value_pence', v_shown
   );
 end;
 $fn$;
@@ -805,6 +898,10 @@ begin
   end if;
 
   select * into v_actor from private.variation_require_site(v_row.site_id);
+
+  if v_actor.role not in ('owner', 'cm') then
+    raise exception 'not_authorized';
+  end if;
 
   if v_row.is_current is not true or v_row.status not in ('Signed', 'Sent') then
     raise exception 'variation_locked';
@@ -890,7 +987,7 @@ begin
         'photo_count', (
           select count(*) from public.variation_photos p where p.version_id = ver.id
         ),
-        'value_pence', ver.value_pence,
+        'value_pence', private.visible_variation_pence(ver.id),
         'created_at', ver.created_at
       ) as item
     from public.variations v
@@ -922,7 +1019,7 @@ as $fn$
     'description', ver.description,
     'level_area', ver.level_area,
     'quantity_text', ver.quantity_text,
-    'value_pence', ver.value_pence,
+    'value_pence', private.visible_variation_pence(ver.id),
     'status', ver.status,
     'is_current', ver.is_current,
     'created_at', ver.created_at,
@@ -945,7 +1042,10 @@ as $fn$
     'signature', (
       select jsonb_build_object(
         'signer_name', s.signer_name,
-        'signer_role_company', s.signer_role_company,
+        'signer_role', s.signer_role,
+        'signer_company', s.signer_company,
+        'confirmation_text', s.confirmation_text,
+        'shown_value_pence', private.visible_shown_pence(ver.id),
         'signature_png', s.signature_png,
         'signed_at', s.signed_at
       )
@@ -957,7 +1057,7 @@ as $fn$
   where ver.id = p_version_id;
 $fn$;
 
-revoke all on function private.variation_version_json(uuid) from public;
+revoke all on function private.variation_version_json(uuid) from public, anon, authenticated;
 grant execute on function private.variation_version_json(uuid) to authenticated;
 
 create or replace function public.variation_detail(p_variation_id uuid)
@@ -1006,19 +1106,19 @@ begin
 end;
 $fn$;
 
-revoke all on function public.create_variation(uuid, text, text, text, text, integer, jsonb) from public;
-revoke all on function public.update_variation_draft(uuid, text, text, text, text, jsonb) from public;
-revoke all on function public.set_variation_value(uuid, integer) from public;
-revoke all on function public.sign_variation(uuid, text, text, text) from public;
-revoke all on function public.send_variation(uuid) from public;
-revoke all on function public.revise_variation(uuid) from public;
-revoke all on function public.list_variations(uuid) from public;
-revoke all on function public.variation_detail(uuid) from public;
+revoke all on function public.create_variation(uuid, text, text, text, text, integer, jsonb) from public, anon, authenticated;
+revoke all on function public.update_variation_draft(uuid, text, text, text, text, jsonb) from public, anon, authenticated;
+revoke all on function public.set_variation_value(uuid, integer) from public, anon, authenticated;
+revoke all on function public.sign_variation(uuid, text, text, text, text, integer) from public, anon, authenticated;
+revoke all on function public.send_variation(uuid) from public, anon, authenticated;
+revoke all on function public.revise_variation(uuid) from public, anon, authenticated;
+revoke all on function public.list_variations(uuid) from public, anon, authenticated;
+revoke all on function public.variation_detail(uuid) from public, anon, authenticated;
 
 grant execute on function public.create_variation(uuid, text, text, text, text, integer, jsonb) to authenticated;
 grant execute on function public.update_variation_draft(uuid, text, text, text, text, jsonb) to authenticated;
 grant execute on function public.set_variation_value(uuid, integer) to authenticated;
-grant execute on function public.sign_variation(uuid, text, text, text) to authenticated;
+grant execute on function public.sign_variation(uuid, text, text, text, text, integer) to authenticated;
 grant execute on function public.send_variation(uuid) to authenticated;
 grant execute on function public.revise_variation(uuid) to authenticated;
 grant execute on function public.list_variations(uuid) to authenticated;
@@ -1051,6 +1151,8 @@ create policy site_photos_select
     bucket_id = 'site-photos'
     and private.storage_company_id(name) = private.my_company_id()
     and private.can_access_site(private.storage_site_id(name))
+    and position('..' in name) = 0
+    and left(name, 1) <> '/'
   );
 
 create policy site_photos_insert
@@ -1059,4 +1161,6 @@ create policy site_photos_insert
     bucket_id = 'site-photos'
     and private.storage_company_id(name) = private.my_company_id()
     and private.can_access_site(private.storage_site_id(name))
+    and position('..' in name) = 0
+    and left(name, 1) <> '/'
   );

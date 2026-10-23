@@ -66,6 +66,13 @@ export default function AttendanceEntryScreen() {
           <Muted>{entry.out_at ? `Signed out ${formatUkDateTime(entry.out_at)}` : 'Still signed in'}</Muted>
           {gapLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{gapLine(entry)}</Text> : null}
           {forgotLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{forgotLine(entry)}</Text> : null}
+          {entry.late_sign_out && entry.late_out_at ? (
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', lineHeight: 22 }}>
+              Late sign-out {formatUkDateTime(entry.late_out_at)}
+              {entry.late_out_device_at ? `. Phone ${formatUkDateTime(entry.late_out_device_at)}` : ''}. The hours stay at 23:59 until you
+              correct them.
+            </Text>
+          ) : null}
           {entry.audit?.map((row) => (
             <Text key={row.id} style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
               {row.corrected_by_name}: {row.reason}. Before {formatUkDateTime(String(row.before_entry.in_at ?? ''))}

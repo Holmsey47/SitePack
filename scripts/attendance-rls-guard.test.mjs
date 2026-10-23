@@ -39,7 +39,17 @@ test('the attendance probe refuses a hosted Supabase URL and installs anon defau
     /20261022180000_site_attendance\.sql[\s\S]*anon-default-grants\.sql[\s\S]*-f "\$migration"/
   );
   const stub = fs.readFileSync('scripts/anon-default-grants.sql', 'utf8');
-  assert.match(stub, /grant execute on functions to anon, authenticated, service_role/);
+  assert.match(stub, /grant all on tables to anon, authenticated, service_role/);
+  assert.match(stub, /grant all on functions to anon, authenticated, service_role/);
+  assert.match(stub, /grant all on sequences to anon, authenticated, service_role/);
+  const auth = fs.readFileSync('scripts/throwaway-auth.sql', 'utf8');
+  assert.match(auth, /\\ir anon-default-grants\.sql/);
+  assert.equal(auth.includes('alter default privileges'), false);
+  for (const runner of ['scripts/run-variation-rls.sh', 'scripts/run-drawing-seen-rls.sh', 'scripts/run-snag-rls.sh', 'scripts/run-attendance-rls.sh']) {
+    const source = fs.readFileSync(runner, 'utf8');
+    assert.match(source, /throwaway-auth\.sql/);
+    assert.doesNotMatch(source, /alter default privileges/);
+  }
 });
 
 test('attendance files stay on hours', () => {

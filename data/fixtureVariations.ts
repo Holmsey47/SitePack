@@ -1,14 +1,8 @@
 import { newId } from '@/data/newId';
 import type { Role } from '@/data/types';
-import type {
-  CreateVariationInput,
-  VariationDetail,
-  VariationList,
-  VariationPhoto,
-  VariationStatus,
-  VariationVersion,
-} from '@/data/variations';
+import { canSeeVariationValue, type CreateVariationInput, type VariationDetail, type VariationList, type VariationPhoto, type VariationStatus, type VariationVersion } from '@/data/variations';
 import { pngDataUrl, solidPng, strokesToPngDataUrl } from '@/lib/signaturePng';
+import { variationConfirmation } from '@/lib/variationWording';
 
 type Actor = { id: string; role: Role; company_id: string };
 
@@ -52,7 +46,10 @@ type SignatureRow = {
   version_id: string;
   site_id: string;
   signer_name: string;
-  signer_role_company: string;
+  signer_role: string;
+  signer_company: string;
+  confirmation_text: string;
+  shown_value_pence: number | null;
   signature_png: string;
   signed_at: string;
   recorded_by: string;
@@ -78,6 +75,9 @@ function textField(value: string | null | undefined, max: number, required: bool
 
 function assertPhotos(photos: CreateVariationInput['photos']) {
   if (photos.length < 1 || photos.length > 10) throw new Error('photo_count');
+  for (const photo of photos) {
+    if (photo.storagePath.startsWith('/') || photo.storagePath.includes('..')) throw new Error('invalid_path');
+  }
 }
 
 export function seedFixtureVariations(input: {
@@ -119,7 +119,7 @@ export function seedFixtureVariations(input: {
     createdBy: string;
     createdAt: string;
     photos: Array<{ path: string; url: string }>;
-    signature?: { name: string; role: string; png: string; at: string };
+    signature?: { name: string; role: string; company: string; png: string; at: string };
   }) {
     const variationId = newId();
     const versionId = newId();
@@ -164,7 +164,10 @@ export function seedFixtureVariations(input: {
         version_id: versionId,
         site_id: row.siteId,
         signer_name: row.signature.name,
-        signer_role_company: row.signature.role,
+        signer_role: row.signature.role,
+        signer_company: row.signature.company,
+        confirmation_text: variationConfirmation(row.signature.company, row.value != null),
+        shown_value_pence: row.value,
         signature_png: row.signature.png,
         signed_at: row.signature.at,
         recorded_by: row.createdBy,
@@ -202,7 +205,8 @@ export function seedFixtureVariations(input: {
     photos: [{ path: `${input.companyId}/${input.oakId}/variations/mastic.png`, url: mastic }],
     signature: {
       name: 'Dave Moran',
-      role: 'Site manager, Northbuild',
+      role: 'Site manager',
+      company: 'Northbuild',
       png: signature,
       at: '2026-10-22T13:05:00.000Z',
     },
@@ -233,7 +237,8 @@ function currentVersion(bucket: FixtureVariationBucket, versionId: string): Vers
   return row;
 }
 
-function toVersion(bucket: FixtureVariationBucket, row: VersionRow): VariationVersion {
+function toVersion(bucket: FixtureVariationBucket, row: VersionRow, actor: Actor): VariationVersion {
+  const seeValue = canSeeVariationValue(actor.role);
   const photos = bucket.photos
     .filter((photo) => photo.version_id === row.id)
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -254,7 +259,7 @@ function toVersion(bucket: FixtureVariationBucket, row: VersionRow): VariationVe
     description: row.description,
     level_area: row.level_area,
     quantity_text: row.quantity_text,
-    value_pence: row.value_pence,
+    value_pence: seeValue ? row.value_pence : null,
     status: row.status,
     is_current: row.is_current,
     created_at: row.created_at,
@@ -264,7 +269,10 @@ function toVersion(bucket: FixtureVariationBucket, row: VersionRow): VariationVe
     signature: signature
       ? {
           signer_name: signature.signer_name,
-          signer_role_company: signature.signer_role_company,
+          signer_role: signature.signer_role,
+          signer_company: signature.signer_company,
+          confirmation_text: signature.confirmation_text,
+          shown_value_pence: seeValue ? signature.shown_value_pence : null,
           signature_png: signature.signature_png,
           signed_at: signature.signed_at,
         }
@@ -285,7 +293,7 @@ export function fixtureListVariations(
     .map((row) => {
       const version = bucket.versions.find((item) => item.variation_id === row.id && item.is_current);
       if (!version) throw new Error('not_authorized');
-      const view = toVersion(bucket, version);
+      const view = toVersion(bucket, version, actor);
       return {
         variation_id: row.id,
         version_id: view.version_id,
@@ -323,11 +331,11 @@ export function fixtureVariationDetail(
     variation_id: variation.id,
     site_id: variation.site_id,
     vo_seq: variation.vo_seq,
-    current: toVersion(bucket, current),
+    current: toVersion(bucket, current, actor),
     history: versions
       .filter((row) => !row.is_current)
       .sort((a, b) => b.version_no - a.version_no)
-      .map((row) => toVersion(bucket, row)),
+      .map((row) => toVersion(bucket, row, actor)),
   };
 }
 
@@ -405,21 +413,30 @@ export function fixtureSignVariation(
   bucket: FixtureVariationBucket,
   actor: Actor,
   versionId: string,
-  input: { signerName: string; roleCompany: string; signaturePng: string },
+  input: { signerName: string; role: string; company: string; expectedPence: number | null; signaturePng: string },
   canAccessSite: (siteId: string) => boolean
 ) {
   const row = currentVersion(bucket, versionId);
   if (!canAccessSite(row.site_id)) throw new Error('not_authorized');
   if (row.status !== 'Draft' || !row.is_current) throw new Error('variation_locked');
   const name = input.signerName.trim();
-  const role = input.roleCompany.trim();
-  if (!name || !role || !input.signaturePng.startsWith('data:image/png;base64,')) throw new Error('invalid_input');
+  const role = input.role.trim();
+  const company = input.company.trim();
+  if (!name || !role || !company || !input.signaturePng.startsWith('data:image/png;base64,')) {
+    throw new Error('invalid_input');
+  }
+  const shown = canSeeVariationValue(actor.role) ? row.value_pence : null;
+  if ((input.expectedPence ?? null) !== shown) throw new Error('value_mismatch');
+  const confirmation = variationConfirmation(company, canSeeVariationValue(actor.role) && row.value_pence != null);
   const signedAt = new Date().toISOString();
   bucket.signatures.push({
     version_id: row.id,
     site_id: row.site_id,
     signer_name: name,
-    signer_role_company: role,
+    signer_role: role,
+    signer_company: company,
+    confirmation_text: confirmation,
+    shown_value_pence: shown,
     signature_png: input.signaturePng,
     signed_at: signedAt,
     recorded_by: actor.id,
@@ -436,6 +453,7 @@ export function fixtureReviseVariation(
 ): { versionId: string } {
   const row = currentVersion(bucket, versionId);
   if (!canAccessSite(row.site_id)) throw new Error('not_authorized');
+  if (actor.role !== 'owner' && actor.role !== 'cm') throw new Error('not_authorized');
   if (!row.is_current || (row.status !== 'Signed' && row.status !== 'Sent')) throw new Error('variation_locked');
   row.is_current = false;
   const nextId = newId();

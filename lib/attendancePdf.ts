@@ -90,13 +90,29 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
 
   if (input.rows.length === 0) draw('No hours this week.', 12, 'regular');
 
+  const colW = CONTENT_W / 8;
+  function drawColumns(cells: string[], size: number, weight: 'bold' | 'regular') {
+    ensure(size + 6);
+    const face = weight === 'bold' ? bold : font;
+    cells.forEach((cell, index) => {
+      page.drawText(pdfText(cell), {
+        x: MARGIN + index * colW,
+        y: y - size,
+        size,
+        font: face,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+    });
+    y -= size + 6;
+  }
+
   for (const row of input.rows) {
-    const block = 16 + 14 + 14 + 16 + 10;
-    ensure(block);
+    const flags = [...new Set(row.shifts.flatMap((shift) => shift.flags))];
+    ensure(18 + 16 + 16 + (flags.length > 0 ? 16 : 0) + 8);
     draw(row.personName, 13, 'bold');
-    draw(`${WEEK_DAYS[0]} ${row.days[0]}   ${WEEK_DAYS[1]} ${row.days[1]}   ${WEEK_DAYS[2]} ${row.days[2]}   ${WEEK_DAYS[3]} ${row.days[3]}`, 11, 'regular');
-    draw(`${WEEK_DAYS[4]} ${row.days[4]}   ${WEEK_DAYS[5]} ${row.days[5]}   ${WEEK_DAYS[6]} ${row.days[6]}`, 11, 'regular');
-    draw(`Total ${row.total}`, 12, 'bold');
+    drawColumns([...WEEK_DAYS, 'Total'], 9, 'bold');
+    drawColumns([...row.days, row.total], 10, 'regular');
+    if (flags.length > 0) draw(flags.join(' · '), 11, 'bold');
     y -= 6;
   }
 

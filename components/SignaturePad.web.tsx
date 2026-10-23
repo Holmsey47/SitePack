@@ -22,7 +22,7 @@ type CanvasEl = {
 };
 
 /** Browser signature. Canvas export is a PNG with no EXIF GPS. */
-export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUrl: string | null) => void; disabled?: boolean }) {
   const canvasRef = useRef<CanvasEl | null>(null);
   const drawing = useRef(false);
   const moved = useRef(false);
@@ -66,8 +66,11 @@ export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) 
           borderRadius: 12,
           touchAction: 'none',
           border: `1px solid ${theme.line}`,
+          opacity: disabled ? 0.45 : 1,
+          pointerEvents: disabled ? 'none' : 'auto',
         },
         onPointerDown: (event: { clientX: number; clientY: number; pointerId: number }) => {
+          if (disabled) return;
           const canvas = canvasRef.current;
           const context = canvas?.getContext('2d');
           if (!canvas || !context) return;
@@ -95,6 +98,7 @@ export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) 
         label="Clear signature"
         variant="secondary"
         minHeight={48}
+        disabled={disabled}
         onPress={() => {
           const canvas = canvasRef.current;
           const context = canvas?.getContext('2d');

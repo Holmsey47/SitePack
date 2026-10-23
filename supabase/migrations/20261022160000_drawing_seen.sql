@@ -1,7 +1,8 @@
 -- Proof each lad saw the latest drawing revision (6.2).
 -- A new upload or replace is a new drawings row, so previous confirmations
 -- stay on the superseded row and do not count toward the current revision.
--- N is the people currently in site_assignments. Removed people drop out of N.
+-- N is the operatives currently assigned. Owners and contracts managers
+-- stay out of the count, the who-list, and the not-seen lists.
 -- Writes are SECURITY DEFINER with search_path pinned to empty.
 -- Reads run as the caller, so RLS applies.
 -- This migration does not touch storage, auth, invites, or variations.
@@ -169,6 +170,9 @@ $fn$;
 -- p_seen_at is the device tap time. It is stored when it is not more than
 -- 5 minutes in the future and not before this person's open of this rev.
 -- Otherwise seen_at falls back to the server receive time. The first tap sticks.
+-- A missing drawing and a drawing the caller cannot access both raise
+-- drawing_not_found, so the caller cannot tell whether the sheet exists.
+-- not_authorized stays for a caller with no people row.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.confirm_drawing_seen(
@@ -196,11 +200,8 @@ begin
   from public.drawings d
   where d.id = p_drawing_id;
 
-  if not found then
+  if not found or not private.can_access_site(v_drawing.site_id) then
     raise exception 'drawing_not_found';
-  end if;
-  if not private.can_access_site(v_drawing.site_id) then
-    raise exception 'not_authorized';
   end if;
   if v_drawing.is_current is not true then
     raise exception 'not_current';
@@ -374,7 +375,9 @@ begin
 
   select count(distinct a.person_id)::int into v_assigned
   from public.site_assignments a
-  where a.site_id = p_site_id;
+  join public.people p on p.id = a.person_id
+  where a.site_id = p_site_id
+    and p.role = 'operative';
 
   select coalesce(
     jsonb_agg(
@@ -402,6 +405,7 @@ begin
         join public.site_assignments a
           on a.site_id = d.site_id
          and a.person_id = s.person_id
+        join public.people p on p.id = a.person_id and p.role = 'operative'
         where s.drawing_id = d.id
           and s.revision = d.revision
       ) as seen_count
@@ -457,7 +461,9 @@ begin
 
   select count(distinct a.person_id)::int into v_assigned
   from public.site_assignments a
-  where a.site_id = v_drawing.site_id;
+  join public.people p on p.id = a.person_id
+  where a.site_id = v_drawing.site_id
+    and p.role = 'operative';
 
   select coalesce(
     jsonb_agg(
@@ -477,11 +483,11 @@ begin
       p.display_name,
       s.seen_at
     from public.site_assignments a
+    join public.people p on p.id = a.person_id and p.role = 'operative'
     join public.drawing_seen s
       on s.person_id = a.person_id
      and s.drawing_id = v_drawing.id
      and s.revision = v_drawing.revision
-    left join public.people p on p.id = a.person_id
     where a.site_id = v_drawing.site_id
     order by a.person_id, s.seen_at
   ) row;
@@ -500,7 +506,7 @@ begin
   from (
     select distinct a.person_id, p.display_name
     from public.site_assignments a
-    left join public.people p on p.id = a.person_id
+    join public.people p on p.id = a.person_id and p.role = 'operative'
     where a.site_id = v_drawing.site_id
       and not exists (
         select 1
@@ -560,7 +566,9 @@ begin
           and (
             select count(distinct a.person_id)
             from public.site_assignments a
+            join public.people p on p.id = a.person_id
             where a.site_id = d.site_id
+              and p.role = 'operative'
           ) > 0
           and (
             select count(distinct s.person_id)
@@ -568,12 +576,15 @@ begin
             join public.site_assignments a
               on a.site_id = d.site_id
              and a.person_id = s.person_id
+            join public.people p on p.id = a.person_id and p.role = 'operative'
             where s.drawing_id = d.id
               and s.revision = d.revision
           ) < (
             select count(distinct a.person_id)
             from public.site_assignments a
+            join public.people p on p.id = a.person_id
             where a.site_id = d.site_id
+              and p.role = 'operative'
           )
         group by d.site_id
       ) gaps
@@ -583,13 +594,78 @@ begin
 end;
 $fn$;
 
-revoke all on function public.record_drawing_open(uuid) from public, anon, authenticated;
-revoke all on function public.confirm_drawing_seen(uuid, timestamptz) from public, anon, authenticated;
-revoke all on function public.my_drawing_proof(uuid) from public, anon, authenticated;
-revoke all on function public.my_unseen_drawings() from public, anon, authenticated;
-revoke all on function public.site_drawing_seen(uuid) from public, anon, authenticated;
-revoke all on function public.drawing_seen_roster(uuid) from public, anon, authenticated;
-revoke all on function public.manager_drawing_gaps() from public, anon, authenticated;
+create or replace function public.site_not_seen(p_site_id uuid)
+returns jsonb
+language plpgsql
+stable
+security invoker
+set search_path = ''
+as $fn$
+declare
+  v_role text;
+begin
+  v_role := private.my_role();
+  if v_role is distinct from 'owner' and v_role is distinct from 'cm' then
+    raise exception 'not_authorized';
+  end if;
+  if p_site_id is null or not private.can_access_site(p_site_id) then
+    raise exception 'not_authorized';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(person order by person->>'display_name' nulls last, person->>'person_id')
+      from (
+        select jsonb_build_object(
+          'person_id', op.person_id,
+          'display_name', op.display_name,
+          'sheets', op.sheets
+        ) as person
+        from (
+          select
+            p.id as person_id,
+            p.display_name,
+            jsonb_agg(
+              jsonb_build_object(
+                'drawing_id', d.id,
+                'title', d.title,
+                'sheet_number', d.sheet_number,
+                'sheet', case
+                  when nullif(btrim(coalesce(d.sheet_number, '')), '') is not null then btrim(d.sheet_number)
+                  else d.title
+                end,
+                'revision', d.revision
+              )
+              order by d.sheet_number nulls last, d.title
+            ) as sheets
+          from public.site_assignments a
+          join public.people p on p.id = a.person_id and p.role = 'operative'
+          join public.drawings d on d.site_id = a.site_id and d.is_current
+          where a.site_id = p_site_id
+            and not exists (
+              select 1
+              from public.drawing_seen s
+              where s.drawing_id = d.id
+                and s.person_id = p.id
+                and s.revision = d.revision
+            )
+          group by p.id, p.display_name
+        ) op
+      ) rows
+    ),
+    '[]'::jsonb
+  );
+end;
+$fn$;
+
+revoke all on function public.record_drawing_open(uuid) from public, anon;
+revoke all on function public.confirm_drawing_seen(uuid, timestamptz) from public, anon;
+revoke all on function public.my_drawing_proof(uuid) from public, anon;
+revoke all on function public.my_unseen_drawings() from public, anon;
+revoke all on function public.site_drawing_seen(uuid) from public, anon;
+revoke all on function public.drawing_seen_roster(uuid) from public, anon;
+revoke all on function public.manager_drawing_gaps() from public, anon;
+revoke all on function public.site_not_seen(uuid) from public, anon;
 
 grant execute on function public.record_drawing_open(uuid) to authenticated;
 grant execute on function public.confirm_drawing_seen(uuid, timestamptz) to authenticated;
@@ -598,3 +674,4 @@ grant execute on function public.my_unseen_drawings() to authenticated;
 grant execute on function public.site_drawing_seen(uuid) to authenticated;
 grant execute on function public.drawing_seen_roster(uuid) to authenticated;
 grant execute on function public.manager_drawing_gaps() to authenticated;
+grant execute on function public.site_not_seen(uuid) to authenticated;

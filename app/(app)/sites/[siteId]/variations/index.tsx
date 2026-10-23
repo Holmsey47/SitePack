@@ -1,7 +1,8 @@
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
-import { deviceIsOnline, getVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
+import { canSeeVariationValue, filterVariations, formatPounds, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,6 +13,8 @@ const FILTERS: VariationFilter[] = ['All', 'Draft', 'Signed', 'Sent'];
 
 export default function VariationsScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
+  const { person } = useAuth();
+  const seeValue = person ? canSeeVariationValue(person.role) : false;
   const router = useRouter();
   const [list, setList] = useState<VariationList | null>(null);
   const [queued, setQueued] = useState<QueuedVariation[]>([]);
@@ -19,27 +22,17 @@ export default function VariationsScreen() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    if (!siteId) return;
-    const pending = (await getVariationQueue().list()).filter((item) => item.siteId === siteId);
+    const userId = person?.auth_user_id;
+    if (!siteId || !userId) return;
+    const pending = await flushVariationQueue(userId, siteId, await deviceIsOnline(), sendQueuedVariation);
     setQueued(pending);
-    if (pending.length > 0 && (await deviceIsOnline())) {
-      for (const item of pending) {
-        try {
-          await sendQueuedVariation(item);
-          await getVariationQueue().remove(item.localId);
-        } catch {
-          break;
-        }
-      }
-      setQueued((await getVariationQueue().list()).filter((item) => item.siteId === siteId));
-    }
     try {
       setList(await repo.listVariations(siteId));
       setError('');
     } catch (err) {
       setError(variationError(err instanceof Error ? err.message : 'unknown'));
     }
-  }, [siteId]);
+  }, [person, siteId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -88,6 +81,7 @@ export default function VariationsScreen() {
             </Text>
             <Muted>
               {row.status} · {row.photo_count} photo{row.photo_count === 1 ? '' : 's'}
+              {seeValue && row.value_pence != null ? ` · ${formatPounds(row.value_pence)}` : ''}
             </Muted>
           </Card>
         ))

@@ -44,5 +44,5 @@ test('the inductions probe refuses a hosted Supabase URL and installs anon defau
   const runner = fs.readFileSync('scripts/run-inductions-rls.sh', 'utf8');
   assert.match(runner, /20261022190000_inductions\.sql[\s\S]*anon-default-grants\.sql[\s\S]*-f "\$migration"/);
   const stub = fs.readFileSync('scripts/anon-default-grants.sql', 'utf8');
-  assert.match(stub, /grant execute on functions to anon, authenticated, service_role/);
+  assert.match(stub, /grant all on functions to anon, authenticated, service_role/);
 });

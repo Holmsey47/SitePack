@@ -1,5 +1,8 @@
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
+/** Wait this long, times the attempt count, before a failed tap is sent again. */
+export const ATTENDANCE_BACKOFF_MS = 30_000;
+
 export const ATTENDANCE_QUEUE_KEY = 'sitepack.attendance.queue';
 export const ATTENDANCE_NOTICE_KEY = 'sitepack.attendance.notices';
 export const ATTENDANCE_OWNER_KEY = 'sitepack.attendance.owner';
@@ -10,6 +13,8 @@ export type QueuedTap = {
   siteId: string;
   action: 'in' | 'out';
   deviceAt: string;
+  attempts?: number;
+  retryAt?: string;
 };
 
 export type AttendanceNotice = {
@@ -25,6 +30,7 @@ export type AttendanceQueueStore = {
   remove(localId: string): Promise<void>;
   listNotices(): Promise<AttendanceNotice[]>;
   putNotice(notice: AttendanceNotice): Promise<void>;
+  dismissNotice(id: string): Promise<void>;
   wipe(): Promise<void>;
 };
 
@@ -59,7 +65,9 @@ function isTap(value: unknown): value is QueuedTap {
     typeof item.userId === 'string' &&
     typeof item.siteId === 'string' &&
     (item.action === 'in' || item.action === 'out') &&
-    typeof item.deviceAt === 'string'
+    typeof item.deviceAt === 'string' &&
+    (item.attempts == null || typeof item.attempts === 'number') &&
+    (item.retryAt == null || typeof item.retryAt === 'string')
   );
 }
 
@@ -92,6 +100,9 @@ export function memoryAttendanceQueue(): AttendanceQueueStore {
     },
     async putNotice(notice) {
       notices.set(notice.id, { ...notice });
+    },
+    async dismissNotice(id) {
+      notices.delete(id);
     },
     async wipe() {
       rows.clear();
@@ -136,6 +147,11 @@ export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueS
       const next = readNotices(storage).filter((row) => row.id !== notice.id);
       next.push({ ...notice });
       storage.setItem(ATTENDANCE_NOTICE_KEY, JSON.stringify(next));
+    },
+    async dismissNotice(id) {
+      const next = readNotices(storage).filter((row) => row.id !== id);
+      if (next.length === 0) storage.removeItem(ATTENDANCE_NOTICE_KEY);
+      else storage.setItem(ATTENDANCE_NOTICE_KEY, JSON.stringify(next));
     },
     async wipe() {
       storage.removeItem(ATTENDANCE_QUEUE_KEY);
@@ -246,6 +262,7 @@ export async function flushAttendanceQueue(
       await queue.remove(item.localId);
       continue;
     }
+    if (item.retryAt && Date.parse(item.retryAt) > Date.now()) continue;
     try {
       await send(item);
       await queue.remove(item.localId);
@@ -256,7 +273,12 @@ export async function flushAttendanceQueue(
         await queue.remove(item.localId);
         continue;
       }
-      return created;
+      const attempts = (item.attempts ?? 0) + 1;
+      await queue.put({
+        ...item,
+        attempts,
+        retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
+      });
     }
   }
   return created;
@@ -281,6 +303,12 @@ export async function persistThenSendAttendance(
       await queue.remove(item.localId);
       return 'refused';
     }
+    const attempts = (item.attempts ?? 0) + 1;
+    await queue.put({
+      ...item,
+      attempts,
+      retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
+    });
     return 'queued';
   }
 }

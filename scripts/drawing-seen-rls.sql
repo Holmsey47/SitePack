@@ -89,13 +89,14 @@ select pg_temp.ok(
         'my_unseen_drawings',
         'site_drawing_seen',
         'drawing_seen_roster',
-        'manager_drawing_gaps'
+        'manager_drawing_gaps',
+        'site_not_seen'
       )
       and exists (
         select 1 from unnest(coalesce(p.proconfig, array[]::text[])) c
         where c like 'search_path=%'
       )
-  ) = 7,
+  ) = 8,
   'drawing seen functions pin search_path'
 );
 
@@ -118,7 +119,8 @@ select pg_temp.ok(
         'my_unseen_drawings',
         'site_drawing_seen',
         'drawing_seen_roster',
-        'manager_drawing_gaps'
+        'manager_drawing_gaps',
+        'site_not_seen'
       )
       and p.prosecdef
   ),
@@ -128,15 +130,35 @@ select pg_temp.ok(
 select pg_temp.ok(
   not has_function_privilege('anon', 'public.confirm_drawing_seen(uuid, timestamptz)', 'execute')
   and not has_function_privilege('anon', 'public.record_drawing_open(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.my_drawing_proof(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.my_unseen_drawings()', 'execute')
+  and not has_function_privilege('anon', 'public.site_drawing_seen(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.drawing_seen_roster(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.manager_drawing_gaps()', 'execute')
+  and not has_function_privilege('anon', 'public.site_not_seen(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.drawing_seen_person()', 'execute')
+  and not has_function_privilege('anon', 'private.drawing_proof_site_matches()', 'execute')
   and not has_table_privilege('anon', 'public.drawing_seen', 'select')
   and not has_table_privilege('anon', 'public.drawing_revision_opens', 'select')
   and not has_table_privilege('authenticated', 'public.drawing_seen', 'insert')
   and not has_table_privilege('authenticated', 'public.drawing_seen', 'update')
   and not has_table_privilege('authenticated', 'public.drawing_revision_opens', 'insert')
   and has_table_privilege('authenticated', 'public.drawing_seen', 'select'),
-  'anon cannot read confirmations and clients cannot write the tables directly'
+  'anon cannot call drawing seen functions and clients cannot write the tables directly'
 );
+
+set local role anon;
+
+do $$
+begin
+  perform public.confirm_drawing_seen('00000000-0000-4000-8000-000000000099');
+  raise exception 'FAIL: anon called confirm_drawing_seen';
+exception
+  when insufficient_privilege then
+    raise notice 'ok: anon cannot call confirm_drawing_seen';
+end $$;
+
+reset role;
 
 select pg_temp.ok(
   (
@@ -288,9 +310,13 @@ select pg_temp.ok(
 select pg_temp.ok(
   pg_temp.raises(
     'select public.confirm_drawing_seen(''' || :'drawb' || ''')',
-    'not_authorized'
+    'drawing_not_found'
+  )
+  and pg_temp.raises(
+    'select public.confirm_drawing_seen(''00000000-0000-4000-8000-000000000099'')',
+    'drawing_not_found'
   ),
-  'operative of site B cannot confirm site A'
+  'an outsider gets drawing_not_found for a drawing that exists'
 );
 
 reset role;
@@ -300,9 +326,20 @@ set local role authenticated;
 select pg_temp.ok(
   (select count(*) from public.drawing_seen) = 0
   and pg_temp.raises('select public.site_drawing_seen(''' || :'sitea' || ''')', 'not_authorized')
-  and pg_temp.raises('select public.drawing_seen_roster(''' || :'drawb' || ''')', 'drawing_not_found'),
+  and pg_temp.raises('select public.drawing_seen_roster(''' || :'drawb' || ''')', 'drawing_not_found')
+  and pg_temp.raises(
+    'select public.confirm_drawing_seen(''' || :'drawb' || ''')',
+    'drawing_not_found'
+  ),
   'firm Y cannot read firm X confirmations'
 );
+
+reset role;
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+select public.record_drawing_open(:'drawb'::uuid);
+select public.confirm_drawing_seen(:'drawb'::uuid);
 
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
@@ -310,12 +347,23 @@ set local role authenticated;
 
 select pg_temp.ok(
   (select (public.drawing_seen_roster(:'drawb'::uuid)->>'seen_count')::int) = 2
-  and (select (public.drawing_seen_roster(:'drawb'::uuid)->>'assigned_count')::int) = 3
-  and (select count(*) from public.drawing_seen) = 2
+  and (select (public.drawing_seen_roster(:'drawb'::uuid)->>'assigned_count')::int) = 2
+  and (select (public.site_drawing_seen(:'sitea'::uuid)->>'assigned_count')::int) = 2
+  and not exists (
+    select 1
+    from jsonb_array_elements((public.drawing_seen_roster(:'drawb'::uuid))->'seen') person
+    where person->>'person_id' = :'cmx'
+  )
+  and not exists (
+    select 1
+    from jsonb_array_elements((public.drawing_seen_roster(:'drawb'::uuid))->'unseen') person
+    where person->>'person_id' = :'cmx'
+  )
+  and (select count(*) from public.drawing_seen where person_id = :'cmx'::uuid) = 1
   and not exists (
     select 1 from public.drawing_seen where site_id = :'sitey'::uuid
   ),
-  'owner sees 2 of 3 and cannot read firm Y'
+  'the count is operatives only and a contracts manager does not count'
 );
 
 delete from public.site_assignments
@@ -324,7 +372,7 @@ where site_id = :'sitea'::uuid
 
 select pg_temp.ok(
   (select (public.drawing_seen_roster(:'drawb'::uuid)->>'seen_count')::int) = 1
-  and (select (public.drawing_seen_roster(:'drawb'::uuid)->>'assigned_count')::int) = 2
+  and (select (public.drawing_seen_roster(:'drawb'::uuid)->>'assigned_count')::int) = 1
   and (select count(*) from public.drawing_seen where person_id = :'opc'::uuid) = 1,
   'removed people drop out of N and their confirmation is kept'
 );
@@ -351,9 +399,25 @@ select pg_temp.ok(
     from jsonb_array_elements((public.site_drawing_seen(:'sitea'::uuid))->'drawings') item
     where item->>'drawing_id' = :'drawc'
   ) = 0
-  and (select (public.site_drawing_seen(:'sitea'::uuid)->>'assigned_count')::int) = 2
-  and (select count(*) from public.drawing_seen where drawing_id = :'drawb'::uuid and revision = 'B') = 2,
+  and (select (public.site_drawing_seen(:'sitea'::uuid)->>'assigned_count')::int) = 1
+  and (select count(*) from public.drawing_seen where drawing_id = :'drawb'::uuid and revision = 'B') = 3,
   'replacing rev B with C resets the count to 0 of N and keeps history'
+);
+
+select pg_temp.ok(
+  (select jsonb_array_length(public.site_not_seen(:'sitea'::uuid))) = 1
+  and exists (
+    select 1
+    from jsonb_array_elements(public.site_not_seen(:'sitea'::uuid)) person
+    where person->>'person_id' = :'opa'
+      and jsonb_array_length(person->'sheets') = 1
+  )
+  and not exists (
+    select 1
+    from jsonb_array_elements(public.site_not_seen(:'sitea'::uuid)) person
+    where person->>'person_id' = :'cmx'
+  ),
+  'not seen yet lists operatives only'
 );
 
 reset role;
@@ -412,18 +476,18 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  (
-    select (item->>'not_seen_by_everyone')::int
+  not exists (
+    select 1
     from jsonb_array_elements(public.manager_drawing_gaps()) item
     where item->>'site_id' = :'sitea'
-  ) = 1,
-  'site still has a drawing not seen by everyone'
+  ),
+  'a contracts manager who has not seen the rev does not leave the site on the gap list'
 );
 
 reset role;
 
 select pg_temp.ok(
-  (select count(*) from public.drawing_seen where drawing_id = :'drawb'::uuid) = 2
+  (select count(*) from public.drawing_seen where drawing_id = :'drawb'::uuid) = 3
   and (select count(*) from public.drawing_seen where drawing_id = :'drawc'::uuid) = 1,
   'history rows remain after the transaction checks'
 );

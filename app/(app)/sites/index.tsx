@@ -1,8 +1,9 @@
 import { AppTabs } from '@/components/app-tabs';
+import { FixtureOfflineSwitch } from '@/components/fixture-offline';
 import { TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, NewRevBadge, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
+import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
@@ -82,7 +83,7 @@ export default function SitesScreen() {
     useCallback(() => {
       if (!person) return;
       let active = true;
-      refreshDrawingSeen(manager)
+      refreshDrawingSeen(manager, person.auth_user_id)
         .then((next) => {
           if (!active) return;
           setUnseen(next.unseen);
@@ -182,6 +183,7 @@ export default function SitesScreen() {
           <HeaderActions label="Sign out" onPress={() => void signOut()} />
         </View>
         {resetNotice}
+        <FixtureOfflineSwitch />
         {error ? <ErrorText>{error}</ErrorText> : null}
         {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
@@ -190,8 +192,9 @@ export default function SitesScreen() {
             <Card key={site.id}>
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel={site.name}
                 onPress={() => router.push(`/sites/${site.id}`)}
-                style={{ gap: 8, minHeight: 48 }}>
+                style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
                   {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
@@ -203,8 +206,13 @@ export default function SitesScreen() {
                     {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
                   </Text>
                 ) : null}
-                <SeenNotes notes={seenNotes(site.id)} />
               </Pressable>
+              <SeenNotes
+                manager={false}
+                notes={seenNotes(site.id)}
+                onTeam={() => router.push(`/sites/${site.id}/not-seen`)}
+                onNew={() => router.push(`/sites/${site.id}/new`)}
+              />
               {talkNotes(site.id)}
             </Card>
           ))
@@ -233,6 +241,7 @@ export default function SitesScreen() {
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       {resetNotice}
+      <FixtureOfflineSwitch />
       {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -251,8 +260,9 @@ export default function SitesScreen() {
           <Card key={row.site_id}>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={row.name}
               onPress={() => router.push(`/sites/${row.site_id}`)}
-              style={{ gap: 8, minHeight: 48 }}>
+              style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                 <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
                 {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
@@ -275,11 +285,16 @@ export default function SitesScreen() {
               <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
               <Muted>{operativesLine(row.operative_count)}</Muted>
               <Muted>{formatWhen(row.last_pack_update)}</Muted>
-              <SeenNotes notes={seenNotes(row.site_id)} />
               <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
                 {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
               </Text>
             </Pressable>
+            <SeenNotes
+              manager
+              notes={seenNotes(row.site_id)}
+              onTeam={() => router.push(`/sites/${row.site_id}/not-seen`)}
+              onNew={() => router.push(`/sites/${row.site_id}/new`)}
+            />
             {talkNotes(row.site_id)}
           </Card>
         ))
@@ -303,24 +318,25 @@ export default function SitesScreen() {
 }
 
 function SeenNotes({
+  manager,
   notes,
+  onTeam,
+  onNew,
 }: {
+  manager: boolean;
   notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
+  onTeam: () => void;
+  onNew: () => void;
 }) {
-  if (notes.badges.length === 0 && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
+  const fresh = manager ? null : newDrawingsLine(notes.badges.length);
+  if (!fresh && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
   return (
     <View style={{ gap: 8 }}>
-      {notes.line ? (
-        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', lineHeight: 22 }} accessibilityRole="text">
-          {notes.line}
-        </Text>
-      ) : null}
+      {notes.line ? <GlanceRow label={notes.line} onPress={onTeam} /> : null}
       {notes.rejections.map((notice) => (
         <SeenRejectNotice key={notice.id} message={notice.message} />
       ))}
-      {notes.badges.map((badge) => (
-        <NewRevBadge key={badge.drawing_id} sheet={badge.sheet} revision={badge.revision} />
-      ))}
+      {fresh ? <GlanceRow label={fresh} onPress={onNew} /> : null}
       {notes.waiting ? (
         <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
       ) : null}

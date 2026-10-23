@@ -32,6 +32,8 @@ $$;
 
 grant execute on function auth.uid() to anon, authenticated, service_role;
 
+\ir anon-default-grants.sql
+
 create table if not exists auth.users (
   instance_id uuid,
   id uuid primary key,

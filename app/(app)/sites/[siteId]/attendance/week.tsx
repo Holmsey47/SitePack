@@ -1,9 +1,10 @@
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
-import { attendanceError, forgotLine, type AttendanceEntry, type WeeklyAttendance } from '@/data/attendance';
+import { attendanceError, forgotLine, gapLine, type AttendanceEntry, type WeeklyAttendance } from '@/data/attendance';
 import { repo } from '@/data/index';
 import { formatUkDateTime } from '@/lib/format';
 import {
   buildWeekSheet,
+  clockGap,
   londonWeekStart,
   preparedLine,
   shiftWeek,
@@ -30,6 +31,12 @@ function spansFrom(sheet: WeeklyAttendance | null): HourSpan[] {
     inAt: entry.in_at,
     outAt: entry.out_at,
     forgot: entry.forgot_sign_out,
+    gap: Boolean(
+      entry.in_gap ||
+        entry.out_gap ||
+        (entry.late_out_device_at && entry.late_out_received_at && clockGap(entry.late_out_device_at, entry.late_out_received_at))
+    ),
+    corrected: (entry.audit?.length ?? 0) > 0,
   }));
 }
 
@@ -103,8 +110,9 @@ export default function WeeklyHoursScreen() {
     setBusy(true);
     setError('');
     try {
+      const site = await repo.getSite(siteId ?? '');
       const name = `Hours week ${weekStart}.csv`;
-      await shareFile(name, new TextEncoder().encode(weekCsv(rows)), 'text/csv');
+      await shareFile(name, new TextEncoder().encode(weekCsv(rows, site?.name ?? 'Site', weekStart)), 'text/csv');
     } catch {
       setError('Could not share the sheet.');
     } finally {
@@ -179,6 +187,10 @@ export default function WeeklyHoursScreen() {
                   {entry.out_at ? ` – ${formatUkDateTime(entry.out_at)}` : ' · still in'}
                 </Text>
                 {forgotLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{forgotLine(entry)}</Text> : null}
+                {gapLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{gapLine(entry)}</Text> : null}
+                {entry.audit && entry.audit.length > 0 ? (
+                  <Text style={{ color: theme.text, fontWeight: '800' }}>Corrected</Text>
+                ) : null}
               </Pressable>
             ))}
         </Card>

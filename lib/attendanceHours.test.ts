@@ -4,6 +4,10 @@ import {
   buildWeekSheet,
   clockGap,
   CLOCK_GAP_MS,
+  decimalHours,
+  FLAG_CORRECTED,
+  FLAG_FORGOT,
+  FLAG_GAP,
   forgottenClose,
   formatHours,
   hoursOnLondonDay,
@@ -11,7 +15,9 @@ import {
   londonDateKey,
   londonDayEndMs,
   londonDayStartMs,
+  londonWallIso,
   londonWeekStart,
+  OVERNIGHT_GRACE_HOUR,
   weekCsv,
   type HourSpan,
 } from './attendanceHours.ts';
@@ -21,6 +27,8 @@ function span(partial: Partial<HourSpan> & Pick<HourSpan, 'inAt' | 'outAt'>): Ho
     personId: partial.personId ?? 'amy',
     personName: partial.personName ?? 'Amy Keane',
     forgot: partial.forgot ?? false,
+    gap: partial.gap ?? false,
+    corrected: partial.corrected ?? false,
     inAt: partial.inAt,
     outAt: partial.outAt,
   };
@@ -78,6 +86,40 @@ test('a forgotten sign-out closes at 23:59 Europe/London and a second pass stays
   assert.equal(row?.total, formatHours(row?.totalMs ?? 0));
 });
 
+test('a sign-out before 06:00 London keeps the real time and 07:00 is a forgotten close', () => {
+  assert.equal(OVERNIGHT_GRACE_HOUR, 6);
+  const inAt = londonWallIso('2026-10-20', 22, 0);
+  const atTwo = londonWallIso('2026-10-21', 2, 0);
+  const atSix = londonWallIso('2026-10-21', 6, 0);
+  assert.equal(forgottenClose(inAt, null, atTwo), null);
+  const [open] = buildWeekSheet([span({ inAt, outAt: atTwo })], '2026-10-19', atTwo);
+  assert.equal(open?.days[1], '2h 00m');
+  assert.equal(open?.days[2], '2h 00m');
+  assert.equal(open?.total, '4h 00m');
+  const closed = forgottenClose(inAt, null, atSix);
+  assert.equal(closed?.forgot, true);
+  assert.equal(closed?.outAt, londonCloseIso(inAt));
+  assert.equal(forgottenClose(inAt, closed?.outAt ?? null, atSix), null);
+});
+
+test('two days of 1h 00m 40s floor to whole minutes before the total', () => {
+  const tueIn = '2026-10-20T07:00:00.000Z';
+  const tueOut = '2026-10-20T08:00:40.000Z';
+  const wedIn = '2026-10-21T07:00:00.000Z';
+  const wedOut = '2026-10-21T08:00:40.000Z';
+  assert.equal(hoursOnLondonDay(tueIn, tueOut, '2026-10-20'), 60 * 60 * 1000 + 40 * 1000);
+  const [row] = buildWeekSheet(
+    [span({ inAt: tueIn, outAt: tueOut }), span({ inAt: wedIn, outAt: wedOut })],
+    '2026-10-19',
+    '2026-10-22T12:00:00.000Z'
+  );
+  assert.equal(row?.days[1], '1h 00m');
+  assert.equal(row?.days[2], '1h 00m');
+  assert.equal(row?.total, '2h 00m');
+  assert.equal(row?.totalMs, (row?.dayMs ?? []).reduce((sum, ms) => sum + ms, 0));
+  assert.equal(decimalHours(row?.totalMs ?? 0), '2.00');
+});
+
 test('CSV totals match the sheet totals', () => {
   const rows = buildWeekSheet(
     [
@@ -87,17 +129,36 @@ test('CSV totals match the sheet totals', () => {
     '2026-10-19',
     '2026-10-22T12:00:00.000Z'
   );
-  const csv = weekCsv(rows);
+  const flagged = buildWeekSheet(
+    [
+      span({
+        personId: 'lee',
+        personName: '=Lee',
+        inAt: '2026-10-20T08:00:00.000Z',
+        outAt: '2026-10-20T16:00:00.000Z',
+        forgot: true,
+        gap: true,
+        corrected: true,
+      }),
+    ],
+    '2026-10-19',
+    '2026-10-22T12:00:00.000Z'
+  );
+  const csv = weekCsv([...rows, ...flagged], '@Oak', '2026-10-19');
   const lines = csv.split('\n').slice(1);
-  assert.equal(lines.length, rows.length);
+  assert.equal(lines.length, rows.length + flagged.length);
   lines.forEach((line, index) => {
-    const row = rows[index];
+    const row = [...rows, ...flagged][index];
     assert.ok(row);
-    assert.equal(line.endsWith(row.total), true);
+    assert.match(line, new RegExp(`${row.total},${decimalHours(row.totalMs)}`));
     assert.equal(row.dayMs.reduce((sum, ms) => sum + ms, 0), row.totalMs);
     assert.equal(formatHours(row.totalMs), row.total);
   });
+  assert.match(csv, /Site,Week,Person,/);
   assert.match(csv, /"Ben, Torres"/);
+  assert.match(csv, /'@Oak/);
+  assert.match(csv, /'=Lee/);
+  assert.match(csv, new RegExp(`${FLAG_FORGOT}; ${FLAG_GAP}; ${FLAG_CORRECTED}`));
 });
 
 test('a clock gap is only more than 10 minutes', () => {

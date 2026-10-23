@@ -125,12 +125,27 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  not has_function_privilege('anon', 'public.create_variation(uuid,text,text,text,text,integer,jsonb)', 'execute')
-  and not has_function_privilege('anon', 'public.set_variation_value(uuid,integer)', 'execute')
+  not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'create_variation',
+        'update_variation_draft',
+        'set_variation_value',
+        'sign_variation',
+        'send_variation',
+        'revise_variation',
+        'list_variations',
+        'variation_detail'
+      )
+      and has_function_privilege('anon', p.oid, 'execute')
+  )
   and not has_table_privilege('anon', 'public.variations', 'select')
   and not has_table_privilege('authenticated', 'public.variations', 'insert')
   and not has_table_privilege('authenticated', 'public.variation_versions', 'update'),
-  'anon cannot call variations and clients cannot write the tables directly'
+  'anon cannot execute any variation function and clients cannot write the tables directly'
 );
 
 select pg_temp.ok(
@@ -207,6 +222,30 @@ select pg_temp.ok(
   'operative cannot set the pound value'
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_variation('
+      || quote_literal(:'sitea') || '::uuid, ''Extra beads'', ''Note'', null, null, null, '
+      || 'jsonb_build_array(jsonb_build_object('
+      || '''storage_path'', ' || quote_literal(:'firmx') || ' || ''/'' || ' || quote_literal(:'sitea') || ' || ''/variations/../bad.jpg'','
+      || '''content_type'', ''image/jpeg'', ''file_size_bytes'', 1200)))',
+    'invalid_path'
+  ),
+  'a photo path cannot contain dot-dot'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_variation('
+      || quote_literal(:'sitea') || '::uuid, ''Extra beads'', ''Note'', null, null, null, '
+      || 'jsonb_build_array(jsonb_build_object('
+      || '''storage_path'', ''/variations/bad.jpg'','
+      || '''content_type'', ''image/jpeg'', ''file_size_bytes'', 1200)))',
+    'invalid_path'
+  ),
+  'a photo path cannot start with a slash'
+);
+
 insert into probe (k, v)
 values (
   'a',
@@ -238,9 +277,39 @@ select pg_temp.ok(
   'owner can set the pound value on a draft'
 );
 
+select pg_temp.ok(
+  (public.list_variations(:'sitea'::uuid) -> 'rows' -> 0 ->> 'value_pence')::integer = 2500
+  and (public.variation_detail((select (v->>'variation_id')::uuid from probe where k = 'a')) -> 'current' ->> 'value_pence')::integer = 2500
+  and (private.variation_version_json((select (v->>'version_id')::uuid from probe where k = 'a')) ->> 'value_pence')::integer = 2500,
+  'a manager read returns the stored pound amount'
+);
+
 reset role;
 select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
+
+select pg_temp.ok(
+  not has_column_privilege('authenticated', 'public.variation_versions', 'value_pence', 'select')
+  and not has_column_privilege('authenticated', 'public.variation_signatures', 'shown_value_pence', 'select')
+  and pg_temp.raises(
+    'select value_pence from public.variation_versions where id = '
+      || quote_literal((select v->>'version_id' from probe where k = 'a')) || '::uuid',
+    'permission denied for table variation_versions'
+  )
+  and pg_temp.raises(
+    'select shown_value_pence from public.variation_signatures where version_id = '
+      || quote_literal((select v->>'version_id' from probe where k = 'a')) || '::uuid',
+    'permission denied for table variation_signatures'
+  ),
+  'operative select of the pound column is denied'
+);
+
+select pg_temp.ok(
+  (public.list_variations(:'sitea'::uuid) -> 'rows' -> 0 ->> 'value_pence') is null
+  and (public.variation_detail((select (v->>'variation_id')::uuid from probe where k = 'a')) -> 'current' ->> 'value_pence') is null
+  and (private.variation_version_json((select (v->>'version_id')::uuid from probe where k = 'a')) ->> 'value_pence') is null,
+  'operative list, detail and version json return a null pound amount'
+);
 
 select pg_temp.ok(
   (public.update_variation_draft(
@@ -254,14 +323,24 @@ select pg_temp.ok(
   'draft edits stay on the same version'
 );
 
-select pg_temp.ok(
-  (public.sign_variation(
+insert into probe (k, v)
+values (
+  'a-sign',
+  public.sign_variation(
     (select (v->>'version_id')::uuid from probe where k = 'a'),
     'Dave Moran',
-    'Site manager, Northbuild',
-    'data:image/png;base64,' || repeat('QUFB', 20)
-  ) ->> 'status') = 'Signed',
-  'hand-the-phone sign-off locks the signing step'
+    'Site manager',
+    'Northbuild',
+    'data:image/png;base64,' || repeat('QUFB', 20),
+    null
+  )
+);
+
+select pg_temp.ok(
+  (select v->>'status' from probe where k = 'a-sign') = 'Signed'
+  and (select v->>'confirmation_text' from probe where k = 'a-sign') = 'I confirm I instructed this extra work on behalf of Northbuild. The price is still to be agreed.'
+  and (select v->>'shown_value_pence' from probe where k = 'a-sign') is null,
+  'an operative sign-off uses the no-price sentence and snapshots no amount'
 );
 
 select pg_temp.ok(
@@ -339,7 +418,7 @@ select pg_temp.ok(
   and (select status from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'a')) = 'Sent'
   and (select is_current from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'a')) = false
   and (select is_current from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'a2')) = true
-  and (select value_pence from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'a2')) = 2500
+  and (private.variation_version_json((select (v->>'version_id')::uuid from probe where k = 'a2')) ->> 'value_pence')::integer = 2500
   and (select count(*) from public.variation_signatures where version_id = (select (v->>'version_id')::uuid from probe where k = 'a')) = 1
   and (select count(*) from public.variation_signatures where version_id = (select (v->>'version_id')::uuid from probe where k = 'a2')) = 0,
   'an edit after signing creates a new version and keeps the signed one'
@@ -383,12 +462,40 @@ reset role;
 select pg_temp.jwt(:'opb'::uuid);
 set local role authenticated;
 
-select public.sign_variation(
-  (select (v->>'version_id')::uuid from probe where k = 'b'),
-  'Sam Cole',
-  'Foreman, Otherbuild',
-  'data:image/png;base64,' || repeat('QUFB', 20)
+select pg_temp.ok(
+  (public.sign_variation(
+    (select (v->>'version_id')::uuid from probe where k = 'b'),
+    'Sam Cole',
+    'Foreman',
+    'Otherbuild',
+    'data:image/png;base64,' || repeat('QUFB', 20),
+    null
+  ) ->> 'shown_value_pence') is null,
+  'an operative sign-off snapshots no pound amount'
 );
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_variation('
+      || quote_literal((select v->>'version_id' from probe where k = 'b'))
+      || '::uuid, ''Sam Cole'', ''Foreman'', ''Otherbuild'', ''data:image/png;base64,'
+      || repeat('QUFB', 20) || ''', 500)',
+    'variation_locked'
+  ),
+  'a signed variation cannot be signed again'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.revise_variation(' || quote_literal((select v->>'version_id' from probe where k = 'b')) || '::uuid)',
+    'not_authorized'
+  ),
+  'an operative cannot revise a signed variation'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
 
 insert into probe (k, v)
 values (
@@ -397,9 +504,9 @@ values (
 );
 
 select pg_temp.ok(
-  (select value_pence from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'b2')) is null
-  and (select value_pence from public.variation_versions where id = (select (v->>'version_id')::uuid from probe where k = 'b')) = 500,
-  'an operative revision does not carry the pound value onto the new draft'
+  (public.variation_detail((select (v->>'variation_id')::uuid from probe where k = 'b')) -> 'current' ->> 'value_pence')::integer = 500
+  and (public.variation_detail((select (v->>'variation_id')::uuid from probe where k = 'b')) -> 'history' -> 0 ->> 'value_pence')::integer = 500,
+  'a manager revision keeps the pound amount and the signed version'
 );
 
 reset role;
@@ -462,6 +569,20 @@ select pg_temp.ok(
   'operative of site A cannot store a photo on site B'
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into storage.objects (bucket_id, name) values (''site-photos'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/../variations/sneak.jpg') || ')',
+    'new row violates row-level security policy for table "objects"'
+  )
+  and pg_temp.raises(
+    'insert into storage.objects (bucket_id, name) values (''site-photos'', ''/'
+      || :'firmx' || '/' || :'sitea' || '/variations/sneak.jpg'')',
+    'new row violates row-level security policy for table "objects"'
+  ),
+  'a storage key cannot contain dot-dot or start with a slash'
+);
+
 reset role;
 select pg_temp.jwt(:'opb'::uuid);
 set local role authenticated;
@@ -509,6 +630,56 @@ select pg_temp.ok(
   and (select count(*) from storage.objects where bucket_id = 'site-photos') = 1
   and (select name from storage.objects where bucket_id = 'site-photos') like :'firmy' || '%',
   'firm Y cannot read firm X variations or photos'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+set constraints all deferred;
+
+insert into probe (k, v)
+values (
+  'priced',
+  public.create_variation(
+    :'sitea'::uuid,
+    'Priced beads',
+    'Shown amount',
+    null,
+    null,
+    14550,
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'priced.jpg')
+  )
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_variation('
+      || quote_literal((select v->>'version_id' from probe where k = 'priced'))
+      || '::uuid, ''Dave Moran'', ''Site manager'', ''Northbuild'', ''data:image/png;base64,'
+      || repeat('QUFB', 20) || ''', 1)',
+    'value_mismatch'
+  ),
+  'a sign-off rejects an amount that is not the stored value'
+);
+
+insert into probe (k, v)
+values (
+  'priced-sign',
+  public.sign_variation(
+    (select (v->>'version_id')::uuid from probe where k = 'priced'),
+    'Dave Moran',
+    'Site manager',
+    'Northbuild',
+    'data:image/png;base64,' || repeat('QUFB', 20),
+    14550
+  )
+);
+
+select pg_temp.ok(
+  (select v->>'confirmation_text' from probe where k = 'priced-sign') = 'I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown.'
+  and (select (v->>'shown_value_pence')::integer from probe where k = 'priced-sign') = 14550
+  and (private.variation_version_json((select (v->>'version_id')::uuid from probe where k = 'priced')) -> 'signature' ->> 'shown_value_pence')::integer = 14550,
+  'a priced manager sign-off stores the server sentence and the shown amount'
 );
 
 reset role;

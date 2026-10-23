@@ -77,7 +77,8 @@ export default function NewVariationScreen() {
   }
 
   async function onSave() {
-    if (!siteId || !person) return;
+    const userId = person?.auth_user_id;
+    if (!siteId || !userId) return;
     if (!title.trim()) {
       setError('Add a title.');
       return;
@@ -108,6 +109,8 @@ export default function NewVariationScreen() {
       valuePence,
       photos: photos.map(({ id, bytes, contentType }) => ({ id, bytes, contentType })),
       savedAt: new Date().toISOString(),
+      ownerUserId: userId,
+      notice: SAVED_ON_PHONE,
     };
     try {
       const result = await persistThenSend(item, await deviceIsOnline(), sendQueuedVariation);
@@ -151,7 +154,7 @@ export default function NewVariationScreen() {
         maxLength={80}
       />
       {manager ? (
-        <Field label="Amount (optional)" value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="default" />
+        <Field label="£ ex VAT" value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="default" />
       ) : null}
       <View style={{ gap: 8 }}>
         {photos.map((photo) => (

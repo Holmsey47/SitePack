@@ -5,7 +5,17 @@ import { PDFDocument } from 'pdf-lib';
 import { formatUkDateTime } from './format.ts';
 import { snagJpegBytes, type SnagJpegName } from './snagJpegFixtures.ts';
 import { strokesToPngDataUrl, dataUrlBytes } from './signaturePng.ts';
-import { buildSnagPdf, signatureStaysWithSnag, snagPdfFilename, snagReportId, type SnagPdfSnag } from './snagPdf.ts';
+import {
+  buildSnagPdf,
+  buildSnagSignoffPdf,
+  detailsStayWithHeading,
+  headingStaysWithFirstPhoto,
+  signatureStaysWithSnag,
+  snagPdfFilename,
+  snagReportId,
+  type SnagPdfSnag,
+} from './snagPdf.ts';
+import { snagConfirmation } from './snagWording.ts';
 
 function jpegSize(bytes: Uint8Array): { width: number; height: number } {
   let offset = 2;
@@ -103,15 +113,15 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
     const fixed = seq >= 5;
     const photos =
       seq === 1
-        ? [{ bytes: tall, contentType: 'image/jpeg', caption: 'Before' }]
+        ? [{ bytes: tall, contentType: 'image/jpeg', kind: 'before' as const }]
         : seq === 8
           ? [
-              { bytes: wide, contentType: 'image/jpeg', caption: 'Before' },
-              { bytes: after, contentType: 'image/jpeg', caption: 'After' },
+              { bytes: wide, contentType: 'image/jpeg', kind: 'before' as const },
+              { bytes: after, contentType: 'image/jpeg', kind: 'after' as const },
             ]
-          : [{ bytes: index % 2 === 0 ? bars : wide, contentType: 'image/jpeg', caption: 'Before' }];
+          : [{ bytes: index % 2 === 0 ? bars : wide, contentType: 'image/jpeg', kind: 'before' as const }];
     if (fixed && seq !== 1 && seq !== 8) {
-      photos.push({ bytes: after, contentType: 'image/jpeg', caption: 'After' });
+      photos.push({ bytes: after, contentType: 'image/jpeg', kind: 'after' as const });
     }
     return {
       snagSeq: seq,
@@ -147,6 +157,7 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), '%PDF');
   const doc = await PDFDocument.load(bytes);
   assert.ok(doc.getPageCount() >= 2);
+  assert.ok(doc.getPageCount() < 9, `report is ${doc.getPageCount()} pages`);
   const text = decodedPdfText(bytes);
   assert.match(text, /Dave Moran/);
   assert.match(text, /Priya Shah/);
@@ -156,6 +167,9 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.match(text, /Signed 22 Oct 2026, 2:05pm/);
   assert.match(text, /SR-22Oct2026/);
   assert.match(text, /page 1 of /);
+  assert.match(text, /Before · Photo 1 of 1/);
+  assert.match(text, /Before · Photo 1 of 2/);
+  assert.match(text, /After · Photo 2 of 2/);
   const footerPages = new Set(trace.filter((item) => item.kind === 'footer').map((item) => item.page));
   assert.equal(footerPages.size, doc.getPageCount());
   for (let page = 1; page <= doc.getPageCount(); page += 1) assert.ok(footerPages.has(page));
@@ -168,4 +182,108 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.ok(pair.every((item) => item.pair && item.width && item.width < 280 && item.width > 180));
   assert.equal(pair[0]?.page, pair[1]?.page);
   for (const seq of [7, 8, 9, 10]) assert.equal(signatureStaysWithSnag(trace, seq), true);
+  for (let seq = 1; seq <= 10; seq += 1) {
+    assert.equal(headingStaysWithFirstPhoto(trace, seq), true, `S-${seq} heading left its first photo`);
+    assert.equal(detailsStayWithHeading(trace, seq), true, `S-${seq} details split from the heading`);
+  }
+});
+
+test('a photo that cannot be loaded is named in the report', async () => {
+  const { bytes, trace } = await buildSnagPdf({
+    reportId: 'SR-22Oct2026',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: '2026-10-22T13:05:00.000Z',
+    filterLabel: 'All snags',
+    snags: [
+      {
+        snagSeq: 3,
+        note: 'Joint tape lifting by the door',
+        levelArea: 'First',
+        tradeLabel: 'dryliner',
+        status: 'Open',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: null,
+        photos: [
+          { bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' },
+          { bytes: null, contentType: 'image/jpeg', kind: 'after' },
+        ],
+        signature: null,
+      },
+    ],
+  });
+  const text = decodedPdfText(bytes);
+  assert.match(text, /Photo 2 could not be loaded/);
+  assert.match(text, /Before · Photo 1 of 2/);
+  assert.equal(headingStaysWithFirstPhoto(trace, 3), true);
+  assert.equal(trace.some((item) => item.kind === 'missing' && item.snagSeq === 3), true);
+});
+
+test('contractor and internal sign-off PDFs print the stored sentence, outstanding snags, and the disclaimer', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const stored = snagConfirmation('Northbuild', 'contractor');
+  const internal = snagConfirmation('Ashfield Finishes', 'internal');
+  const covered: SnagPdfSnag = {
+    snagSeq: 5,
+    note: 'Crack above the lintel',
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+    signature: null,
+  };
+  const outstanding = [{ snagSeq: 2, note: 'Skirting not fixed in the hall', levelArea: 'Ground' }];
+  const contractor = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: stored,
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]])),
+    covered: [covered],
+    outstanding,
+  });
+  const contractorText = decodedPdfText(contractor.bytes);
+  assert.match(contractorText, /Snag sign-off/);
+  assert.equal(contractorText.includes('Internal check'), false);
+  assert.match(contractorText, /I confirm the snags marked complete below have been put right to my satisfaction, on behalf of/);
+  assert.match(contractorText, /Northbuild\./);
+  assert.match(contractorText, /Outstanding \(not signed off\): 1/);
+  assert.match(contractorText, /S-2 · Skirting not fixed in the hall · Ground/);
+  assert.match(contractorText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
+  assert.match(contractorText, /page 1 of /);
+  assert.equal(contractor.trace.filter((item) => item.kind === 'footer').length, (await PDFDocument.load(contractor.bytes)).getPageCount());
+
+  const internalPdf = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'internal',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: internal,
+    signerName: 'Priya Shah',
+    signerRole: 'Contracts manager',
+    signerCompany: 'Ashfield Finishes',
+    signedAt: when,
+    signaturePng: null,
+    covered: [covered],
+    outstanding: [],
+  });
+  const internalText = decodedPdfText(internalPdf.bytes);
+  assert.match(internalText, /Internal check/);
+  assert.match(internalText, /I've checked the snags marked complete below and I'm satisfied they've been put right\./);
+  assert.match(internalText, /This is an internal/);
+  assert.match(internalText, /check for Ashfield Finishes, not sign-off by the main contractor\./);
+  assert.match(internalText, /not sign-off by the main contractor\./);
+  assert.match(internalText, /No snags are outstanding\./);
+  assert.match(internalText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
 });

@@ -21,6 +21,7 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/variations/[variationId]" options={{ title: 'Variation' }} />
       <Stack.Screen name="sites/[siteId]/snags/index" options={{ title: 'Snags' }} />
       <Stack.Screen name="sites/[siteId]/snags/new" options={{ title: 'Raise a snag' }} />
+      <Stack.Screen name="sites/[siteId]/snags/sign" options={{ title: 'Sign off snags put right' }} />
       <Stack.Screen name="sites/[siteId]/snags/[snagId]" options={{ title: 'Snag' }} />
       <Stack.Screen name="sites/[siteId]/attendance/index" options={{ title: 'Hours' }} />
       <Stack.Screen name="sites/[siteId]/attendance/week" options={{ title: 'Weekly hours' }} />
@@ -29,6 +30,9 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/upload" options={{ title: 'Upload' }} />
       <Stack.Screen name="sites/[siteId]/drawing/[drawingId]" options={{ title: 'Drawing' }} />
       <Stack.Screen name="sites/[siteId]/seen/[drawingId]" options={{ title: 'Who has seen this' }} />
+      <Stack.Screen name="sites/[siteId]/not-seen/index" options={{ title: 'Not seen yet' }} />
+      <Stack.Screen name="sites/[siteId]/not-seen/[personId]" options={{ title: 'Not seen yet' }} />
+      <Stack.Screen name="sites/[siteId]/new" options={{ title: 'New drawings' }} />
       <Stack.Screen name="sites/[siteId]/assignments" options={{ title: 'Assigned people' }} />
       <Stack.Screen name="sites/[siteId]/invite-code" options={{ title: 'Invite to site' }} />
       <Stack.Screen name="sites/[siteId]/joined" options={{ title: 'Who joined' }} />

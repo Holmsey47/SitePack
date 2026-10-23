@@ -7,7 +7,10 @@ import {
   buildRoster,
   buildSiteSummary,
   confirmSeen,
+  newDrawingsLine,
   newRevLabel,
+  notSeenPersonLine,
+  notSeenYetHeading,
   recordOpen,
   resolveSeenAt,
   seenButtonLabel,
@@ -68,6 +71,12 @@ test('labels name the sheet and the revision', () => {
   assert.equal(siteUnseenLine(0), null);
   assert.equal(siteUnseenLine(1), '1 drawing not seen by everyone');
   assert.equal(siteUnseenLine(2), '2 drawings not seen by everyone');
+  assert.equal(newDrawingsLine(0), null);
+  assert.equal(newDrawingsLine(1), '1 new drawing to check');
+  assert.equal(newDrawingsLine(5), '5 new drawings to check');
+  assert.equal(notSeenYetHeading(2), 'Not seen yet (2)');
+  assert.equal(notSeenPersonLine('Ben Torres', 6), 'Ben Torres: 6 sheets');
+  assert.equal(notSeenPersonLine('Ben Torres', 1), 'Ben Torres: 1 sheet');
 });
 
 test('replacing a revision resets the count and a removed person drops out of N', () => {
@@ -75,9 +84,9 @@ test('replacing a revision resets the count and a removed person drops out of N'
   const seen: ProofSeen[] = [];
   const revB = sheet('b', 'B', true);
   const people = [
-    { site_id: 'site', person_id: 'amy' },
-    { site_id: 'site', person_id: 'ben' },
-    { site_id: 'site', person_id: 'priya' },
+    { site_id: 'site', person_id: 'amy', role: 'operative' as const },
+    { site_id: 'site', person_id: 'ben', role: 'operative' as const },
+    { site_id: 'site', person_id: 'priya', role: 'cm' as const },
   ];
   const names = [
     { id: 'amy', display_name: 'Amy Keane' },
@@ -89,12 +98,17 @@ test('replacing a revision resets the count and a removed person drops out of N'
   recordOpen(opens, { drawing_id: 'b', site_id: 'site', person_id: 'ben', revision: 'B', opened_at: '2026-10-22T09:05:00.000Z' });
   confirmSeen(opens, seen, { drawing_id: 'b', site_id: 'site', person_id: 'amy', revision: 'B', seen_at: '2026-10-22T09:06:00.000Z' });
   confirmSeen(opens, seen, { drawing_id: 'b', site_id: 'site', person_id: 'ben', revision: 'B', seen_at: '2026-10-22T09:07:00.000Z' });
-  assert.equal(buildSiteSummary('site', [revB], people, seen).drawings[0]?.seen_count, 2);
-  assert.equal(buildSiteSummary('site', [revB], people, seen).assigned_count, 3);
+  const summary = buildSiteSummary('site', [revB], people, seen);
+  assert.equal(summary.drawings[0]?.seen_count, 2);
+  assert.equal(summary.assigned_count, 2);
+  const withManager = buildRoster(revB, people, names, seen);
+  assert.equal(withManager.unseen.some((person) => person.person_id === 'priya'), false);
+  assert.equal(withManager.seen.some((person) => person.person_id === 'priya'), false);
+  assert.equal(notSeenYetHeading(withManager.unseen.length), 'Not seen yet (0)');
 
   const stillAssigned = people.filter((row) => row.person_id !== 'ben');
   const afterRemoval = buildRoster({ ...revB, is_current: false }, stillAssigned, names, seen);
-  assert.equal(afterRemoval.assigned_count, 2);
+  assert.equal(afterRemoval.assigned_count, 1);
   assert.equal(afterRemoval.seen_count, 1);
   assert.equal(afterRemoval.seen[0]?.person_id, 'amy');
   assert.equal(seen.filter((row) => row.person_id === 'ben').length, 1);
@@ -104,7 +118,7 @@ test('replacing a revision resets the count and a removed person drops out of N'
   assert.equal(replaced.drawings.length, 1);
   assert.equal(replaced.drawings[0]?.drawing_id, 'c');
   assert.equal(replaced.drawings[0]?.seen_count, 0);
-  assert.equal(replaced.assigned_count, 2);
+  assert.equal(replaced.assigned_count, 1);
   assert.equal(replaced.not_seen_by_everyone, 1);
   assert.throws(
     () => confirmSeen(opens, seen, { drawing_id: 'c', site_id: 'site', person_id: 'amy', revision: 'C' }),
@@ -117,6 +131,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.gfRevC), /not_opened/);
   await assert.rejects(() => fixtureRepo.recordDrawingOpen(IDS.yard), /not_authorized/);
+  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.yard), /drawing_not_found/);
   await fixtureRepo.recordDrawingOpen(IDS.gfRevC);
   const tap = new Date().toISOString();
   const seen = await fixtureRepo.confirmDrawingSeen(IDS.gfRevC, tap);
@@ -132,7 +147,16 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
   const roster = await fixtureRepo.drawingSeenRoster(IDS.gfRevC);
   assert.equal(roster.seen_count, 1);
-  assert.equal(roster.assigned_count, 3);
+  assert.equal(roster.assigned_count, 2);
+  assert.equal(roster.unseen.some((person) => person.person_id === IDS.cm), false);
+  assert.equal(roster.seen.some((person) => person.display_name === 'Priya Shah'), false);
+  const notSeen = await fixtureRepo.siteNotSeen(IDS.oak);
+  assert.equal(notSeen.some((person) => person.person_id === IDS.cm), false);
+  assert.equal(notSeen.find((person) => person.display_name === 'Ben Torres')?.sheets.length, 6);
+  assert.equal(
+    notSeenPersonLine('Ben Torres', notSeen.find((person) => person.display_name === 'Ben Torres')?.sheets.length ?? 0),
+    'Ben Torres: 6 sheets'
+  );
   assert.equal(roster.seen[0]?.display_name, 'Amy Keane');
   assert.equal(roster.seen[0]?.seen_at, tap);
   assert.equal(
@@ -145,7 +169,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
 
   await fixtureRepo.removeAssignment('aaaaaaaa-0001-0000-0000-000000000002');
   const after = await fixtureRepo.drawingSeenRoster(IDS.gfRevC);
-  assert.equal(after.assigned_count, 2);
+  assert.equal(after.assigned_count, 1);
   assert.equal(after.seen_count, 0);
   assert.equal(after.seen.some((person) => person.person_id === IDS.amy), false);
 
@@ -162,7 +186,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   assert.equal(reset.drawings.find((row) => row.drawing_id === replaced.id)?.seen_count, 0);
   assert.equal(reset.drawings.some((row) => row.drawing_id === IDS.gfRevC), false);
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
-  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(replaced.id), /not_authorized|not_opened/);
+  await assert.rejects(() => fixtureRepo.confirmDrawingSeen(replaced.id), /drawing_not_found/);
 });
 
 test('the drawing seen migration does not touch storage or earlier files', () => {
@@ -194,6 +218,30 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.match(probe, /removed people drop out of N/);
   assert.match(probe, /firm Y cannot read firm X/);
   assert.match(probe, /operative of site B cannot read site A/);
+  assert.match(probe, /an outsider gets drawing_not_found for a drawing that exists/);
+  assert.match(probe, /anon cannot call drawing seen functions/);
+  assert.match(probe, /the count is operatives only and a contracts manager does not count/);
+  assert.match(probe, /not seen yet lists operatives only/);
+  assert.match(sql, /revoke all on function public\.confirm_drawing_seen\(uuid, timestamptz\) from public, anon;/);
+  assert.match(sql, /revoke all on function public\.site_not_seen\(uuid\) from public, anon;/);
+  assert.match(sql, /p\.role = 'operative'/);
+  const stub = fs.readFileSync('scripts/anon-default-grants.sql', 'utf8');
+  assert.match(stub, /grant all on functions to anon, authenticated, service_role/);
+  const who = fs.readFileSync('app/(app)/sites/[siteId]/seen/[drawingId].tsx', 'utf8');
+  assert.ok(who.indexOf('notSeenYetHeading') < who.indexOf('roster.seen.map'));
+  const home = fs.readFileSync('app/(app)/sites/index.tsx', 'utf8');
+  assert.match(home, /newDrawingsLine/);
+  assert.doesNotMatch(home, /NewRevBadge/);
+  assert.match(home, /GlanceRow/);
+  const offline = fs.readFileSync('lib/variationQueue.ts', 'utf8');
+  assert.match(offline, /__DEV__ && process\.env\.EXPO_PUBLIC_USE_FIXTURES === '1'/);
+  assert.match(offline, /sitepack\.dev\.forceOffline/);
+  const bundleCheck = fs.readFileSync('scripts/check-prod-bundle.mjs', 'utf8');
+  assert.match(bundleCheck, /sitepack\.dev\.forceOffline/);
+  assert.match(
+    sql,
+    /if not found or not private\.can_access_site\(v_drawing\.site_id\) then\s+raise exception 'drawing_not_found'/
+  );
   const runner = fs.readFileSync('scripts/run-drawing-seen-rls.sh', 'utf8');
   assert.match(runner, /supabase\.co/);
   assert.match(runner, /alter table storage\.objects enable row level security/);

@@ -1,7 +1,20 @@
 import { newId } from '@/data/newId';
 import type { Role } from '@/data/types';
-import type { CreateSnagInput, SnagDetail, SnagList, SnagPhoto, SnagPhotoInput, SnagStatus, SnagSummary } from '@/data/snags';
+import type {
+  CreateSnagInput,
+  SignOffSnagsInput,
+  SnagDetail,
+  SnagList,
+  SnagPhoto,
+  SnagPhotoInput,
+  SnagSignoff,
+  SnagSignoffKind,
+  SnagSnapshot,
+  SnagStatus,
+  SnagSummary,
+} from '@/data/snags';
 import { snagRoleLabel } from '@/data/snags';
+import { snagConfirmation } from '@/lib/snagWording';
 import { snagJpegDataUrl, type SnagJpegName } from '@/lib/snagJpegFixtures';
 import { strokesToPngDataUrl } from '@/lib/signaturePng';
 
@@ -42,14 +55,33 @@ type PhotoRow = {
 
 type SignatureRow = {
   snag_id: string;
+  signoff_id: string;
   site_id: string;
-  kind: 'manager' | 'contractor';
+  kind: SnagSignoffKind;
   signer_name: string;
   signer_role: string;
   signer_company: string;
+  confirmation_text: string;
   signature_png: string | null;
   signed_at: string;
   signed_received_at: string;
+  recorded_by: string;
+};
+
+type SignoffRow = {
+  id: string;
+  site_id: string;
+  company_id: string;
+  kind: SnagSignoffKind;
+  signer_name: string;
+  signer_role: string;
+  signer_company: string;
+  confirmation_text: string;
+  signature_png: string | null;
+  signed_at: string;
+  signed_received_at: string;
+  covered: SnagSnapshot[];
+  outstanding: SnagSnapshot[];
   recorded_by: string;
 };
 
@@ -57,6 +89,7 @@ export type FixtureSnagBucket = {
   snags: SnagRow[];
   photos: PhotoRow[];
   signatures: SignatureRow[];
+  signoffs: SignoffRow[];
   blobs: Record<string, string>;
   seq: Record<string, number>;
 };
@@ -87,10 +120,17 @@ function assertPhotos(photos: SnagPhotoInput[]) {
 }
 
 function assertPaths(photos: SnagPhotoInput[], companyId: string, siteId: string) {
-  const prefix = `${companyId}/${siteId}/`;
+  const prefix = `${companyId}/${siteId}/snags/`;
   for (const photo of photos) {
     const path = photo.storagePath.trim();
-    if (!path.startsWith(prefix) || path.includes('..') || path.includes('//') || /\s/.test(path)) {
+    if (
+      path.startsWith('/') ||
+      !path.startsWith(prefix) ||
+      path.includes('..') ||
+      path.includes('\\') ||
+      path.includes('//') ||
+      /\s/.test(path)
+    ) {
       throw new Error('invalid_path');
     }
   }
@@ -158,9 +198,11 @@ function toDetail(bucket: FixtureSnagBucket, row: SnagRow): SnagDetail {
           signer_name: signature.signer_name,
           signer_role: signature.signer_role,
           signer_company: signature.signer_company,
+          confirmation_text: signature.confirmation_text,
           signature_png: signature.signature_png,
           signed_at: signature.signed_at,
           signed_received_at: signature.signed_received_at,
+          signoff_id: signature.signoff_id,
         }
       : null,
   };
@@ -182,7 +224,7 @@ function takePhotos(bucket: FixtureSnagBucket, snagId: string, siteId: string, k
 }
 
 export function seedFixtureSnags(input: { companyId: string; oakId: string; warehouseId: string; amyId: string; benId: string; cmId: string }): FixtureSnagBucket {
-  const bucket: FixtureSnagBucket = { snags: [], photos: [], signatures: [], blobs: {}, seq: {} };
+  const bucket: FixtureSnagBucket = { snags: [], photos: [], signatures: [], signoffs: [], blobs: {}, seq: {} };
   const signature = strokesToPngDataUrl([
     [
       { x: 16, y: 90 },
@@ -205,7 +247,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
     raisedByName: string;
     before: SnagJpegName;
     after?: SnagJpegName;
-    signature?: { kind: 'manager' | 'contractor'; name: string; role: string; company: string; png: string | null };
+    signature?: { kind: SnagSignoffKind; name: string; role: string; company: string; png: string | null };
   }) {
     const seq = (bucket.seq[row.siteId] ?? 0) + 1;
     bucket.seq[row.siteId] = seq;
@@ -255,13 +297,43 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
       });
     }
     if (row.signature) {
+      const signoffId = newId();
+      const confirmation = snagConfirmation(row.signature.company, row.signature.kind);
+      const photoPaths = bucket.photos.filter((photo) => photo.snag_id === id).map((photo) => photo.storage_path);
+      bucket.signoffs.push({
+        id: signoffId,
+        site_id: row.siteId,
+        company_id: input.companyId,
+        kind: row.signature.kind,
+        signer_name: row.signature.name,
+        signer_role: row.signature.role,
+        signer_company: row.signature.company,
+        confirmation_text: confirmation,
+        signature_png: row.signature.png,
+        signed_at: signed,
+        signed_received_at: '2026-10-22T13:05:30.000Z',
+        covered: [
+          {
+            snag_id: id,
+            snag_seq: seq,
+            note: row.note,
+            level_area: row.level,
+            status: 'Fixed',
+            photo_paths: photoPaths,
+          },
+        ],
+        outstanding: [],
+        recorded_by: input.cmId,
+      });
       bucket.signatures.push({
         snag_id: id,
+        signoff_id: signoffId,
         site_id: row.siteId,
         kind: row.signature.kind,
         signer_name: row.signature.name,
         signer_role: row.signature.role,
         signer_company: row.signature.company,
+        confirmation_text: confirmation,
         signature_png: row.signature.png,
         signed_at: signed,
         signed_received_at: '2026-10-22T13:05:30.000Z',
@@ -286,7 +358,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
       name: 'Amy Keane',
       before: 'beforeWide' as const,
       after: 'afterWide' as const,
-      signature: { kind: 'manager' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
+      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
     },
     {
       note: 'Stain on the ceiling',
@@ -308,7 +380,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
       name: 'Ben Torres',
       before: 'bars' as const,
       after: 'afterWide' as const,
-      signature: { kind: 'manager' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
+      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
     },
     { note: 'Tidy the offcuts by the stairs', level: 'Second', trade: 'labourer', status: 'Open' as const, who: input.benId, name: 'Ben Torres', before: 'bars' as const },
   ];
@@ -398,6 +470,14 @@ export function fixtureCreateSnag(
   canAccess: boolean
 ): { snagId: string; snagSeq: number } {
   requireSite(actor, siteCompanyId, canAccess);
+  if (!input.snagId) throw new Error('invalid_input');
+  const existing = bucket.snags.find((snag) => snag.id === input.snagId);
+  if (existing) {
+    if (existing.site_id === input.siteId && existing.company_id === actor.company_id) {
+      return { snagId: existing.id, snagSeq: existing.snag_seq };
+    }
+    throw new Error('not_authorized');
+  }
   const note = textField(input.note, 2000, true);
   const level = textField(input.levelArea, 80, false);
   const trade = textField(input.tradeLabel, 80, true);
@@ -408,7 +488,7 @@ export function fixtureCreateSnag(
   const received = new Date().toISOString();
   const snagSeq = (bucket.seq[input.siteId] ?? 0) + 1;
   bucket.seq[input.siteId] = snagSeq;
-  const id = newId();
+  const id = input.snagId;
   bucket.snags.push({
     id,
     site_id: input.siteId,
@@ -453,63 +533,118 @@ export function fixtureFixSnag(
   row.fixed_received_at = new Date().toISOString();
 }
 
-export function fixtureSignOffManager(
-  bucket: FixtureSnagBucket,
-  actor: Actor,
-  snagId: string,
-  signedAtIso: string,
-  companyName: string,
-  canAccessSite: (siteId: string) => boolean
-) {
-  const row = rowOrThrow(bucket, snagId);
-  if (row.company_id !== actor.company_id || !canAccessSite(row.site_id)) throw new Error('not_authorized');
-  if (actor.role !== 'owner' && actor.role !== 'cm') throw new Error('not_authorized');
-  if (row.status !== 'Fixed') throw new Error('snag_locked');
-  const signedAt = deviceTime(signedAtIso);
-  bucket.signatures.push({
+function snapshot(bucket: FixtureSnagBucket, row: SnagRow, status: SnagStatus): SnagSnapshot {
+  return {
     snag_id: row.id,
-    site_id: row.site_id,
-    kind: 'manager',
-    signer_name: actor.display_name.trim() || 'Someone on site',
-    signer_role: snagRoleLabel(actor.role),
-    signer_company: companyName.trim(),
-    signature_png: null,
-    signed_at: signedAt,
-    signed_received_at: new Date().toISOString(),
-    recorded_by: actor.id,
-  });
-  row.status = 'Signed off';
+    snag_seq: row.snag_seq,
+    note: row.note,
+    level_area: row.level_area,
+    status,
+    photo_paths: bucket.photos.filter((photo) => photo.snag_id === row.id).map((photo) => photo.storage_path),
+  };
 }
 
-export function fixtureSignOffContractor(
+function toSignoff(row: SignoffRow): SnagSignoff {
+  return {
+    signoff_id: row.id,
+    site_id: row.site_id,
+    kind: row.kind,
+    signer_name: row.signer_name,
+    signer_role: row.signer_role,
+    signer_company: row.signer_company,
+    confirmation_text: row.confirmation_text,
+    signature_png: row.signature_png,
+    signed_at: row.signed_at,
+    signed_received_at: row.signed_received_at,
+    covered: row.covered.map((item) => ({ ...item, photo_paths: item.photo_paths ? [...item.photo_paths] : undefined })),
+    outstanding: row.outstanding.map((item) => ({ ...item })),
+  };
+}
+
+export function fixtureSignOffSnags(
   bucket: FixtureSnagBucket,
   actor: Actor,
-  snagId: string,
-  signedAtIso: string,
-  input: { signerName: string; signerRole: string; signerCompany: string; signaturePng: string },
-  canAccessSite: (siteId: string) => boolean
-) {
-  const row = rowOrThrow(bucket, snagId);
-  if (row.company_id !== actor.company_id || !canAccessSite(row.site_id)) throw new Error('not_authorized');
-  if (row.status !== 'Fixed') throw new Error('snag_locked');
-  const name = textField(input.signerName, 120, true);
-  const role = textField(input.signerRole, 80, true);
-  const company = textField(input.signerCompany, 120, true);
-  if (!name || !role || !company || !input.signaturePng.startsWith('data:image/png;base64,')) throw new Error('invalid_input');
-  const signedAt = deviceTime(signedAtIso);
-  bucket.signatures.push({
+  input: SignOffSnagsInput,
+  kind: SnagSignoffKind,
+  canAccessSite: (siteId: string) => boolean,
+  siteCompany: (siteId: string) => string | undefined
+): SnagSignoff {
+  requireSite(actor, siteCompany(input.siteId), canAccessSite(input.siteId));
+  const existing = bucket.signoffs.find((row) => row.id === input.signoffId);
+  if (existing) {
+    if (existing.site_id === input.siteId && existing.company_id === actor.company_id && existing.kind === kind) {
+      return toSignoff(existing);
+    }
+    throw new Error('not_authorized');
+  }
+  if (kind === 'internal' && actor.role !== 'owner' && actor.role !== 'cm') throw new Error('not_authorized');
+  const company = textField(input.company, 120, true);
+  if (!company) throw new Error('invalid_input');
+  let signerName = actor.display_name.trim() || 'Someone on site';
+  let signerRole = snagRoleLabel(actor.role);
+  let png: string | null = null;
+  if (kind === 'contractor') {
+    const name = textField(input.signerName, 120, true);
+    const role = textField(input.signerRole, 80, true);
+    if (!name || !role || !input.signaturePng?.startsWith('data:image/png;base64,')) throw new Error('invalid_input');
+    signerName = name;
+    signerRole = role;
+    png = input.signaturePng;
+  }
+  const fixed = bucket.snags.filter((row) => row.site_id === input.siteId && row.company_id === actor.company_id && row.status === 'Fixed');
+  if (fixed.length < 1) throw new Error('closed');
+  const open = bucket.snags.filter((row) => row.site_id === input.siteId && row.company_id === actor.company_id && row.status === 'Open');
+  const signedAt = deviceTime(input.signedAt);
+  const received = new Date().toISOString();
+  const confirmation = snagConfirmation(company, kind);
+  const covered = fixed.map((row) => snapshot(bucket, row, 'Fixed'));
+  const outstanding = open.map((row) => ({
     snag_id: row.id,
-    site_id: row.site_id,
-    kind: 'contractor',
-    signer_name: name,
-    signer_role: role,
+    snag_seq: row.snag_seq,
+    note: row.note,
+    level_area: row.level_area,
+  }));
+  const record: SignoffRow = {
+    id: input.signoffId,
+    site_id: input.siteId,
+    company_id: actor.company_id,
+    kind,
+    signer_name: signerName,
+    signer_role: signerRole,
     signer_company: company,
-    signature_png: input.signaturePng,
+    confirmation_text: confirmation,
+    signature_png: png,
     signed_at: signedAt,
-    signed_received_at: new Date().toISOString(),
+    signed_received_at: received,
+    covered,
+    outstanding,
     recorded_by: actor.id,
-  });
-  row.status = 'Signed off';
+  };
+  bucket.signoffs.push(record);
+  for (const row of fixed) {
+    bucket.signatures.push({
+      snag_id: row.id,
+      signoff_id: input.signoffId,
+      site_id: row.site_id,
+      kind,
+      signer_name: signerName,
+      signer_role: signerRole,
+      signer_company: company,
+      confirmation_text: confirmation,
+      signature_png: png,
+      signed_at: signedAt,
+      signed_received_at: received,
+      recorded_by: actor.id,
+    });
+    row.status = 'Signed off';
+  }
+  return toSignoff(record);
+}
+
+export function fixtureEditSignoff(bucket: FixtureSnagBucket, signoffId: string) {
+  const row = bucket.signoffs.find((item) => item.id === signoffId);
+  if (!row) throw new Error('not_authorized');
+  throw new Error('closed');
 }
 
 export function fixtureSnagTrades(
