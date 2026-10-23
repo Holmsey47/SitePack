@@ -7,6 +7,7 @@ import {
   clientNowIso,
   clockGap,
   forgottenClose,
+  stripControlChars,
   graceCouldOwn,
   isMondayKey,
   LATE_SIGN_OUT_REASON,
@@ -164,7 +165,11 @@ export function fixtureSignIn(
   const open = bucket.rows.find((row) => row.person_id === actor.id && !row.out_at);
   if (open) {
     const detail = siteNameOf(open.site_id);
-    throw new SnagRequestError(detail ? { kind: 'business', code: 'already_signed_in', detail } : { kind: 'business', code: 'already_signed_in' });
+    throw new SnagRequestError(
+      detail
+        ? { kind: 'business', code: 'already_signed_in', detail, hint: open.site_id }
+        : { kind: 'business', code: 'already_signed_in', hint: open.site_id }
+    );
   }
   const row: Row = {
     id: newId(),
@@ -357,7 +362,7 @@ export function fixtureCorrect(
   nowIso = clientNowIso()
 ): AttendanceEntry {
   if (!manager(actor)) throw new Error('not_authorized');
-  const trimmed = reason.trim();
+  const trimmed = stripControlChars(reason).trim();
   if (trimmed.length < 1 || trimmed.length > 500) throw new Error('invalid_input');
   const start = new Date(inAt).getTime();
   const end = new Date(outAt).getTime();

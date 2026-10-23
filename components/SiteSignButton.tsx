@@ -2,13 +2,15 @@ import { SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { MySiteAttendance } from '@/data/attendance';
-import { attendanceError } from '@/data/attendance';
-import { clientNowIso, LATE_SIGN_OUT_NOTICE } from '@/lib/attendanceHours';
+import { attendanceError, signOutThenSignIn } from '@/data/attendance';
+import { clientNowIso, forgotYesterday, LATE_SIGN_OUT_NOTICE, LATE_SIGN_OUT_REASON } from '@/lib/attendanceHours';
 import { formatUkDateTime } from '@/lib/format';
 import {
   flushAttendanceQueue,
+  forgotSeenIds,
   getAttendanceQueue,
   lateSignOutNotice,
+  markForgotSeen,
   noticesForUser,
   pendingTapsForUser,
   persistThenSendAttendance,
@@ -21,7 +23,7 @@ import {
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 async function sendTap(item: QueuedTap) {
@@ -39,11 +41,14 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
   const { person } = useAuth();
   const router = useRouter();
   const userId = person?.auth_user_id ?? '';
+  const ownerId = person?.id ?? '';
   const [server, setServer] = useState<MySiteAttendance | null>(null);
   const [queued, setQueued] = useState<QueuedTap[]>([]);
   const [notices, setNotices] = useState<AttendanceNotice[]>([]);
+  const [yesterday, setYesterday] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const live = useRef(true);
 
   const load = useCallback(async () => {
     if (!siteId || !userId) return;
@@ -56,16 +61,42 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
     setQueued(pending);
     setNotices(notes);
     try {
+      const mine = await repo.listMyAttendance(siteId);
+      const found = forgotYesterday(
+        mine.map((entry) => ({
+          entryId: entry.entry_id,
+          personId: entry.person_id,
+          inAt: entry.in_at,
+          forgot: entry.forgot_sign_out,
+          corrected: (entry.audit ?? []).some((row) => row.reason !== LATE_SIGN_OUT_REASON),
+        })),
+        clientNowIso(),
+        ownerId,
+        forgotSeenIds(userId)
+      );
+      if (found && live.current) {
+        markForgotSeen(userId, found.entryId);
+        setYesterday(found.message);
+      }
+    } catch {
+      // The sign-in button still works if yesterday's list cannot be read.
+    }
+    try {
       setServer(await repo.mySiteAttendance(siteId));
       setError('');
     } catch (err) {
       setError(attendanceError(err));
     }
-  }, [siteId, userId]);
+  }, [ownerId, siteId, userId]);
 
   useFocusEffect(
     useCallback(() => {
+      live.current = true;
       load().catch(() => setError('Could not load sign-in.'));
+      return () => {
+        live.current = false;
+        setYesterday(null);
+      };
     }, [load])
   );
 
@@ -98,22 +129,77 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
     }
   }
 
+  async function switchSite(notice: AttendanceNotice) {
+    if (busy || !notice.openSiteId) return;
+    setBusy(true);
+    setError('');
+    const deviceAt = clientNowIso();
+    try {
+      await signOutThenSignIn(
+        notice.openSiteId,
+        siteId,
+        deviceAt,
+        (id, at) => repo.signOutSite(id, at),
+        (id, at) => repo.signInSite(id, at)
+      );
+      await getAttendanceQueue().dismissNotice(notice.id);
+    } catch (err) {
+      const stillThere = await repo
+        .mySiteAttendance(notice.openSiteId)
+        .then((row) => row.state === 'in')
+        .catch(() => true);
+      if (!stillThere) await getAttendanceQueue().dismissNotice(notice.id);
+      setError(attendanceError(err));
+    } finally {
+      setBusy(false);
+      await load().catch(() => undefined);
+    }
+  }
+
   return (
     <View style={{ gap: 8 }}>
       <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>
         {shown === 'in' ? 'You are signed in' : 'You are signed out'}
       </Text>
       {since ? <Text style={{ color: theme.muted, fontSize: 16 }}>Signed in since {formatUkDateTime(since)}</Text> : null}
+      {yesterday ? (
+        <Text accessibilityRole="text" style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+          {yesterday}
+        </Text>
+      ) : null}
       {notices.map((notice) => (
-        <SeenRejectNotice
-          key={notice.id}
-          message={notice.message}
-          onDismiss={() => {
-            void getAttendanceQueue()
-              .dismissNotice(notice.id)
-              .then(() => setNotices((current) => current.filter((item) => item.id !== notice.id)));
-          }}
-        />
+        <View key={notice.id} style={{ gap: 8 }}>
+          <SeenRejectNotice
+            message={notice.message}
+            onDismiss={() => {
+              void getAttendanceQueue()
+                .dismissNotice(notice.id)
+                .then(() => setNotices((current) => current.filter((item) => item.id !== notice.id)));
+            }}
+          />
+          {notice.openSiteId && notice.openSiteName ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Sign out of ${notice.openSiteName} and sign in here`}
+              disabled={busy}
+              onPress={() => void switchSite(notice)}
+              style={{
+                minHeight: 48,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.surface,
+                borderWidth: 1,
+                borderColor: theme.current,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+              }}>
+              <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
+                {`Sign out of ${notice.openSiteName} and sign in here`}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
       ))}
       {queued.some((item) => item.needsSignIn) ? (
         <Pressable

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { SnagRequestError } from './snagFailure.ts';
-import { attendanceError, hourSpans } from './attendance.ts';
+import { attendanceError, hourSpans, shiftCard, signOutThenSignIn } from './attendance.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import {
@@ -105,6 +105,11 @@ test('a correction then a fresh load shows the new total in the sheet and the CS
   const afterRows = buildWeekSheet(hourSpans(after?.entries ?? []), week, '2026-10-22T12:00:00.000Z');
   assert.equal(afterRows[0]?.total, '9h 30m');
   assert.match(weekCsv(afterRows, 'Plot 12 – Oak Estate', week), /9h 30m,9\.50/);
+  const card = shiftCard(after?.entries[0] ?? entry);
+  assert.equal(card.correction, 'Corrected by Jordan Hale: was signed out');
+  assert.equal(card.reason, 'Left at half four');
+  assert.equal(card.flags.includes('Not signed out'), false);
+  assert.equal(card.flags.includes('Corrected'), false);
   delete clock.__SITEPACK_NOW;
 
   const screen = fs.readFileSync('app/(app)/sites/[siteId]/attendance/week.tsx', 'utf8');
@@ -112,7 +117,19 @@ test('a correction then a fresh load shows the new total in the sheet and the CS
   assert.match(screen, /const fresh = await load\(\)/);
   assert.match(screen, /weekCsv\(fresh\.rows/);
   assert.match(screen, /rows: fresh\.rows/);
+  assert.match(screen, /row\.dayLines/);
+  assert.match(screen, /row\.totalLine/);
+  assert.match(screen, /shiftCard\(entry\)/);
+  assert.equal(screen.includes('WEEK_DAYS.map'), false);
   assert.equal(screen.includes('useEffect('), false);
+  const entryScreen = fs.readFileSync('app/(app)/sites/[siteId]/attendance/[entryId].tsx', 'utf8');
+  assert.match(entryScreen, /card\.correction/);
+  assert.match(entryScreen, /card\.reason/);
+  const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
+  assert.match(button, /forgotYesterday\(/);
+  assert.match(button, /markForgotSeen\(/);
+  assert.match(button, /signOutThenSignIn\(/);
+  assert.match(button, /Sign out of \$\{notice\.openSiteName\} and sign in here/);
 });
 
 test('a day shift closes before 06:00 and a late sign-out is not labelled Corrected', async () => {
@@ -271,7 +288,92 @@ test('already signed in names the site he is still on', async () => {
     assert.equal(err.failure.kind, 'business');
     assert.equal(err.failure.kind === 'business' ? err.failure.code : '', 'already_signed_in');
     assert.equal(err.failure.kind === 'business' ? err.failure.detail : '', 'Plot 12 – Oak Estate');
+    assert.equal(err.failure.kind === 'business' ? err.failure.hint : '', IDS.oak);
     assert.equal(attendanceError(err), 'You are still signed in at Plot 12 – Oak Estate.');
     return true;
   });
+});
+
+test('sign out of the open site and sign in here follows the normal close rules', async () => {
+  resetFixtureStore();
+  process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const pin = (iso: string) => {
+    clock.__SITEPACK_NOW = iso;
+    return iso;
+  };
+  const signOut = (siteId: string, at: string) => fixtureRepo.signOutSite(siteId, at);
+  const signIn = (siteId: string, at: string) => fixtureRepo.signInSite(siteId, at);
+
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const now = pin(londonWallIso('2026-10-21', 9, 0));
+  await fixtureRepo.signInSite(IDS.oak, now);
+  await signOutThenSignIn(IDS.oak, IDS.riverside, now, signOut, signIn);
+  const oak = await fixtureRepo.listMyAttendance(IDS.oak);
+  assert.equal(oak[0]?.out_at, now);
+  assert.equal(oak[0]?.forgot_sign_out, false);
+  assert.equal(oak[0]?.late_sign_out, false);
+  assert.equal((await fixtureRepo.mySiteAttendance(IDS.riverside)).state, 'in');
+  await fixtureRepo.signOutSite(IDS.riverside, now);
+  await fixtureRepo.signOut();
+
+  resetFixtureStore();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 22, 0)));
+  const early = pin(londonWallIso('2026-10-21', 5, 30));
+  await signOutThenSignIn(IDS.oak, IDS.riverside, early, signOut, signIn);
+  const held = (await fixtureRepo.listMyAttendance(IDS.oak))[0];
+  assert.equal(held?.out_at, early);
+  assert.equal(held?.forgot_sign_out, false);
+  assert.equal(held?.late_sign_out, false);
+  assert.equal((await fixtureRepo.mySiteAttendance(IDS.riverside)).state, 'in');
+  await fixtureRepo.signOut();
+
+  resetFixtureStore();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 22, 0)));
+  const seven = pin(londonWallIso('2026-10-21', 7, 0));
+  await signOutThenSignIn(IDS.oak, IDS.riverside, seven, signOut, signIn);
+  const forgotten = (await fixtureRepo.listMyAttendance(IDS.oak))[0];
+  assert.equal(forgotten?.forgot_sign_out, true);
+  assert.equal(forgotten?.late_sign_out, true);
+  assert.equal(forgotten?.out_at, londonWallIso('2026-10-20', 23, 59));
+  assert.equal(forgotten?.late_out_at, seven);
+  assert.equal((await fixtureRepo.mySiteAttendance(IDS.riverside)).state, 'in');
+  delete clock.__SITEPACK_NOW;
+});
+
+test('a correction reason drops control characters and an empty one is refused', async () => {
+  resetFixtureStore();
+  process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const start = londonWallIso('2026-10-21', 8, 0);
+  clock.__SITEPACK_NOW = start;
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const created = await fixtureRepo.signInSite(IDS.oak, start);
+  await fixtureRepo.signOutSite(IDS.oak, londonWallIso('2026-10-21', 12, 0));
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const kept = await fixtureRepo.correctAttendance(
+    created.entry_id,
+    start,
+    londonWallIso('2026-10-21', 16, 0),
+    'Left\nat four'
+  );
+  assert.equal(kept.audit?.[0]?.reason, 'Leftat four');
+  assert.equal(shiftCard(kept).correction, 'Corrected by Jordan Hale: was signed out');
+  assert.equal(shiftCard(kept).reason, 'Leftat four');
+  const sheet = await fixtureRepo.weeklyAttendance(IDS.oak, '2026-10-19');
+  const [row] = buildWeekSheet(hourSpans(sheet?.entries ?? []), '2026-10-19', start);
+  assert.equal(row?.total, '8h 00m');
+  assert.match(weekCsv(row ? [row] : [], 'Oak', '2026-10-19'), /Jordan Hale,Leftat four/);
+  await assert.rejects(
+    () => fixtureRepo.correctAttendance(created.entry_id, start, londonWallIso('2026-10-21', 16, 0), '\n'),
+    /invalid_input/
+  );
+  await assert.rejects(
+    () => fixtureRepo.correctAttendance(created.entry_id, start, londonWallIso('2026-10-21', 16, 0), '\r\u007f'),
+    /invalid_input/
+  );
+  delete clock.__SITEPACK_NOW;
 });

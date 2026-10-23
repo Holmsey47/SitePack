@@ -1,5 +1,5 @@
 import { boldLatinFont, regularLatinFont } from '@/lib/attendanceFonts';
-import { preparedLine, weekRangeLabel, WEEK_DAYS, type WeekRow } from '@/lib/attendanceHours';
+import { preparedLine, weekRangeLabel, type WeekRow } from '@/lib/attendanceHours';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
@@ -114,29 +114,15 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
 
   if (input.rows.length === 0) await draw('No hours this week.', 12, 'regular');
 
-  const colW = CONTENT_W / 8;
-  async function drawColumns(cells: string[], size: number, weight: 'bold' | 'regular') {
-    ensure(size + 6);
-    for (const [index, cell] of cells.entries()) {
-      const text = pdfText(cell);
-      const face = await faceFor(text, weight);
-      page.drawText(text, {
-        x: MARGIN + index * colW,
-        y: y - size,
-        size,
-        font: face,
-        color: rgb(0.1, 0.1, 0.1),
-      });
-    }
-    y -= size + 6;
-  }
-
   for (const row of input.rows) {
     const flags = [...new Set(row.shifts.flatMap((shift) => shift.flags))];
-    ensure(18 + 16 + 16 + (flags.length > 0 ? 16 : 0) + 8);
     await draw(row.personName, 13, 'bold');
-    await drawColumns([...WEEK_DAYS, 'Total'], 9, 'bold');
-    await drawColumns([...row.days, row.total], 10, 'regular');
+    for (const line of row.dayLines) await draw(line, 11, 'regular');
+    await draw(row.totalLine, 12, 'bold');
+    for (const shift of row.shifts) {
+      if (shift.correction) await draw(shift.correction, 11, 'bold');
+      if (shift.reason) await draw(shift.reason, 11, 'regular');
+    }
     if (flags.length > 0) await draw(flags.join(' · '), 11, 'bold');
     y -= 6;
   }

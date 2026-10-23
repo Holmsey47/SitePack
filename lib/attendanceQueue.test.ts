@@ -5,14 +5,17 @@ import { createClient } from '@supabase/supabase-js';
 import { SnagRequestError, throwSnagRpc } from '../data/snagFailure.ts';
 import {
   adoptAttendanceOwner,
+  ATTENDANCE_FORGOT_SEEN_KEY,
   ATTENDANCE_NOTICE_KEY,
   ATTENDANCE_OWNER_KEY,
   ATTENDANCE_QUEUE_KEY,
   flushAttendanceQueue,
+  forgotSeenIds,
   ATTENDANCE_BACKOFF_MAX_MS,
   attendanceRetryDelayMs,
   isRetryableAttendanceFailure,
   lateSignOutNotice,
+  markForgotSeen,
   memoryAttendanceQueue,
   noticesForUser,
   pendingTapsForUser,
@@ -69,10 +72,12 @@ test('A queues, the wipe runs, and B flush makes zero calls', async () => {
   const queue = storageAttendanceQueue(box);
   await queue.put(tap('user-a'));
   assert.equal(box.getItem(ATTENDANCE_QUEUE_KEY)?.includes('user-a'), true);
+  box.setItem(ATTENDANCE_FORGOT_SEEN_KEY, JSON.stringify(['user-a:entry-1']));
   await wipeAttendanceQueue(queue);
   assert.equal(box.getItem(ATTENDANCE_QUEUE_KEY), null);
   assert.equal(box.getItem(ATTENDANCE_NOTICE_KEY), null);
   assert.equal(box.getItem(ATTENDANCE_OWNER_KEY), null);
+  assert.equal(box.getItem(ATTENDANCE_FORGOT_SEEN_KEY), null);
   let calls = 0;
   await flushAttendanceQueue(queue, 'user-b', async () => {
     calls += 1;
@@ -331,9 +336,11 @@ test('owner-change wipe removes the notices key, including when the owner was mi
   await queue.put(tap('user-a'));
   await queue.putNotice({ id: 'n-a', userId: 'user-a', siteId: 'site-a', message: 'Kept by mistake' });
   box.setItem(ATTENDANCE_OWNER_KEY, 'user-a');
+  box.setItem(ATTENDANCE_FORGOT_SEEN_KEY, JSON.stringify(['user-a:entry-1']));
   await adoptAttendanceOwner('user-b', queue, box);
   assert.equal(box.getItem(ATTENDANCE_NOTICE_KEY), null);
   assert.equal(box.getItem(ATTENDANCE_QUEUE_KEY), null);
+  assert.equal(box.getItem(ATTENDANCE_FORGOT_SEEN_KEY), null);
   assert.equal((await queue.listNotices()).length, 0);
   await queue.putNotice({ id: 'n-b', userId: 'user-b', siteId: 'site-a', message: 'No owner yet' });
   box.removeItem(ATTENDANCE_OWNER_KEY);
@@ -363,7 +370,15 @@ test('notice and pending-tap filters keep this user and drop a missing or differ
 test('a refused tap notice belongs to that tap and keeps its own id', async () => {
   const queue = memoryAttendanceQueue();
   const first = await rememberRefusedTap(queue, { ...tap('user-b'), localId: 'one' }, 'not_signed_in');
-  const second = await rememberRefusedTap(queue, { ...tap('user-a'), localId: 'two' }, 'already_signed_in');
+  const second = await rememberRefusedTap(
+    queue,
+    { ...tap('user-a'), localId: 'two' },
+    'already_signed_in',
+    'Plot 12 – Oak Estate',
+    '66666666-6666-6666-6666-666666666666'
+  );
+  assert.equal(second.openSiteName, 'Plot 12 – Oak Estate');
+  assert.equal(second.openSiteId, '66666666-6666-6666-6666-666666666666');
   assert.equal(first.userId, 'user-b');
   assert.equal(first.id, 'reject:one');
   assert.equal(second.userId, 'user-a');
@@ -371,6 +386,39 @@ test('a refused tap notice belongs to that tap and keeps its own id', async () =
   const notices = await queue.listNotices();
   assert.equal(notices.length, 2);
   assert.equal(new Set(notices.map((notice) => notice.id)).size, 2);
+  assert.equal(notices.find((notice) => notice.id === second.id)?.openSiteId, second.openSiteId);
+  assert.equal(notices.find((notice) => notice.id === second.id)?.openSiteName, second.openSiteName);
+});
+
+test('a refused sign-in keeps the open site so the switch button can call it', async () => {
+  const queue = memoryAttendanceQueue();
+  const result = await persistThenSendAttendance(tap('user-a'), true, async () => {
+    throw new SnagRequestError({
+      kind: 'business',
+      code: 'already_signed_in',
+      detail: 'Plot 12 – Oak Estate',
+      hint: '66666666-6666-6666-6666-666666666666',
+    });
+  }, queue);
+  assert.equal(result, 'refused');
+  const notice = (await queue.listNotices())[0];
+  assert.equal(notice?.openSiteId, '66666666-6666-6666-6666-666666666666');
+  assert.equal(notice?.openSiteName, 'Plot 12 – Oak Estate');
+  assert.match(notice?.message ?? '', /Plot 12 – Oak Estate/);
+});
+
+test('the next-morning notice is remembered per login and wiped with the queue', () => {
+  const box = storage();
+  markForgotSeen('user-a', 'entry-1', box);
+  markForgotSeen('user-b', 'entry-1', box);
+  assert.equal(forgotSeenIds('user-a', box).has('entry-1'), true);
+  assert.equal(forgotSeenIds('user-b', box).has('entry-1'), true);
+  assert.equal(forgotSeenIds('user-a', box).has('entry-2'), false);
+  const queue = storageAttendanceQueue(box);
+  return wipeAttendanceQueue(queue).then(() => {
+    assert.equal(box.getItem(ATTENDANCE_FORGOT_SEEN_KEY), null);
+    assert.equal(forgotSeenIds('user-a', box).size, 0);
+  });
 });
 
 test('another user already waiting on this site does not hold the tap', async () => {

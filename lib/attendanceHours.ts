@@ -34,16 +34,25 @@ export const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as co
 
 export type WeekShift = {
   flags: string[];
+  correction: string | null;
+  reason: string | null;
 };
 
 export type WeekRow = {
   personId: string;
   personName: string;
+  /** Counted hours, or a not-signed-out note. An empty day is blank. */
   days: string[];
+  /** Screen and PDF lines, only for days with counted hours or a shift to check. */
+  dayLines: string[];
   dayMs: number[];
   total: string;
+  totalLine: string;
+  checkCount: number;
   totalMs: number;
   shifts: WeekShift[];
+  correctedBy: string;
+  reasons: string;
 };
 
 export type HourSpan = {
@@ -55,7 +64,14 @@ export type HourSpan = {
   gap?: boolean;
   corrected?: boolean;
   late?: boolean;
+  correctedBy?: string;
+  reason?: string;
+  /** Original state, for example "was not signed out". */
+  prior?: string;
 };
+
+/** Shown once, the morning after, to the person who owns the shift. */
+export const FORGOT_YESTERDAY_NOTICE = "You didn't sign out yesterday. The office will check your hours.";
 
 function bag(date: Date, timeZone: string): Record<string, string> {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -206,6 +222,54 @@ export function decimalHours(ms: number): string {
   return (floorMinuteMs(ms) / 3600000).toFixed(2);
 }
 
+/** 8:00am in Europe/London. */
+export function londonTimeLabel(iso: string): string {
+  const part = bag(new Date(iso), LONDON);
+  let hour = Number(part.hour);
+  if (hour === 24) hour = 0;
+  const suffix = hour < 12 ? 'am' : 'pm';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${part.minute}${suffix}`;
+}
+
+export function stripControlChars(value: string): string {
+  return value.replace(/[\u0000-\u001F\u007F]/g, '');
+}
+
+export function priorPhrase(forgot: boolean, late: boolean): string {
+  if (late) return 'was a late sign-out';
+  if (forgot) return 'was not signed out';
+  return 'was signed out';
+}
+
+export function correctionSentence(name: string, prior: string): string {
+  return `Corrected by ${name}: ${prior}`;
+}
+
+export function totalLine(hours: string, checkCount: number): string {
+  if (checkCount <= 0) return `Total ${hours}`;
+  const noun = checkCount === 1 ? 'shift' : 'shifts';
+  return `Total ${hours} + ${checkCount} ${noun} to check`;
+}
+
+export function forgotYesterday(
+  entries: { entryId: string; personId: string; inAt: string; forgot: boolean; corrected: boolean }[],
+  nowIso: string,
+  personId: string,
+  seen: ReadonlySet<string>
+): { entryId: string; message: string } | null {
+  const yesterday = addDays(londonDateKey(nowIso), -1);
+  const hit = entries.find(
+    (entry) =>
+      entry.personId === personId &&
+      entry.forgot &&
+      !entry.corrected &&
+      !seen.has(entry.entryId) &&
+      londonDateKey(entry.inAt) === yesterday
+  );
+  return hit ? { entryId: hit.entryId, message: FORGOT_YESTERDAY_NOTICE } : null;
+}
+
 export function clientNowIso(): string {
   if (process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
     const pinned = (globalThis as { __SITEPACK_NOW?: string }).__SITEPACK_NOW;
@@ -249,9 +313,33 @@ function resolvedOut(span: HourSpan, nowIso: string): { outAt: string; forgot: b
   return { outAt: nowIso, forgot: false };
 }
 
+function weekdayName(dayKey: string): string {
+  const [year, month, day] = dayKey.split('-').map((value) => Number(value));
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const index = weekday === 0 ? 6 : weekday - 1;
+  return WEEK_DAYS[index] ?? '';
+}
+
+/** A corrected shift counts. An uncorrected not-signed-out shift does not. */
+export function describeShift(span: HourSpan, forgot: boolean): WeekShift & { counts: boolean } {
+  const correction =
+    span.corrected && span.correctedBy && span.prior ? correctionSentence(span.correctedBy, span.prior) : null;
+  const flags: string[] = [];
+  if (forgot && !correction) flags.push(FLAG_FORGOT);
+  if (span.gap) flags.push(FLAG_GAP);
+  if (span.late && !correction) flags.push(FLAG_LATE);
+  if (span.corrected && !correction) flags.push(FLAG_CORRECTED);
+  return {
+    flags,
+    correction,
+    reason: correction ? span.reason?.trim() || null : null,
+    counts: !(forgot && !span.corrected),
+  };
+}
+
 export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: string): WeekRow[] {
   const days = WEEK_DAYS.map((_, index) => addDays(weekStart, index));
-  const byPerson = new Map<string, WeekRow>();
+  const byPerson = new Map<string, WeekRow & { notes: string[][] }>();
   for (const span of spans) {
     const resolved = resolvedOut(span, nowIso);
     let row = byPerson.get(span.personId);
@@ -259,20 +347,32 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
       row = {
         personId: span.personId,
         personName: span.personName,
-        days: days.map(() => formatHours(0)),
+        days: days.map(() => ''),
+        dayLines: [],
         dayMs: days.map(() => 0),
         total: formatHours(0),
+        totalLine: totalLine(formatHours(0), 0),
+        checkCount: 0,
         totalMs: 0,
         shifts: [],
+        correctedBy: '',
+        reasons: '',
+        notes: days.map(() => []),
       };
       byPerson.set(span.personId, row);
     }
-    const flags: string[] = [];
-    if (resolved.forgot || span.forgot) flags.push(FLAG_FORGOT);
-    if (span.gap) flags.push(FLAG_GAP);
-    if (span.late) flags.push(FLAG_LATE);
-    if (span.corrected) flags.push(FLAG_CORRECTED);
-    row.shifts.push({ flags });
+    const described = describeShift(span, resolved.forgot || span.forgot);
+    row.shifts.push({ flags: described.flags, correction: described.correction, reason: described.reason });
+    if (described.correction && span.correctedBy) {
+      row.correctedBy = row.correctedBy ? `${row.correctedBy}; ${span.correctedBy}` : span.correctedBy;
+      if (described.reason) row.reasons = row.reasons ? `${row.reasons}; ${described.reason}` : described.reason;
+    }
+    if (!described.counts) {
+      row.checkCount += 1;
+      const index = days.indexOf(londonDateKey(span.inAt));
+      if (index >= 0) row.notes[index]?.push(`not signed out (in ${londonTimeLabel(span.inAt)})`);
+      continue;
+    }
     days.forEach((day, index) => {
       const ms = floorMinuteMs(hoursOnLondonDay(span.inAt, resolved.outAt, day));
       row.dayMs[index] = (row.dayMs[index] ?? 0) + ms;
@@ -281,11 +381,20 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
   const rows = [...byPerson.values()];
   for (const row of rows) {
     row.totalMs = row.dayMs.reduce((sum, ms) => sum + ms, 0);
-    row.days = row.dayMs.map((ms) => formatHours(ms));
     row.total = formatHours(row.totalMs);
+    row.totalLine = totalLine(row.total, row.checkCount);
+    row.dayLines = [];
+    row.days = days.map((day, index) => {
+      const name = weekdayName(day);
+      const hours = (row.dayMs[index] ?? 0) > 0 ? formatHours(row.dayMs[index] ?? 0) : '';
+      const notes = row.notes[index] ?? [];
+      if (hours) row.dayLines.push(`${name}: ${hours}`);
+      for (const note of notes) row.dayLines.push(`${name}: ${note}`);
+      return [hours, ...notes].filter(Boolean).join('; ');
+    });
   }
   rows.sort((a, b) => a.personName.localeCompare(b.personName, 'en-GB') || a.personId.localeCompare(b.personId));
-  return rows;
+  return rows.map(({ notes: _notes, ...row }) => row);
 }
 
 function csvCell(value: string): string {
@@ -305,10 +414,23 @@ function rowFlags(row: WeekRow): string {
   return seen.join('; ');
 }
 
+function csvDecimal(row: WeekRow): string {
+  if (row.totalMs === 0 && row.checkCount > 0) return '';
+  return decimalHours(row.totalMs);
+}
+
+function csvTotal(row: WeekRow): string {
+  if (row.checkCount <= 0) return row.total;
+  const noun = row.checkCount === 1 ? 'shift' : 'shifts';
+  return `${row.total} + ${row.checkCount} ${noun} to check`;
+}
+
 export function weekCsv(rows: WeekRow[], siteName: string, weekStart: string): string {
-  const header = ['Site', 'Week', 'Person', ...WEEK_DAYS, 'Total', 'Decimal hours', 'Flags'];
+  const header = ['Site', 'Week', 'Person', ...WEEK_DAYS, 'Total', 'Decimal hours', 'Flags', 'Corrected by', 'Reason'];
   const lines = rows.map((row) =>
-    [siteName, weekStart, row.personName, ...row.days, row.total, decimalHours(row.totalMs), rowFlags(row)].map(csvCell).join(',')
+    [siteName, weekStart, row.personName, ...row.days, csvTotal(row), csvDecimal(row), rowFlags(row), row.correctedBy, row.reasons]
+      .map(csvCell)
+      .join(',')
   );
   return [header.map(csvCell).join(','), ...lines].join('\n');
 }

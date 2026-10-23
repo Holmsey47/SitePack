@@ -10,7 +10,9 @@ import {
   FLAG_FORGOT,
   FLAG_GAP,
   FLAG_LATE,
+  FORGOT_YESTERDAY_NOTICE,
   forgottenClose,
+  forgotYesterday,
   formatHours,
   graceCouldOwn,
   graceHolds,
@@ -36,6 +38,9 @@ function span(partial: Partial<HourSpan> & Pick<HourSpan, 'inAt' | 'outAt'>): Ho
     gap: partial.gap ?? false,
     corrected: partial.corrected ?? false,
     late: partial.late ?? false,
+    correctedBy: partial.correctedBy,
+    reason: partial.reason,
+    prior: partial.prior,
     inAt: partial.inAt,
     outAt: partial.outAt,
   };
@@ -89,8 +94,12 @@ test('a forgotten sign-out closes at 23:59 Europe/London and a second pass stays
   assert.equal(closed?.outAt, '2026-10-20T22:59:00.000Z');
   assert.equal(forgottenClose(inAt, closed?.outAt ?? null, now), null);
   const [row] = buildWeekSheet([span({ inAt, outAt: null })], '2026-10-19', now);
-  assert.equal(row?.days[1], '2h 59m');
-  assert.equal(row?.total, formatHours(row?.totalMs ?? 0));
+  assert.equal(row?.days[1], 'not signed out (in 9:00pm)');
+  assert.equal(row?.dayLines[0], 'Tue: not signed out (in 9:00pm)');
+  assert.equal(row?.total, '0h 00m');
+  assert.equal(row?.totalMs, 0);
+  assert.equal(row?.totalLine, 'Total 0h 00m + 1 shift to check');
+  assert.equal(formatHours(row?.totalMs ?? 0), row?.total);
 });
 
 test('a day shift is closed at 05:30 and a 22:00 shift is still held', () => {
@@ -176,6 +185,9 @@ test('CSV totals match the sheet totals', () => {
         forgot: true,
         gap: true,
         corrected: true,
+        correctedBy: 'Jordan Hale',
+        reason: 'Closed at four',
+        prior: 'was not signed out',
       }),
     ],
     '2026-10-19',
@@ -195,7 +207,11 @@ test('CSV totals match the sheet totals', () => {
   assert.match(csv, /"Ben, Torres"/);
   assert.match(csv, /'@Oak/);
   assert.match(csv, /'=Lee/);
-  assert.match(csv, new RegExp(`${FLAG_FORGOT}; ${FLAG_GAP}; ${FLAG_CORRECTED}`));
+  assert.match(csv, /Corrected by,Reason/);
+  assert.match(csv, new RegExp(FLAG_GAP));
+  assert.equal(csv.includes(FLAG_FORGOT), false);
+  assert.equal(csv.includes(`,${FLAG_CORRECTED},`), false);
+  assert.match(csv, /Jordan Hale,Closed at four/);
   const guarded = weekCsv(
     buildWeekSheet(
       [span({ personId: 'lee', personName: '\t=cmd', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z', late: true })],
@@ -228,7 +244,119 @@ test('CSV totals match the sheet totals', () => {
   );
   assert.equal(newline.includes('"Ann\nBob"'), true);
   assert.match(guarded, new RegExp(FLAG_LATE));
-  assert.equal(guarded.includes(FLAG_CORRECTED), false);
+  assert.equal(guarded.includes(`,${FLAG_CORRECTED},`), false);
+  const quotedReason = weekCsv(
+    buildWeekSheet(
+      [
+        span({
+          personId: 'lee',
+          personName: 'Lee',
+          inAt: '2026-10-20T08:00:00.000Z',
+          outAt: '2026-10-20T16:00:00.000Z',
+          forgot: true,
+          corrected: true,
+          correctedBy: '\r=Boss',
+          reason: '=\rLeft\rnow',
+          prior: 'was a late sign-out',
+        }),
+      ],
+      '2026-10-19',
+      '2026-10-22T12:00:00.000Z'
+    ),
+    'Oak',
+    '2026-10-19'
+  );
+  assert.match(quotedReason, /"'\r=Boss"/);
+  assert.match(quotedReason, /"'=\rLeft\rnow"/);
+});
+
+test('an uncorrected not-signed-out shift stays out of the day, the week, and the CSV until it is corrected', () => {
+  const inAt = londonWallIso('2026-10-21', 8, 0);
+  const later = londonWallIso('2026-10-21', 9, 0);
+  const now = londonWallIso('2026-10-22', 9, 0);
+  const [open] = buildWeekSheet([span({ inAt, outAt: null })], '2026-10-19', now);
+  assert.equal(open?.dayLines.join('\n'), 'Wed: not signed out (in 8:00am)');
+  assert.equal(open?.days[2], 'not signed out (in 8:00am)');
+  assert.equal(open?.dayLines.includes('Mon: '), false);
+  assert.equal(open?.totalLine, 'Total 0h 00m + 1 shift to check');
+  assert.equal(open?.totalMs, 0);
+  const csv = weekCsv(open ? [open] : [], 'Oak', '2026-10-19');
+  assert.match(csv, /Site,Week,Person,Mon,Tue,Wed,Thu,Fri,Sat,Sun,Total,Decimal hours,Flags,Corrected by,Reason/);
+  assert.match(csv, /Amy Keane,,,not signed out \(in 8:00am\),,,,,0h 00m \+ 1 shift to check,,Not signed out,,/);
+  assert.equal(csv.includes('0.00'), false);
+  assert.equal(csv.includes('15h'), false);
+  const [pair] = buildWeekSheet(
+    [span({ inAt, outAt: null }), span({ inAt: later, outAt: null })],
+    '2026-10-19',
+    now
+  );
+  assert.equal(pair?.totalLine, 'Total 0h 00m + 2 shifts to check');
+  assert.match(weekCsv(pair ? [pair] : [], 'Oak', '2026-10-19'), /2 shifts to check,,Not signed out/);
+  const [fixed] = buildWeekSheet(
+    [
+      span({
+        inAt,
+        outAt: londonWallIso('2026-10-21', 16, 0),
+        forgot: true,
+        corrected: true,
+        correctedBy: 'Jordan Hale',
+        reason: 'Left at four',
+        prior: 'was not signed out',
+      }),
+    ],
+    '2026-10-19',
+    now
+  );
+  assert.equal(fixed?.dayLines[0], 'Wed: 8h 00m');
+  assert.equal(fixed?.total, '8h 00m');
+  assert.equal(fixed?.totalLine, 'Total 8h 00m');
+  assert.equal(fixed?.checkCount, 0);
+  assert.equal(fixed?.shifts[0]?.correction, 'Corrected by Jordan Hale: was not signed out');
+  assert.equal(fixed?.shifts[0]?.reason, 'Left at four');
+  assert.equal(fixed?.shifts[0]?.flags.includes(FLAG_FORGOT), false);
+  assert.equal(fixed?.shifts[0]?.flags.includes(FLAG_CORRECTED), false);
+  assert.match(weekCsv(fixed ? [fixed] : [], 'Oak', '2026-10-19'), /8h 00m,8\.00,,Jordan Hale,Left at four/);
+  const tinyOut = new Date(new Date(inAt).getTime() + 30_000).toISOString();
+  const [tiny] = buildWeekSheet([span({ inAt, outAt: tinyOut })], '2026-10-19', now);
+  assert.match(weekCsv(tiny ? [tiny] : [], 'Oak', '2026-10-19'), /0h 00m,0\.00/);
+});
+
+test('the next-morning notice is only for the owner of yesterday’s forgotten shift, and only once', () => {
+  const now = londonWallIso('2026-10-22', 9, 0);
+  const rows = [
+    {
+      entryId: 'e1',
+      personId: 'amy',
+      inAt: londonWallIso('2026-10-21', 8, 0),
+      forgot: true,
+      corrected: false,
+    },
+    {
+      entryId: 'e2',
+      personId: 'ben',
+      inAt: londonWallIso('2026-10-21', 8, 0),
+      forgot: true,
+      corrected: false,
+    },
+  ];
+  const hit = forgotYesterday(rows, now, 'amy', new Set());
+  assert.equal(hit?.entryId, 'e1');
+  assert.equal(hit?.message, FORGOT_YESTERDAY_NOTICE);
+  assert.equal(forgotYesterday(rows, now, 'ben', new Set())?.entryId, 'e2');
+  assert.equal(forgotYesterday(rows, now, 'chris', new Set()), null);
+  assert.equal(forgotYesterday(rows, now, 'amy', new Set(['e1'])), null);
+  assert.equal(
+    forgotYesterday([{ ...rows[0], corrected: true }], now, 'amy', new Set()),
+    null
+  );
+  assert.equal(
+    forgotYesterday([{ ...rows[0], forgot: false }], now, 'amy', new Set()),
+    null
+  );
+  assert.equal(
+    forgotYesterday([{ ...rows[0], inAt: londonWallIso('2026-10-22', 8, 0) }], now, 'amy', new Set()),
+    null
+  );
 });
 
 test('a clock gap is only more than 10 minutes', () => {

@@ -19,6 +19,7 @@ export function attendanceRetryDelayMs(attempts: number): number {
 export const ATTENDANCE_QUEUE_KEY = 'sitepack.attendance.queue';
 export const ATTENDANCE_NOTICE_KEY = 'sitepack.attendance.notices';
 export const ATTENDANCE_OWNER_KEY = 'sitepack.attendance.owner';
+export const ATTENDANCE_FORGOT_SEEN_KEY = 'sitepack.attendance.forgot-seen';
 
 export type QueuedTap = {
   localId: string;
@@ -36,6 +37,9 @@ export type AttendanceNotice = {
   userId: string;
   siteId: string;
   message: string;
+  /** Open site, when a sign-in was refused because they are still signed in there. */
+  openSiteId?: string;
+  openSiteName?: string;
 };
 
 export type AttendanceQueueStore = {
@@ -118,10 +122,49 @@ function queuedAgain(item: QueuedTap, err: unknown): QueuedTap {
   };
 }
 
-function failureOf(failure: SnagFailure): { code: string; detail?: string } {
-  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail };
+function failureOf(failure: SnagFailure): { code: string; detail?: string; hint?: string } {
+  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail, hint: failure.hint };
   if (failure.kind === 'http') return { code: String(failure.status) };
   return { code: failure.message };
+}
+
+const memoryForgotSeen = new Set<string>();
+
+function readForgotRaw(storage: MemoryStorage): string[] {
+  const raw = storage.getItem(ATTENDANCE_FORGOT_SEEN_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/** Entry ids this login has already been shown the next-morning notice for. */
+export function forgotSeenIds(userId: string, storage: MemoryStorage | null = browserStorage()): Set<string> {
+  if (!userId) return new Set();
+  const prefix = `${userId}:`;
+  const raw = storage ? readForgotRaw(storage) : [...memoryForgotSeen];
+  return new Set(raw.filter((item) => item.startsWith(prefix)).map((item) => item.slice(prefix.length)));
+}
+
+export function markForgotSeen(userId: string, entryId: string, storage: MemoryStorage | null = browserStorage()) {
+  if (!userId || !entryId) return;
+  const id = `${userId}:${entryId}`;
+  if (!storage) {
+    memoryForgotSeen.add(id);
+    return;
+  }
+  const next = readForgotRaw(storage);
+  if (!next.includes(id)) next.push(id);
+  storage.setItem(ATTENDANCE_FORGOT_SEEN_KEY, JSON.stringify(next));
+}
+
+function clearForgotSeen(storage: MemoryStorage | null) {
+  memoryForgotSeen.clear();
+  storage?.removeItem(ATTENDANCE_FORGOT_SEEN_KEY);
 }
 
 function shiftKey(item: QueuedTap): string {
@@ -154,8 +197,22 @@ function isNotice(value: unknown): value is AttendanceNotice {
     typeof notice.id === 'string' &&
     typeof notice.userId === 'string' &&
     typeof notice.siteId === 'string' &&
-    typeof notice.message === 'string'
+    typeof notice.message === 'string' &&
+    (notice.openSiteId == null || typeof notice.openSiteId === 'string') &&
+    (notice.openSiteName == null || typeof notice.openSiteName === 'string')
   );
+}
+
+function copyNotice(notice: AttendanceNotice): AttendanceNotice {
+  const copy: AttendanceNotice = {
+    id: notice.id,
+    userId: notice.userId,
+    siteId: notice.siteId,
+    message: notice.message,
+  };
+  if (notice.openSiteId) copy.openSiteId = notice.openSiteId;
+  if (notice.openSiteName) copy.openSiteName = notice.openSiteName;
+  return copy;
 }
 
 export function memoryAttendanceQueue(): AttendanceQueueStore {
@@ -172,10 +229,10 @@ export function memoryAttendanceQueue(): AttendanceQueueStore {
       rows.delete(localId);
     },
     async listNotices() {
-      return [...notices.values()].map((notice) => ({ ...notice }));
+      return [...notices.values()].map(copyNotice);
     },
     async putNotice(notice) {
-      notices.set(notice.id, { ...notice });
+      notices.set(notice.id, copyNotice(notice));
     },
     async dismissNotice(id) {
       notices.delete(id);
@@ -183,6 +240,7 @@ export function memoryAttendanceQueue(): AttendanceQueueStore {
     async wipe() {
       rows.clear();
       notices.clear();
+      memoryForgotSeen.clear();
     },
   };
 }
@@ -200,7 +258,7 @@ function readNotices(storage: MemoryStorage): AttendanceNotice[] {
   if (!raw) return [];
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isNotice).map((notice) => ({ ...notice }));
+  return parsed.filter(isNotice).map(copyNotice);
 }
 
 export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueStore {
@@ -221,7 +279,7 @@ export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueS
     },
     async putNotice(notice) {
       const next = readNotices(storage).filter((row) => row.id !== notice.id);
-      next.push({ ...notice });
+      next.push(copyNotice(notice));
       storage.setItem(ATTENDANCE_NOTICE_KEY, JSON.stringify(next));
     },
     async dismissNotice(id) {
@@ -233,6 +291,7 @@ export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueS
       storage.removeItem(ATTENDANCE_QUEUE_KEY);
       storage.removeItem(ATTENDANCE_NOTICE_KEY);
       storage.removeItem(ATTENDANCE_OWNER_KEY);
+      clearForgotSeen(storage);
     },
   };
 }
@@ -268,6 +327,7 @@ export function writeAttendanceOwner(userId: string, storage: MemoryStorage | nu
 /** Sign-out, a rejected session, or a different login drops every queued tap. */
 export async function wipeAttendanceQueue(queue: AttendanceQueueStore = getAttendanceQueue()) {
   await queue.wipe();
+  clearForgotSeen(browserStorage());
   browserStorage()?.removeItem(ATTENDANCE_OWNER_KEY);
 }
 
@@ -337,7 +397,8 @@ export async function rememberRefusedTap(
   queue: AttendanceQueueStore,
   item: QueuedTap,
   code: string,
-  detail?: string
+  detail?: string,
+  hint?: string
 ): Promise<AttendanceNotice> {
   const notice: AttendanceNotice = {
     id: `reject:${item.localId}`,
@@ -345,6 +406,10 @@ export async function rememberRefusedTap(
     siteId: item.siteId,
     message: refusedTapNotice(item.action, code, detail),
   };
+  if (code === 'already_signed_in' && hint) {
+    notice.openSiteId = hint;
+    if (detail) notice.openSiteName = detail;
+  }
   await queue.putNotice(notice);
   return notice;
 }
@@ -377,7 +442,7 @@ export async function flushAttendanceQueue(
     } catch (err) {
       const failure = failureOf(snagFailureFrom(err));
       if (!isRetryableAttendanceFailure(err)) {
-        created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail));
+        created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail, failure.hint));
         await queue.remove(item.localId);
         continue;
       }
@@ -405,7 +470,7 @@ export async function persistThenSendAttendance(
   } catch (err) {
     const failure = failureOf(snagFailureFrom(err));
     if (!isRetryableAttendanceFailure(err)) {
-      await rememberRefusedTap(queue, item, failure.code, failure.detail);
+      await rememberRefusedTap(queue, item, failure.code, failure.detail, failure.hint);
       await queue.remove(item.localId);
       return 'refused';
     }

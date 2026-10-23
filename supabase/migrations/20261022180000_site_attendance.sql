@@ -461,13 +461,14 @@ declare
   v_received timestamptz;
   v_id uuid;
   v_open_name text;
+  v_open_id uuid;
 begin
   select * into v_actor from private.attendance_require_site(p_site_id);
   v_received := private.attendance_now();
   v_device := private.attendance_device_time(p_device_at);
   perform private.close_forgotten_attendance();
 
-  select s.name into v_open_name
+  select s.name, s.id into v_open_name, v_open_id
   from public.site_attendance a
   join public.sites s on s.id = a.site_id
   where a.person_id = v_actor.person_id
@@ -475,7 +476,7 @@ begin
   limit 1;
 
   if v_open_name is not null then
-    raise exception 'already_signed_in' using detail = v_open_name;
+    raise exception 'already_signed_in' using detail = v_open_name, hint = v_open_id::text;
   end if;
 
   v_id := gen_random_uuid();
@@ -490,13 +491,13 @@ begin
     );
   exception
     when unique_violation then
-      select s.name into v_open_name
+      select s.name, s.id into v_open_name, v_open_id
       from public.site_attendance a
       join public.sites s on s.id = a.site_id
       where a.person_id = v_actor.person_id
         and a.out_at is null
       limit 1;
-      raise exception 'already_signed_in' using detail = v_open_name;
+      raise exception 'already_signed_in' using detail = v_open_name, hint = v_open_id::text;
   end;
 
   return private.attendance_json(v_id);
@@ -648,7 +649,12 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  v_reason := btrim(coalesce(p_reason, ''));
+  v_reason := btrim(regexp_replace(
+    coalesce(p_reason, ''),
+    '[' || chr(1) || '-' || chr(31) || chr(127) || ']',
+    '',
+    'g'
+  ));
   if char_length(v_reason) < 1 or char_length(v_reason) > 500
      or p_in_at is null or p_out_at is null or p_out_at < p_in_at then
     raise exception 'invalid_input';

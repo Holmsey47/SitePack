@@ -1,19 +1,15 @@
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
-import { attendanceError, forgotLine, gapLine, hourSpans, type AttendanceEntry } from '@/data/attendance';
+import { attendanceError, hourSpans, shiftCard, type AttendanceEntry } from '@/data/attendance';
 import { repo } from '@/data/index';
 import { formatUkDateTime } from '@/lib/format';
 import {
   buildWeekSheet,
   clientNowIso,
-  FLAG_CORRECTED,
-  FLAG_LATE,
-  LATE_SIGN_OUT_REASON,
   londonWeekStart,
   preparedLine,
   shiftWeek,
   weekCsv,
   weekRangeLabel,
-  WEEK_DAYS,
   type WeekRow,
 } from '@/lib/attendanceHours';
 import { attendancePdfFilename, buildAttendancePdf } from '@/lib/attendancePdf';
@@ -161,35 +157,39 @@ export default function WeeklyHoursScreen() {
       {rows?.map((row) => (
         <Card key={row.personId}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{row.personName}</Text>
-          {WEEK_DAYS.map((day, index) => (
-            <Text key={day} style={{ color: theme.text, fontSize: 16, minHeight: 28 }}>
-              {day} {row.days[index]}
+          {row.dayLines.map((line, index) => (
+            <Text key={`${line}-${index}`} style={{ color: theme.text, fontSize: 16, minHeight: 28 }}>
+              {line}
             </Text>
           ))}
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Total {row.total}</Text>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{row.totalLine}</Text>
           {entries
             .filter((entry) => entry.person_id === row.personId)
-            .map((entry) => (
-              <Pressable
-                key={entry.entry_id}
-                accessibilityRole="button"
-                accessibilityLabel={`Correct ${entry.person_name}`}
-                onPress={() => router.push(`/sites/${siteId}/attendance/${entry.entry_id}`)}
-                style={{ minHeight: 48, justifyContent: 'center' }}>
-                <Text style={{ color: theme.text, fontSize: 16 }}>
-                  {formatUkDateTime(entry.in_at)}
-                  {entry.out_at ? ` – ${formatUkDateTime(entry.out_at)}` : ' · still in'}
-                </Text>
-                {forgotLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{forgotLine(entry)}</Text> : null}
-                {gapLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{gapLine(entry)}</Text> : null}
-                {entry.late_sign_out || entry.audit?.some((row) => row.reason === LATE_SIGN_OUT_REASON) ? (
-                  <Text style={{ color: theme.text, fontWeight: '800' }}>{FLAG_LATE}</Text>
-                ) : null}
-                {entry.audit?.some((row) => row.reason !== LATE_SIGN_OUT_REASON) ? (
-                  <Text style={{ color: theme.text, fontWeight: '800' }}>{FLAG_CORRECTED}</Text>
-                ) : null}
-              </Pressable>
-            ))}
+            .map((entry) => {
+              const card = shiftCard(entry);
+              return (
+                <Pressable
+                  key={entry.entry_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Correct ${entry.person_name}`}
+                  onPress={() => router.push(`/sites/${siteId}/attendance/${entry.entry_id}`)}
+                  style={{ minHeight: 48, justifyContent: 'center' }}>
+                  <Text style={{ color: theme.text, fontSize: 16 }}>
+                    {formatUkDateTime(entry.in_at)}
+                    {entry.out_at ? ` – ${formatUkDateTime(entry.out_at)}` : ' · still in'}
+                  </Text>
+                  {card.correction ? (
+                    <Text style={{ color: theme.text, fontWeight: '800' }}>{card.correction}</Text>
+                  ) : null}
+                  {card.reason ? <Text style={{ color: theme.text, fontSize: 16 }}>{card.reason}</Text> : null}
+                  {card.flags.map((flag) => (
+                    <Text key={flag} style={{ color: theme.text, fontWeight: '800' }}>
+                      {flag}
+                    </Text>
+                  ))}
+                </Pressable>
+              );
+            })}
         </Card>
       ))}
       {rows ? (

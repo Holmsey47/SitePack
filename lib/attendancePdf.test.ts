@@ -85,6 +85,9 @@ test('every hours page has the site, company, page count, and a UK time', async 
       forgot: true,
       gap: true,
       corrected: true,
+      correctedBy: 'Jordan Hale',
+      reason: 'Closed at four',
+      prior: 'was not signed out',
     },
   ];
   const rows = buildWeekSheet(spans, '2026-10-19', '2026-10-22T18:00:00.000Z');
@@ -108,11 +111,51 @@ test('every hours page has the site, company, page count, and a UK time', async 
     assert.match(text, new RegExp(`page ${page} of ${footers.length}`));
   }
   assert.equal(text.includes('£'), false);
-  assert.match(text, /Not signed out/);
+  assert.match(text, /Tue: 8h 00m/);
+  assert.match(text, /Total 8h 00m/);
+  assert.match(text, /Corrected by Jordan Hale: was not signed out/);
+  assert.match(text, /Closed at four/);
   assert.match(text, /Phone time was more than 10 minutes out/);
-  assert.match(text, /Corrected/);
-  assert.equal(text.includes('Mon 8h'), false);
-  assert.match(text, /\nMon\n/);
+  assert.equal(text.includes('Not signed out'), false);
+  assert.equal(text.includes('\nMon\n'), false);
+});
+
+test('the PDF uses the same unchecked and corrected lines as the sheet', async () => {
+  const { londonWallIso, weekCsv, FLAG_FORGOT } = await import('./attendanceHours.ts');
+  const inAt = londonWallIso('2026-10-21', 8, 0);
+  const now = londonWallIso('2026-10-22', 9, 0);
+  const rows = buildWeekSheet(
+    [
+      {
+        personId: 'amy',
+        personName: 'Amy Keane',
+        inAt,
+        outAt: null,
+        forgot: true,
+      },
+    ],
+    '2026-10-19',
+    now
+  );
+  assert.equal(rows[0]?.dayLines[0], 'Wed: not signed out (in 8:00am)');
+  assert.equal(rows[0]?.totalLine, 'Total 0h 00m + 1 shift to check');
+  const csv = weekCsv(rows, 'Oak yard', '2026-10-19');
+  assert.match(csv, /0h 00m \+ 1 shift to check,,Not signed out/);
+  assert.equal(csv.includes('0.00'), false);
+  assert.equal(csv.includes(FLAG_FORGOT), true);
+  const { bytes } = await buildAttendancePdf({
+    companyName: 'Ashfield Finishes',
+    siteName: 'Oak yard',
+    weekStart: '2026-10-19',
+    generatedAt: '2026-10-22T09:00:00.000Z',
+    rows,
+  });
+  const text = decodedPdfText(bytes);
+  assert.match(text, /Wed: not signed out \(in 8:00am\)/);
+  assert.match(text, /Total 0h 00m \+ 1 shift to check/);
+  assert.match(text, /Not signed out/);
+  assert.equal(text.includes('15h'), false);
+  assert.equal(text.includes('23:59'), false);
 });
 
 test('José Müller and Łukasz Wójcik survive in the weekly PDF', async () => {

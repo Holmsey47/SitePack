@@ -254,6 +254,7 @@ do $open_site$
 declare
   v_message text;
   v_detail text;
+  v_hint text;
 begin
   begin
     perform public.sign_in_site('51111111-1111-4111-8111-111111111111'::uuid, pg_catalog.now());
@@ -263,9 +264,9 @@ begin
       if sqlerrm = 'FAIL: second sign-in succeeded' then
         raise;
       end if;
-      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
-      if v_message <> 'already_signed_in' or v_detail <> 'Site A' then
-        raise exception 'FAIL: already_signed_in named % / %', v_message, v_detail;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail, v_hint = pg_exception_hint;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site A' or v_hint <> '51111111-1111-4111-8111-111111111111' then
+        raise exception 'FAIL: already_signed_in named % / % / %', v_message, v_detail, v_hint;
       end if;
   end;
 end
@@ -712,6 +713,7 @@ do $held$
 declare
   v_message text;
   v_detail text;
+  v_hint text;
 begin
   begin
     perform public.sign_in_site(
@@ -724,9 +726,9 @@ begin
       if sqlerrm = 'FAIL: evening shift was not held' then
         raise;
       end if;
-      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
-      if v_message <> 'already_signed_in' or v_detail <> 'Site B' then
-        raise exception 'FAIL: held shift named % / %', v_message, v_detail;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail, v_hint = pg_exception_hint;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site B' or v_hint <> '51111111-1111-4111-8111-111111111112' then
+        raise exception 'FAIL: held shift named % / % / %', v_message, v_detail, v_hint;
       end if;
   end;
 end
@@ -959,6 +961,39 @@ select pg_temp.ok(
     where id = '61111111-1111-4111-8111-111111111209'
   ),
   'a too-long correction leaves the shift unchanged'
+);
+
+select public.correct_attendance(
+  '61111111-1111-4111-8111-111111111209'::uuid,
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-20 08:00:00+00',
+  'Left' || chr(10) || 'at four'
+);
+
+select pg_temp.ok(
+  (
+    select exists (
+      select 1
+      from public.site_attendance_audit
+      where entry_id = '61111111-1111-4111-8111-111111111209'
+        and reason = 'Leftat four'
+    )
+    and not exists (
+      select 1
+      from public.site_attendance_audit
+      where entry_id = '61111111-1111-4111-8111-111111111209'
+        and position(chr(10) in reason) > 0
+    )
+  ),
+  'a correction reason drops control characters'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance(''61111111-1111-4111-8111-111111111209''::uuid, timestamptz ''2026-10-19 08:00:00+00'', timestamptz ''2026-10-20 08:00:00+00'', chr(10))',
+    'invalid_input'
+  ),
+  'a reason of only a control character is invalid_input'
 );
 
 reset role;
