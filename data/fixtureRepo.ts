@@ -1593,8 +1593,7 @@ export const fixtureRepo: SitePackRepo = {
   async recordDrawingOpen(drawingId) {
     const person = meOrThrow();
     const drawing = store.drawings.find((row) => row.id === drawingId);
-    if (!drawing) throw new Error('drawing_not_found');
-    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    if (!drawing || !canAccessSite(person, drawing.site_id)) throw new Error('drawing_not_found');
     if (!drawing.is_current) throw new Error('not_current');
     recordOpen(store.drawingOpens, {
       drawing_id: drawing.id,
