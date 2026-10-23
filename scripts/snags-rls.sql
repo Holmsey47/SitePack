@@ -105,9 +105,10 @@ $$;
 create temp table probe (k text primary key, v jsonb);
 grant all on table probe to authenticated;
 
--- The runner snapshots pg_proc before this migration and parses every
+-- The runner snapshots pg_proc before and after this migration, and parses every
 -- CREATE FUNCTION name into public._snag_funcs_migration. Invoker functions
--- are included. A new function cannot slip past by its name.
+-- are included. A function added by this migration cannot slip past by its name.
+-- Functions from a later migration are outside _snag_funcs_after.
 select pg_temp.ok(
   (select count(*) from public._snag_funcs_migration) >= 1
   and not exists (
@@ -123,17 +124,15 @@ select pg_temp.ok(
   )
   and not exists (
     select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public', 'private')
-      and not exists (
-        select 1 from public._snag_funcs_before b
-        where b.nspname = n.nspname and b.proname = p.proname
-      )
-      and not exists (
-        select 1 from public._snag_funcs_migration m
-        where m.nspname = n.nspname and m.proname = p.proname
-      )
+    from public._snag_funcs_after a
+    where not exists (
+      select 1 from public._snag_funcs_before b
+      where b.nspname = a.nspname and b.proname = a.proname
+    )
+    and not exists (
+      select 1 from public._snag_funcs_migration m
+      where m.nspname = a.nspname and m.proname = a.proname
+    )
   )
   and not exists (
     select 1

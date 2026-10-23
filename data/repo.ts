@@ -1,4 +1,5 @@
 import type { CreateSiteInput } from '@/data/createSite';
+import type { StartCompanyInput } from '@/data/startCompany';
 import type {
   CreateRequestInput,
   Drawing,
@@ -41,6 +42,7 @@ export type SignInResult = {
 
 export type SitePackRepo = {
   signIn(email: string, password: string): Promise<SignInResult>;
+  startCompany(input: StartCompanyInput): Promise<{ message: string }>;
   signOut(): Promise<void>;
   restoreSession(): Promise<Person | null>;
   setPassword(password: string): Promise<void>;

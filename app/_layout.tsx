@@ -1,5 +1,6 @@
 import { HardwareBackHandler } from '@/components/HardwareBackHandler';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { gateRedirect } from '@/lib/authGate';
 import { theme } from '@/lib/theme';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -39,20 +40,13 @@ function Gate() {
   useEffect(() => {
     if (!ready) return;
     const parts = [...segments] as string[];
-    const inAuth = parts[0] === '(auth)';
-    const screen = parts[1] ?? '';
-    const publicJoin = parts[0] === 'join' || parts[0] === 'reset';
-    if (!person && screen !== 'login' && !publicJoin) {
-      router.replace('/login');
-      return;
-    }
-    if (person && needsPassword && screen !== 'set-password') {
-      router.replace('/set-password');
-      return;
-    }
-    if (person && !needsPassword && inAuth) {
-      router.replace('/sites');
-    }
+    const target = gateRedirect({
+      ready: true,
+      hasPerson: Boolean(person),
+      needsPassword,
+      segments: parts,
+    });
+    if (target) router.replace(target);
   }, [ready, person, needsPassword, segments, router]);
 
   if (!ready) {

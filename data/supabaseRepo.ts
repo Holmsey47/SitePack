@@ -1,4 +1,5 @@
 import { normalizeCreateSite } from '@/data/createSite';
+import { CHECK_YOUR_EMAIL, parseStartCompany } from '@/data/startCompany';
 import { newId } from '@/data/newId';
 import { inviteSiteIds } from '@/data/walk';
 import { inviteFailureMessage } from '@/data/inviteError';
@@ -279,6 +280,17 @@ export const supabaseRepo: SitePackRepo = {
       throw new Error('Couldn’t sign in. Check email and password and try again.');
     }
     return { person, needsPassword: false };
+  },
+
+  async startCompany(input) {
+    const parsed = parseStartCompany(input);
+    if (!parsed.ok) throw new Error('invalid_input');
+    await invokePublicFunction('start-company', {
+      company_name: parsed.companyName,
+      full_name: parsed.fullName,
+      email: parsed.email,
+    });
+    return { message: CHECK_YOUR_EMAIL };
   },
 
   async signOut() {

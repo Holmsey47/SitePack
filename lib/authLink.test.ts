@@ -415,9 +415,11 @@ test('the address bar is cleared before boot awaits the network', () => {
   assert.match(authLink, /Didn't ask for this link\? Stay signed in\./);
   assert.match(authLink, /Stay signed in as \$\{account\}/);
   assert.match(authLink, /Sign out and use \$\{account\}/);
-  const gate = fs.readFileSync(new URL('../app/_layout.tsx', import.meta.url), 'utf8');
+  const gate = fs.readFileSync(new URL('./authGate.ts', import.meta.url), 'utf8');
   assert.match(gate, /person && needsPassword && screen !== 'set-password'/);
   assert.doesNotMatch(gate, /needsPassword && screen !== 'set-password' && screen !== 'login'/);
+  const layout = fs.readFileSync(new URL('../app/_layout.tsx', import.meta.url), 'utf8');
+  assert.match(layout, /gateRedirect\(/);
   const setPassword = fs.readFileSync(new URL('../app/(auth)/set-password.tsx', import.meta.url), 'utf8');
   assert.match(setPassword, /Setting a password for /);
   assert.match(setPassword, /Not you\? Sign out/);

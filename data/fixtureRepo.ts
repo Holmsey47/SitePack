@@ -1,4 +1,11 @@
 import { normalizeCreateSite } from '@/data/createSite';
+import {
+  CHECK_YOUR_EMAIL,
+  parseStartCompany,
+  START_EMAIL_LIMIT,
+  START_IP_LIMIT,
+  START_WINDOW_MINUTES,
+} from '@/data/startCompany';
 import { newId } from '@/data/newId';
 import { inviteSiteIds, previewName } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
@@ -629,6 +636,10 @@ export function snagSignoffCountForTests(): number {
   return store.snags.signoffs.length;
 }
 
+export function peopleWithEmailForTests(email: string): number {
+  return store.people.filter((person) => person.email?.toLowerCase() === email.toLowerCase()).length;
+}
+
 export const fixtureRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     const person = store.people.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
@@ -642,6 +653,37 @@ export const fixtureRepo: SitePackRepo = {
     store.sessionPersonId = person.id;
     saveSessionId(person.id);
     return { person, needsPassword: false };
+  },
+
+  async startCompany(input) {
+    const parsed = parseStartCompany(input);
+    if (!parsed.ok) throw new Error('invalid_input');
+    const emailKey = parsed.email;
+    const ipKey = 'fixture';
+    if (recentFailures('start_email', emailKey, START_WINDOW_MINUTES) >= START_EMAIL_LIMIT) {
+      throw new Error('rate_limited');
+    }
+    if (recentFailures('start_ip', ipKey, START_WINDOW_MINUTES) >= START_IP_LIMIT) {
+      throw new Error('rate_limited');
+    }
+    noteFailure('start_email', emailKey);
+    noteFailure('start_ip', ipKey);
+    const existing = store.people.some((person) => person.email?.toLowerCase() === parsed.email);
+    if (!existing) {
+      const id = newId();
+      store.people.push({
+        id,
+        auth_user_id: id,
+        company_id: newId(),
+        role: 'owner',
+        trade: null,
+        display_name: parsed.fullName,
+        email: parsed.email,
+        phone: null,
+        created_at: now(),
+      });
+    }
+    return { message: CHECK_YOUR_EMAIL };
   },
 
   async signOut() {

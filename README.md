@@ -88,7 +88,7 @@ Local `supabase start` still loads `seed.sql`. That path is for fixture tests, n
 1. Owner/CM invites from **Invite** (Edge Function uses the service role; client never does).
 2. Invitee opens the email link once → **Set password**.
 3. After that: email + password on **Login**.
-4. No public sign-up screen. `config.toml` has `auth.enable_signup = false` while the email provider stays enabled so invited users can authenticate.
+4. Signed-out people land on Welcome. **Start my company** sends an invite (the service role stays in the edge function) and creates that owner’s company. The screen says “Check your email” either way. `config.toml` keeps `auth.enable_signup = false`. **I've got an invite** opens Join. **Log in** is email or username.
 
 ## Data rules worth knowing
 

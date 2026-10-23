@@ -51,6 +51,16 @@ where n.nspname in ('public', 'private');
 SQL
   fi
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+  if [[ "$migration" == *20261022170000_snags.sql ]]; then
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+drop table if exists public._snag_funcs_after;
+create table public._snag_funcs_after as
+select n.nspname, p.proname
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'private');
+SQL
+  fi
 done
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
@@ -71,6 +81,8 @@ awk '
   }
 ' supabase/migrations/20261022170000_snags.sql | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/snags-rls.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public._snag_funcs_before; drop table if exists public._snag_funcs_migration;'
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public._snag_funcs_before; drop table if exists public._snag_funcs_after; drop table if exists public._snag_funcs_migration;'
 echo "snag RLS ok"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/start-company.sql
+echo "owner start grants ok"
 bash scripts/snag-signoff-race.sh

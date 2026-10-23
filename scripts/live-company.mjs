@@ -212,11 +212,11 @@ export function secretArgs(ref, redirect) {
   ]);
 }
 
-export function deployArgs(ref) {
+export function deployArgs(ref, name = 'invite-person') {
   return assertHostedArgs([
     'functions',
     'deploy',
-    'invite-person',
+    name,
     '--project-ref',
     assertLiveProjectRef(ref),
     '--use-api',
@@ -592,9 +592,10 @@ async function main() {
     [input.password, input.dbPassword, serviceKey],
   );
 
-  console.log('Deploying invite-person.');
+  console.log('Deploying invite-person and start-company.');
   runSupabase(secretArgs(ref, input.redirect), { secrets: [input.password, input.dbPassword, serviceKey] });
-  runSupabase(deployArgs(ref), { secrets: [input.password, input.dbPassword, serviceKey] });
+  runSupabase(deployArgs(ref, 'invite-person'), { secrets: [input.password, input.dbPassword, serviceKey] });
+  runSupabase(deployArgs(ref, 'start-company'), { secrets: [input.password, input.dbPassword, serviceKey] });
 
   fs.writeFileSync(envPath, renderEnvLocal(existing, { url, anonKey }), { mode: 0o600 });
 
