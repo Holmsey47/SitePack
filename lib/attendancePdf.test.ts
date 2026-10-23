@@ -38,6 +38,32 @@ function decodedPdfText(bytes: Uint8Array): string {
     if (hex.length < 2 || hex.length % 2 !== 0) continue;
     shown.push(Buffer.from(hex, 'hex').toString('latin1'));
   }
+  const glyphs = new Map<string, string>();
+  for (const block of source.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const row of block[1]?.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g) ?? []) {
+      const key = row[1]?.toUpperCase().padStart(4, '0') ?? '';
+      const hex = row[2] ?? '';
+      if (!key || hex.length % 4 !== 0) continue;
+      const codes: number[] = [];
+      for (let i = 0; i < hex.length; i += 4) codes.push(parseInt(hex.slice(i, i + 4), 16));
+      glyphs.set(key, String.fromCharCode(...codes));
+    }
+  }
+  for (const match of source.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+    const hex = match[1]?.toUpperCase() ?? '';
+    if (hex.length % 4 !== 0) continue;
+    let text = '';
+    let known = true;
+    for (let i = 0; i < hex.length; i += 4) {
+      const char = glyphs.get(hex.slice(i, i + 4));
+      if (!char) {
+        known = false;
+        break;
+      }
+      text += char;
+    }
+    if (known && text) shown.push(text);
+  }
   return shown.join('\n');
 }
 
@@ -87,4 +113,39 @@ test('every hours page has the site, company, page count, and a UK time', async 
   assert.match(text, /Corrected/);
   assert.equal(text.includes('Mon 8h'), false);
   assert.match(text, /\nMon\n/);
+});
+
+test('José Müller and Łukasz Wójcik survive in the weekly PDF', async () => {
+  const rows = buildWeekSheet(
+    [
+      {
+        personId: 'jose',
+        personName: 'José Müller',
+        inAt: '2026-10-20T08:00:00.000Z',
+        outAt: '2026-10-20T16:00:00.000Z',
+        forgot: false,
+      },
+      {
+        personId: 'lukasz',
+        personName: 'Łukasz Wójcik',
+        inAt: '2026-10-21T08:00:00.000Z',
+        outAt: '2026-10-21T16:00:00.000Z',
+        forgot: false,
+      },
+    ],
+    '2026-10-19',
+    '2026-10-22T18:00:00.000Z'
+  );
+  const { bytes } = await buildAttendancePdf({
+    companyName: 'Ashfield Finishes',
+    siteName: 'Oak yard',
+    weekStart: '2026-10-19',
+    generatedAt: '2026-10-22T13:05:00.000Z',
+    rows,
+  });
+  const text = decodedPdfText(bytes);
+  assert.match(text, /José Müller/);
+  assert.match(text, /Łukasz Wójcik/);
+  assert.equal(text.includes('Jos Mller'), false);
+  assert.equal(text.includes('Lukasz'), false);
 });

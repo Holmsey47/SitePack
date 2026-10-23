@@ -1,4 +1,6 @@
+import { boldLatinFont, regularLatinFont } from '@/lib/attendanceFonts';
 import { preparedLine, weekRangeLabel, WEEK_DAYS, type WeekRow } from '@/lib/attendanceHours';
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 const PAGE_W = 595;
@@ -19,11 +21,17 @@ export type AttendancePdfInput = {
 type Face = PDFFont;
 
 function pdfText(value: string): string {
-  return value
-    .replace(/[–—]/g, '-')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[^\x0A\x0D\x20-\x7E\u00B7]/g, '');
+  return value.replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+}
+
+function fitsWinAnsi(face: Face, text: string): boolean {
+  try {
+    face.widthOfTextAtSize(text, 1);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('cannot encode')) return false;
+    throw err;
+  }
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
@@ -56,11 +64,26 @@ export function attendanceFooter(siteName: string, companyName: string, page: nu
 
 export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ bytes: Uint8Array; footers: string[] }> {
   const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
   doc.setTitle(`Hours ${pdfText(input.siteName)}`);
+  // Helvetica is WinAnsi, the same encoding the variations PDF draws with.
+  // A name outside that set, such as Ł, uses the embedded Latin face.
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const latin: { regular?: Face; bold?: Face } = {};
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = TOP;
+
+  async function faceFor(text: string, weight: 'bold' | 'regular'): Promise<Face> {
+    const standard = weight === 'bold' ? bold : font;
+    if (fitsWinAnsi(standard, text)) return standard;
+    const cached = latin[weight];
+    if (cached) return cached;
+    const bytes = weight === 'bold' ? boldLatinFont() : regularLatinFont();
+    const embedded = await doc.embedFont(bytes, { subset: true });
+    latin[weight] = embedded;
+    return embedded;
+  }
 
   function newPage() {
     page = doc.addPage([PAGE_W, PAGE_H]);
@@ -72,55 +95,58 @@ export async function buildAttendancePdf(input: AttendancePdfInput): Promise<{ b
     newPage();
   }
 
-  function draw(text: string, size: number, weight: 'bold' | 'regular') {
-    const face = weight === 'bold' ? bold : font;
-    for (const line of wrap(text, face, size, CONTENT_W)) {
+  async function draw(text: string, size: number, weight: 'bold' | 'regular') {
+    const value = pdfText(text);
+    const face = await faceFor(value, weight);
+    for (const line of wrap(value, face, size, CONTENT_W)) {
       ensure(size + 4);
       page.drawText(line, { x: MARGIN, y: y - size, size, font: face, color: rgb(0.1, 0.1, 0.1) });
       y -= size + 4;
     }
   }
 
-  draw('Weekly hours', 20, 'bold');
-  draw(input.siteName, 12, 'bold');
-  draw(input.companyName, 12, 'regular');
-  draw(weekRangeLabel(input.weekStart), 12, 'regular');
-  draw(preparedLine(input.generatedAt), 11, 'regular');
+  await draw('Weekly hours', 20, 'bold');
+  await draw(input.siteName, 12, 'bold');
+  await draw(input.companyName, 12, 'regular');
+  await draw(weekRangeLabel(input.weekStart), 12, 'regular');
+  await draw(preparedLine(input.generatedAt), 11, 'regular');
   y -= 8;
 
-  if (input.rows.length === 0) draw('No hours this week.', 12, 'regular');
+  if (input.rows.length === 0) await draw('No hours this week.', 12, 'regular');
 
   const colW = CONTENT_W / 8;
-  function drawColumns(cells: string[], size: number, weight: 'bold' | 'regular') {
+  async function drawColumns(cells: string[], size: number, weight: 'bold' | 'regular') {
     ensure(size + 6);
-    const face = weight === 'bold' ? bold : font;
-    cells.forEach((cell, index) => {
-      page.drawText(pdfText(cell), {
+    for (const [index, cell] of cells.entries()) {
+      const text = pdfText(cell);
+      const face = await faceFor(text, weight);
+      page.drawText(text, {
         x: MARGIN + index * colW,
         y: y - size,
         size,
         font: face,
         color: rgb(0.1, 0.1, 0.1),
       });
-    });
+    }
     y -= size + 6;
   }
 
   for (const row of input.rows) {
     const flags = [...new Set(row.shifts.flatMap((shift) => shift.flags))];
     ensure(18 + 16 + 16 + (flags.length > 0 ? 16 : 0) + 8);
-    draw(row.personName, 13, 'bold');
-    drawColumns([...WEEK_DAYS, 'Total'], 9, 'bold');
-    drawColumns([...row.days, row.total], 10, 'regular');
-    if (flags.length > 0) draw(flags.join(' · '), 11, 'bold');
+    await draw(row.personName, 13, 'bold');
+    await drawColumns([...WEEK_DAYS, 'Total'], 9, 'bold');
+    await drawColumns([...row.days, row.total], 10, 'regular');
+    if (flags.length > 0) await draw(flags.join(' · '), 11, 'bold');
     y -= 6;
   }
 
   const pages = doc.getPages();
   const total = pages.length;
-  const footers = pages.map((_, index) => attendanceFooter(input.siteName, input.companyName, index + 1, total, font));
+  const footerFace = await faceFor(`${pdfText(input.siteName)} ${pdfText(input.companyName)}`, 'regular');
+  const footers = pages.map((_, index) => attendanceFooter(input.siteName, input.companyName, index + 1, total, footerFace));
   pages.forEach((sheet, index) => {
-    paintFooter(sheet, footers[index] ?? '', font);
+    paintFooter(sheet, footers[index] ?? '', footerFace);
   });
   return { bytes: await doc.save(), footers };
 }
