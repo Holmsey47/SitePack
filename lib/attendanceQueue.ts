@@ -10,7 +10,7 @@ export const ATTENDANCE_BACKOFF_MS = 30_000;
 /** Network, session, and unknown-error retries never wait longer than the shared cap. */
 export const ATTENDANCE_BACKOFF_MAX_MS = MAX_SNAG_RETRY_DELAY_MS;
 
-export const SIGN_IN_AGAIN = 'Sign in again to send this.';
+export const SIGN_IN_AGAIN = 'Sign in again to send what is saved on this phone.';
 
 export function attendanceRetryDelayMs(attempts: number): number {
   const delay = ATTENDANCE_BACKOFF_MS * Math.max(attempts, 1);

@@ -1,6 +1,6 @@
 import { SnagRequestError } from '@/data/snagFailure';
 import type { Role } from '@/data/types';
-import { clockGap, describeShift, priorPhrase, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
+import { clockGap, describeShift, londonTimeLabel, priorPhrase, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
 
 export type AttendanceState = 'in' | 'out';
 
@@ -86,11 +86,23 @@ export function hourSpans(entries: AttendanceEntry[]): HourSpan[] {
 }
 
 /** The week card, the PDF, and the CSV all use this wording. */
-export function shiftCard(entry: AttendanceEntry): { correction: string | null; reason: string | null; flags: string[] } {
+export function shiftCard(entry: AttendanceEntry): {
+  correction: string | null;
+  reason: string | null;
+  flags: string[];
+  /** Set for an uncorrected not-signed-out shift, so the card does not show the 23:59 placeholder. */
+  line: string | null;
+} {
   const [span] = hourSpans([entry]);
-  if (!span) return { correction: null, reason: null, flags: [] };
+  if (!span) return { correction: null, reason: null, flags: [], line: null };
   const described = describeShift(span, span.forgot);
-  return { correction: described.correction, reason: described.reason, flags: described.flags };
+  const unchecked = span.forgot && !span.corrected && !span.late;
+  return {
+    correction: described.correction,
+    reason: described.reason,
+    flags: described.flags,
+    line: unchecked ? `In ${londonTimeLabel(span.inAt)}, not signed out` : null,
+  };
 }
 
 export async function signOutThenSignIn(
@@ -102,6 +114,46 @@ export async function signOutThenSignIn(
 ): Promise<void> {
   await signOut(openSiteId, deviceAt);
   await signIn(hereSiteId, deviceAt);
+}
+
+export const SWITCH_NEEDS_SIGNAL = 'Needs signal';
+
+export function signedOutOfSiteNotice(siteName: string): string {
+  return `You are signed out of ${siteName}. Tap Sign in again.`;
+}
+
+export type SiteSwitchResult =
+  | { kind: 'done' }
+  | { kind: 'offline' }
+  | { kind: 'sign_out_failed'; error: unknown }
+  | { kind: 'signed_out'; notice: string };
+
+/**
+ * Sign out of the open site, then sign in here.
+ * Offline, or a failed sign-out, does not call sign-in.
+ * A sign-in failure after a successful sign-out returns a notice for the old site.
+ */
+export async function attemptSiteSwitch(
+  online: boolean,
+  openSiteId: string,
+  openSiteName: string,
+  hereSiteId: string,
+  deviceAt: string,
+  signOut: (siteId: string, at: string) => Promise<unknown>,
+  signIn: (siteId: string, at: string) => Promise<unknown>
+): Promise<SiteSwitchResult> {
+  if (!online) return { kind: 'offline' };
+  try {
+    await signOut(openSiteId, deviceAt);
+  } catch (error) {
+    return { kind: 'sign_out_failed', error };
+  }
+  try {
+    await signIn(hereSiteId, deviceAt);
+  } catch {
+    return { kind: 'signed_out', notice: signedOutOfSiteNotice(openSiteName) };
+  }
+  return { kind: 'done' };
 }
 
 export function attendanceError(err: unknown): string {
