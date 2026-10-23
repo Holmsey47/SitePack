@@ -94,6 +94,14 @@ for (const name of blockedPermissions) {
   }
 }
 
+const cameraName = 'android.permission.CAMERA';
+const cameraTags = permissionTags.filter((tag) => tag.includes(`android:name="${cameraName}"`));
+const cameraGranted = cameraTags.filter((tag) => !/tools:node="remove"/.test(tag));
+if (cameraGranted.length < 1 || cameraTags.some((tag) => /tools:node="remove"/.test(tag))) {
+  console.error('android.permission.CAMERA must stay granted. Do not block it.');
+  process.exit(1);
+}
+
 const roleHits = [];
 function walk(dir) {
   if (!fs.existsSync(dir)) return;

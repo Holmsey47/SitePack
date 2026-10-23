@@ -2,7 +2,7 @@
   "expo": {
     "name": "SitePack",
     "slug": "sitepack",
-    "version": "0.1.1",
+    "version": "0.2.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sitepack",
@@ -14,7 +14,8 @@
     },
     "android": {
       "package": "uk.sitepack.app",
-      "versionCode": 2,
+      "versionCode": 4,
+      "permissions": ["android.permission.CAMERA"],
       "allowBackup": false,
       "blockedPermissions": [
         "SYSTEM_ALERT_WINDOW",
@@ -85,7 +86,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "SitePack only uses a photo if you attach one to a drawing request."
+          "photosPermission": "SitePack uses a photo you choose for a snag or a variation.",
+          "cameraPermission": "SitePack uses the camera so you can take a photo of a snag or a variation.",
+          "microphonePermission": false
         }
       ],
       "expo-asset",
