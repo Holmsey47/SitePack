@@ -1,3 +1,5 @@
+import { isRetryableSnagFailure, snagFailureFrom } from '@/data/snagFailure';
+
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 export const SESSION_ENDED = 'Your session has ended. Sign in again.';
 
@@ -286,95 +288,46 @@ function readCode(err: unknown): string {
   return typeof code === 'string' ? code : '';
 }
 
-const TALK_CODES = [
-  'version_locked',
-  'already_signed',
-  'not_required',
-  'not_authorized',
-  'invalid_input',
-  'invalid_path',
-  'invalid_time',
-  'not_found',
-  'closed',
-];
-
-export type TalkRpcBody = {
-  message?: string | null;
-  details?: string | null;
-  code?: string | null;
-};
-
-/** The error thrown after copying `response.status` off a postgrest-js result. */
-export class TalkRpcError extends Error {
-  readonly failure: TalkFailure;
-
-  constructor(failure: TalkFailure, message: string) {
-    super(message);
-    this.name = 'TalkRpcError';
-    this.failure = failure;
-  }
+function rawText(err: unknown): string {
+  const message = readMessage(err);
+  if (!err || typeof err !== 'object') return message;
+  const details = (err as { details?: unknown }).details;
+  return typeof details === 'string' && details ? `${message}\n${details}` : message;
 }
 
-function businessCode(code: string, haystack: string): string {
-  for (const known of TALK_CODES) {
-    if (haystack.includes(known)) return known;
-  }
-  if (code) return code;
-  const line = haystack.split('\n')[0]?.trim() ?? '';
-  return line || 'unknown';
+/** A unique violation is already saved. Postgres puts 23505 on the error, not the HTTP status. */
+function isDuplicateTalk(err: unknown): boolean {
+  if (readCode(err) === '23505' || /duplicate key/i.test(rawText(err))) return true;
+  const failure = snagFailureFrom(err);
+  if (failure.kind !== 'business') return false;
+  return failure.code === '23505' || /duplicate key/i.test(`${failure.code}\n${failure.detail ?? ''}`);
 }
 
 /**
- * postgrest-js puts the HTTP status on `{ data, error, status }`, not on `error`.
- * `status` must be that response field.
+ * A thrown session rejection wipes the queue.
+ * An HTTP 401 from throwSnagRpc is a notice: the status already lives on the response.
  */
-export function talkFailureFromRpc(status: number, error: TalkRpcBody): TalkFailure {
-  const message = error.message ?? '';
-  const details = error.details ?? '';
-  const code = typeof error.code === 'string' ? error.code : '';
-  const haystack = `${message}\n${details}`;
-  if (code === '23505' || /duplicate key/i.test(haystack)) return { kind: 'duplicate' };
-  if (status === 408 || status === 429 || (status >= 500 && status <= 599)) return { kind: 'http', status };
-  if (
-    status === 0 ||
-    message === 'Failed to fetch' ||
-    message === 'Network request failed' ||
-    message.endsWith(': Failed to fetch') ||
-    message.endsWith(': Network request failed') ||
-    /timeout/i.test(message)
-  ) {
-    return { kind: 'network' };
-  }
-  if (status === 400 || status === 401) return { kind: 'permanent', code: businessCode(code, haystack) };
-  if (/jwt expired/i.test(haystack) || code === 'PGRST301') return { kind: 'auth' };
-  return { kind: 'permanent', code: businessCode(code, haystack) };
+function isSessionRejected(err: unknown): boolean {
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'http') return false;
+  if (/jwt expired/i.test(rawText(err)) || readCode(err) === 'PGRST301') return true;
+  return failure.kind === 'business' && (failure.code === 'PGRST301' || /jwt expired/i.test(failure.code));
 }
 
-export function throwTalkRpc(response: { data: unknown; error: TalkRpcBody | null; status: number }): void {
-  if (!response.error) return;
-  const failure = talkFailureFromRpc(response.status, response.error);
-  const message =
-    failure.kind === 'permanent'
-      ? failure.code
-      : failure.kind === 'auth'
-        ? response.error.message || 'JWT expired'
-        : response.error.message || failure.kind;
-  throw new TalkRpcError(failure, message);
-}
-
-/** Classify the real error a send throws. Network and 408/429/5xx stay queued. */
+/**
+ * Classify with the shared snag failure. Network, timeout, 408, 429, and 5xx stay queued.
+ * Talk policy on top: 23505 is success, and a session rejection with no HTTP status wipes the queue.
+ */
 export function classifyTalkFailure(err: unknown): TalkFailure {
-  if (err instanceof TalkRpcError) return err.failure;
-  const message = readMessage(err);
-  const code = readCode(err);
-  if (code === '23505' || /duplicate key/i.test(message)) return { kind: 'duplicate' };
-  if (/jwt expired/i.test(message) || code === 'PGRST301') return { kind: 'auth' };
-  if (err instanceof TypeError && (message === 'Failed to fetch' || message === 'Network request failed')) {
-    return { kind: 'network' };
-  }
-  if (/timeout/i.test(message) || (err instanceof Error && err.name === 'AbortError')) return { kind: 'network' };
-  if (message === 'Failed to fetch' || message === 'Network request failed') return { kind: 'network' };
-  return { kind: 'permanent', code: code || message || 'unknown' };
+  if (isDuplicateTalk(err)) return { kind: 'duplicate' };
+  if (err instanceof Error && err.name === 'AbortError') return { kind: 'network' };
+  if (isSessionRejected(err)) return { kind: 'auth' };
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'http' && isRetryableSnagFailure(err)) return { kind: 'http', status: failure.status };
+  if (isRetryableSnagFailure(err)) return { kind: 'network' };
+  if (failure.kind === 'http') return { kind: 'permanent', code: String(failure.status) };
+  if (failure.kind === 'business') return { kind: 'permanent', code: failure.code };
+  return { kind: 'network' };
 }
 
 function groupKey(item: QueuedTalk): string {

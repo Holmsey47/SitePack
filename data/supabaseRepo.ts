@@ -65,7 +65,6 @@ import type {
 } from '@/data/types';
 import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
-import { TalkRpcError, throwTalkRpc } from '@/lib/talkQueue';
 
 function unwrap<T>(
   data: T | null,
@@ -96,12 +95,9 @@ function rpcOrNull<T>(response: { data: T | null; error: unknown; status?: numbe
   return response.data;
 }
 
-/** Talk writes read `status` from the postgrest-js response, not from `error`. */
+/** Talk writes use the same typed error as snags. Status stays on the postgrest-js response. */
 async function rpcTalk(name: string, args: Record<string, unknown>) {
-  const response = await getSupabase().rpc(name, args);
-  throwTalkRpc(response);
-  if (response.data == null) throw new TalkRpcError({ kind: 'permanent', code: 'not_found' }, 'not_found');
-  return response.data;
+  return throwSnagRpc(await getSupabase().rpc(name, args));
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {

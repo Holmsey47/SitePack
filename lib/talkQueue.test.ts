@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { createClient } from '@supabase/supabase-js';
+import { SnagRequestError, isRetryableSnagFailure, throwSnagRpc } from '@/data/snagFailure';
 import {
   adoptTalkOwner,
   classifyTalkFailure,
@@ -12,8 +13,6 @@ import {
   refusedTalkNotice,
   storageTalkQueue,
   talkBackoffMs,
-  TalkRpcError,
-  throwTalkRpc,
   TALK_NOTICE_KEY,
   TALK_OWNER_KEY,
   TALK_QUEUE_KEY,
@@ -197,7 +196,7 @@ test('a phone network error, a 503, and an unknown storage error each take their
   const network = new TypeError('Network request failed');
   const storage = new Error('unknown');
   assert.equal(classifyTalkFailure(network).kind, 'network');
-  assert.deepEqual(classifyTalkFailure(storage), { kind: 'permanent', code: 'unknown' });
+  assert.equal(classifyTalkFailure(storage).kind, 'network');
   const httpFailures = await postgrestFailures();
   await queue.put(queued('net', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
   await queue.put(queued('pgrst', 'signer-2', 'talk-1', '2026-10-22T07:01:00.000Z'));
@@ -207,6 +206,7 @@ test('a phone network error, a 503, and an unknown storage error each take their
   await queue.put(queued('storage', 'signer-6', 'talk-1', '2026-10-22T07:05:00.000Z'));
   await queue.put(queued('bad', 'signer-7', 'talk-1', '2026-10-22T07:06:00.000Z'));
   await queue.put(queued('unauth', 'signer-8', 'talk-1', '2026-10-22T07:07:00.000Z'));
+  await queue.put(queued('jwt', 'signer-10', 'talk-1', '2026-10-22T07:07:30.000Z'));
   await queue.put(queued('after', 'signer-9', 'talk-1', '2026-10-22T07:08:00.000Z'));
   const calls: string[] = [];
   await flushTalkQueue(queue, 'user-a', async (row) => {
@@ -216,16 +216,17 @@ test('a phone network error, a 503, and an unknown storage error each take their
     if (failure) throw failure;
     if (row.localId === 'storage') throw storage;
   });
-  assert.deepEqual(calls, ['net', 'pgrst', 'plain', 'html', 'empty', 'storage', 'bad', 'unauth', 'after']);
+  assert.deepEqual(calls, ['net', 'pgrst', 'plain', 'html', 'empty', 'storage', 'bad', 'unauth', 'jwt', 'after']);
   const left = (await queue.list()).map((row) => row.localId).sort();
-  assert.deepEqual(left, ['empty', 'html', 'net', 'pgrst', 'plain']);
+  assert.deepEqual(left, ['empty', 'html', 'net', 'pgrst', 'plain', 'storage']);
   const notices = await queue.listNotices();
-  assert.equal(notices.some((row) => row.id === 'reject:storage' && row.retryLocalId === null), true);
+  assert.equal(notices.some((row) => row.id === 'reject:storage'), false);
   assert.equal(notices.some((row) => row.id === 'reject:bad' && row.retryLocalId === null), true);
   assert.equal(notices.some((row) => row.id === 'reject:unauth' && row.retryLocalId === null), true);
+  assert.equal(notices.some((row) => row.id === 'reject:jwt' && row.retryLocalId === null), true);
   assert.match(notices.find((row) => row.id === 'reject:bad')?.message ?? '', /not saved/);
   assert.match(notices.find((row) => row.id === 'reject:unauth')?.message ?? '', /not saved/);
-  assert.equal(notices.filter((row) => row.retryLocalId).length, 5);
+  assert.equal(notices.filter((row) => row.retryLocalId).length, 6);
 });
 
 const PGRST002 = JSON.stringify({
@@ -236,7 +237,11 @@ const PGRST002 = JSON.stringify({
 });
 
 /** A real supabase-js client. Status comes from the response, never stuck onto the error. */
-async function postgrestFailures(): Promise<Map<string, TalkRpcError>> {
+async function postgrestFailures(): Promise<Map<string, SnagRequestError>> {
+  const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
+  const queueSrc = fs.readFileSync('lib/talkQueue.ts', 'utf8');
+  assert.match(repo, /return throwSnagRpc\(await getSupabase\(\)\.rpc\(name, args\)\)/);
+  assert.doesNotMatch(queueSrc, /throwTalkRpc|TalkRpcError|talkFailureFromRpc/);
   const specs: Array<[string, number, string, string]> = [
     ['pgrst', 503, PGRST002, 'application/json'],
     ['plain', 503, 'upstream connect error', 'text/plain'],
@@ -244,8 +249,9 @@ async function postgrestFailures(): Promise<Map<string, TalkRpcError>> {
     ['empty', 503, '', 'text/plain'],
     ['bad', 400, JSON.stringify({ code: 'PGRST102', message: 'Empty or invalid json', details: null, hint: null }), 'application/json'],
     ['unauth', 401, JSON.stringify({ message: 'Unauthorized' }), 'application/json'],
+    ['jwt', 401, JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }), 'application/json'],
   ];
-  const failures = new Map<string, TalkRpcError>();
+  const failures = new Map<string, SnagRequestError>();
   for (const [id, status, body, contentType] of specs) {
     const fetchImpl: typeof fetch = async () => new Response(body, { status, headers: { 'content-type': contentType } });
     const client = createClient('https://example.invalid', 'sb_publishable_test', {
@@ -257,12 +263,18 @@ async function postgrestFailures(): Promise<Map<string, TalkRpcError>> {
     assert.ok(response.error);
     assert.equal(Object.hasOwn(response.error, 'status'), false);
     try {
-      throwTalkRpc(response);
+      throwSnagRpc(response);
       assert.fail('rpc should throw');
     } catch (err) {
-      assert.ok(err instanceof TalkRpcError);
-      if (status >= 500) assert.deepEqual(err.failure, { kind: 'http', status });
-      else assert.equal(err.failure.kind, 'permanent');
+      assert.ok(err instanceof SnagRequestError);
+      const classified = classifyTalkFailure(err);
+      if (status >= 500) {
+        assert.equal(isRetryableSnagFailure(err), true);
+        assert.deepEqual(classified, { kind: 'http', status });
+      } else {
+        assert.equal(isRetryableSnagFailure(err), false);
+        assert.equal(classified.kind, 'permanent');
+      }
       failures.set(id, err);
     }
   }
@@ -284,6 +296,39 @@ test('a duplicate signature is already saved, and an expired session wipes the q
   assert.deepEqual(calls, ['dup', 'next']);
   assert.equal((await queue.list()).length, 0);
   assert.equal((await queue.listNotices()).some((row) => row.id === 'reject:dup'), false);
+
+  const duplicateBody = JSON.stringify({
+    code: '23505',
+    details: null,
+    hint: null,
+    message: 'duplicate key value violates unique constraint "site_talk_signatures_version_id_person_id_signature_role_key"',
+  });
+  const client = createClient('https://example.invalid', 'sb_publishable_test', {
+    global: {
+      fetch: async () => new Response(duplicateBody, { status: 409, headers: { 'content-type': 'application/json' } }),
+    },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const response = await client.rpc('sign_site_talk', { p_talk_id: '00000000-0000-4000-8000-000000000001' });
+  assert.equal(response.status, 409);
+  assert.equal(Object.hasOwn(response.error ?? {}, 'status'), false);
+  let thrown: unknown;
+  try {
+    throwSnagRpc(response);
+  } catch (err) {
+    thrown = err;
+  }
+  assert.equal(classifyTalkFailure(thrown).kind, 'duplicate');
+  await queue.put(queued('dup-http', 'signer-3', 'talk-1', '2026-10-22T07:01:30.000Z'));
+  await queue.put(queued('after-dup', 'signer-4', 'talk-2', '2026-10-22T07:01:40.000Z'));
+  const httpCalls: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    httpCalls.push(row.localId);
+    if (row.localId === 'dup-http') throw thrown;
+  });
+  assert.deepEqual(httpCalls, ['dup-http', 'after-dup']);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).some((row) => row.id === 'reject:dup-http'), false);
 
   await queue.put(queued('old', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
   await queue.put(queued('later', 'signer-2', 'talk-9', '2026-10-22T07:02:00.000Z'));
