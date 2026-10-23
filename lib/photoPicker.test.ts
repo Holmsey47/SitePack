@@ -20,7 +20,13 @@ test('the shared picker offers take photo and the gallery, and every photo slot 
   assert.match(picker, /Linking\.openSettings/);
   assert.match(picker, /minHeight=\{48\}/);
   assert.match(picker, /preparePhoto/);
+  const fromUri = picker.slice(picker.indexOf('async function fromUri'), picker.indexOf('async function fromBlob'));
+  assert.match(fromUri, /await preparePhoto\(\{ uri \}\)/);
+  const denied = picker.slice(picker.indexOf('{cameraDenied ?'), picker.indexOf('{full ?'));
+  assert.match(denied, /\{CAMERA_OFF\}/);
+  assert.match(picker, /const CAMERA_OFF = 'The camera is off for SitePack\. Turn it on in the phone settings, then try again\.'/);
   const take = picker.slice(picker.indexOf('async function takePhoto'), picker.indexOf('async function chooseGallery'));
+  assert.match(take, /if \(!permission\.granted\) \{\s*setCameraDenied\(true\);/);
   const gallery = picker.slice(picker.indexOf('async function chooseGallery'), picker.indexOf('function onWebFiles'));
   assert.ok(take.indexOf('await fromUri') < take.indexOf('onAdd'));
   assert.ok(gallery.indexOf('await fromUri') < gallery.indexOf('onAdd'));
@@ -39,7 +45,20 @@ test('the shared picker offers take photo and the gallery, and every photo slot 
   const reasonAt = detail.indexOf('nativeID="mark-fixed-reason"');
   const buttonAt = detail.indexOf('label="Mark fixed"');
   assert.ok(reasonAt > 0 && buttonAt > reasonAt);
+  const besideButton = detail.slice(reasonAt, buttonAt);
+  assert.match(besideButton, /\{markFixedReason\}/);
+  assert.match(besideButton, /nativeID="mark-fixed-error"/);
+  assert.match(besideButton, /\{fixError\}/);
+  const onFix = detail.slice(detail.indexOf('async function onFix'), detail.indexOf('if (!loaded)'));
+  assert.match(onFix, /setFixError\(snagError\(/);
+  assert.doesNotMatch(onFix, /setError\(snagError\(/);
+  assert.match(detail, /<ErrorText>\{error\}<\/ErrorText>/);
   assert.doesNotMatch(detail, /disabled=\{afterPhotos\.length < 1\}/);
+
+  for (const site of [CALL_SITES[0], CALL_SITES[2]]) {
+    const raise = fs.readFileSync(site, 'utf8');
+    assert.match(raise, /title=\{photos\.length === 0 \? 'Add photo' : `Add photo \(\$\{photos\.length\} of 10\)`\}/);
+  }
 
   const hits: string[] = [];
   function walk(dir: string) {

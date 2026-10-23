@@ -125,7 +125,13 @@ export default function NewSnagScreen() {
             </Pressable>
           </View>
         ))}
-        <PhotoPicker count={photos.length} multiple onAdd={addPhotos} onError={setError} />
+        <PhotoPicker
+          count={photos.length}
+          multiple
+          title={photos.length === 0 ? 'Add photo' : `Add photo (${photos.length} of 10)`}
+          onAdd={addPhotos}
+          onError={setError}
+        />
       </View>
       <ErrorText>{error}</ErrorText>
       <Button label={control.label} minHeight={56} disabled={!control.enabled} onPress={() => void onSave()} />

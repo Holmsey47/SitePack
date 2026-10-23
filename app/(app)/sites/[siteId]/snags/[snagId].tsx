@@ -19,6 +19,7 @@ export default function SnagDetailScreen() {
   const { person } = useAuth();
   const [detail, setDetail] = useState<SnagDetail | null>(null);
   const [error, setError] = useState('');
+  const [fixError, setFixError] = useState('');
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -66,13 +67,11 @@ export default function SnagDetailScreen() {
       saving: busy,
       signOffPending: signQueued,
     });
-    if (blocked) {
-      setError(blocked);
-      return;
-    }
+    if (blocked) return;
     if (!person?.auth_user_id) return;
     setBusy(true);
     setError('');
+    setFixError('');
     const fixedAt = new Date().toISOString();
     const item = {
       kind: 'fix' as const,
@@ -95,7 +94,7 @@ export default function SnagDetailScreen() {
       await load();
     } catch (err) {
       setNotice(SAVED_ON_PHONE);
-      setError(snagError(err instanceof Error ? err.message : 'unknown'));
+      setFixError(snagError(err instanceof Error ? err.message : 'unknown'));
     } finally {
       setBusy(false);
     }
@@ -193,6 +192,11 @@ export default function SnagDetailScreen() {
           {markFixedReason ? (
             <Text nativeID="mark-fixed-reason" style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
               {markFixedReason}
+            </Text>
+          ) : null}
+          {fixError ? (
+            <Text nativeID="mark-fixed-error" style={{ color: theme.danger, fontSize: 16, fontWeight: '800' }}>
+              {fixError}
             </Text>
           ) : null}
           <Button

@@ -3,6 +3,10 @@ import test from 'node:test';
 import { fittedSize, jpegHasExifGps, PHOTO_MAX_BYTES, PHOTO_MAX_EDGE, stripJpegExif } from './photoBytes.ts';
 import { preparePhoto } from './photoPrep.ts';
 
+test('the upload cap is 1.5 MiB', () => {
+  assert.equal(PHOTO_MAX_BYTES, 1_572_864);
+});
+
 test('photos fit inside 2000px', () => {
   assert.deepEqual(fittedSize(4000, 3000), { width: 2000, height: 1500 });
   assert.deepEqual(fittedSize(800, 600), { width: 800, height: 600 });
