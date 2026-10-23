@@ -1,8 +1,9 @@
 import { snagNumber } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine } from '@/lib/snagWording';
-import { anyNeedsUnicode, embedBodyFonts } from '@/lib/pdfFonts';
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -89,19 +90,24 @@ export function snagPhotoMissing(index: number, total: number, kind: 'before' | 
   return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
 }
 
-function pdfText(value: string, face?: { name: string }): string {
-  const mapped = value
+function pdfFontBytes(encoded: string): Uint8Array {
+  const binary = globalThis.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/** Keep letters, including accents. A pound sign is not part of a snag report. */
+function pdfText(value: string): string {
+  return value
+    .replace(/£/g, '')
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"');
-  if (face && !/Helvetica/i.test(face.name)) {
-    return mapped.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
-  }
-  return mapped.replace(/[^\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, '');
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
-  const words = pdfText(text, face).split(/\s+/).filter(Boolean);
+  const words = pdfText(text).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = '';
   for (const word of words.length > 0 ? words : ['']) {
@@ -192,28 +198,10 @@ async function drawReport(
   options: { disclaimer: boolean; bottom: number; title: string; signoff?: SnagSignoffPdfInput }
 ): Promise<{ bytes: Uint8Array; trace: SnagPdfTrace[] }> {
   const doc = await PDFDocument.create();
-  doc.setTitle(pdfText(input.reportId));
-  const unicode = anyNeedsUnicode([
-    input.reportId,
-    input.companyName,
-    input.siteName,
-    input.filterLabel,
-    ...input.snags.flatMap((snag) => [
-      snag.note,
-      snag.levelArea,
-      snag.tradeLabel,
-      snag.raisedByName,
-      snag.signature?.signerName,
-      snag.signature?.signerRole,
-      snag.signature?.signerCompany,
-    ]),
-    options.signoff?.signerName,
-    options.signoff?.signerRole,
-    options.signoff?.signerCompany,
-    options.signoff?.confirmationText,
-    ...(options.signoff?.outstanding.flatMap((row) => [row.note, row.levelArea]) ?? []),
-  ]);
-  const { regular: font, bold } = await embedBodyFonts(doc, unicode);
+  doc.registerFontkit(fontkit);
+  doc.setTitle(input.reportId);
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
   const trace: SnagPdfTrace[] = [];
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = TOP;
@@ -238,16 +226,6 @@ async function drawReport(
       y -= line.size + 4;
       if (line.mark) mark(line.mark, snagSeq === undefined ? { baseline } : { snagSeq, baseline });
     }
-  }
-
-  /** Draw a block whole. When it does not fit, start a page and then run `onPage`. */
-  function paintFitted(lines: LineSpec[], onPage?: () => void) {
-    if (lines.length === 0) return;
-    if (y - linesHeight(lines) < bottom) {
-      newPage();
-      onPage?.();
-    }
-    paint(lines);
   }
 
   function drawWrapped(text: string, size: number, weight: 'bold' | 'regular', markKind?: SnagPdfTrace['kind'], snagSeq?: number) {
@@ -294,7 +272,7 @@ async function drawReport(
       const imageTop = top - (height - itemH);
       page.drawImage(item.image, { x, y: imageTop - itemH, width, height: itemH });
       const captionBaseline = imageTop - itemH - 12;
-      page.drawText(pdfText(item.caption, bold), { x, y: captionBaseline, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
+      page.drawText(pdfText(item.caption), { x, y: captionBaseline, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
       mark('photo', { snagSeq, width, pair, baseline: captionBaseline });
     });
     y = top - height - captionH - 4;
@@ -385,16 +363,48 @@ async function drawReport(
     return image.height * scale + 8;
   }
 
-  /** Height of the signer block kept with the last photo. The outstanding list flows after it. */
-  function signerBlockHeight(): number {
-    return linesHeight(signerLines) + signatureImageHeight(signoffImage);
+  const disclaimerLines = options.disclaimer
+    ? expanded([{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }], font, bold)
+    : [];
+  const continuedLines = expanded(
+    [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
+    font,
+    bold
+  );
+  const closingH = linesHeight(signerLines) + signatureImageHeight(signoffImage) + linesHeight(disclaimerLines);
+  const outstandingItems = outstanding?.items ?? [];
+  const rowsHeight = (rows: LineSpec[][]) => rows.reduce((sum, row) => sum + linesHeight(row), 0);
+  const outstandingHeadingH = outstanding ? linesHeight(outstanding.heading) : 0;
+  const pageBudget = TOP - bottom;
+  const wholeFitsPage = Boolean(
+    outstanding && outstandingHeadingH + rowsHeight(outstandingItems) + closingH <= pageBudget
+  );
+  // A short list stays with the last photo, so a one-snag sign-off remains one page.
+  // A long list starts after the photos; its last rows share the signer page.
+  const photoTail =
+    options.signoff && outstanding && wholeFitsPage
+      ? 10 + outstandingHeadingH + rowsHeight(outstandingItems) + closingH
+      : 0;
+
+  function paintSignoffClose() {
+    paint(signerLines);
+    if (signoffImage) {
+      const h = signatureImageHeight(signoffImage) - 8;
+      const scale = h / signoffImage.height;
+      const w = signoffImage.width * scale;
+      const imageBottom = y - h;
+      page.drawImage(signoffImage, { x: MARGIN, y: imageBottom, width: w, height: h });
+      y -= h + 8;
+      mark('signature', { baseline: imageBottom });
+    }
+    if (disclaimerLines.length > 0) paint(disclaimerLines);
   }
 
   for (const snag of input.snags) {
     const detail = expanded(detailLines(snag), font, bold);
     const visuals = await visualsFor(snag);
     const reserve = snag.signature ? 6 * 16 + (snag.signature.signaturePng ? 80 : 0) + 16 : 0;
-    const tail = snag === input.snags[input.snags.length - 1] && options.signoff ? 10 + signerBlockHeight() : 0;
+    const tail = snag === input.snags[input.snags.length - 1] ? photoTail : 0;
     const detailH = linesHeight(detail);
     const hold = visuals.length <= 1 ? reserve + tail : 0;
     const available = y - detailH - 8 - bottom - hold;
@@ -455,47 +465,52 @@ async function drawReport(
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
 
   if (options.signoff && outstanding) {
-    const body = signerBlockHeight();
-    const lastSnag = input.snags[input.snags.length - 1];
-    const keptWithPhoto = lastSnag
-      ? trace.some(
-          (item) =>
-            item.page === pageNo &&
-            item.snagSeq === lastSnag.snagSeq &&
-            (item.kind === 'photo' || item.kind === 'missing')
-        )
-      : false;
-    if (!keptWithPhoto && y - body < bottom) newPage();
-    paint(signerLines);
-    if (signoffImage) {
-      const h = signatureImageHeight(signoffImage) - 8;
-      const scale = h / signoffImage.height;
-      const w = signoffImage.width * scale;
-      const imageBottom = y - h;
-      page.drawImage(signoffImage, { x: MARGIN, y: imageBottom, width: w, height: h });
-      y -= h + 8;
-      mark('signature', { baseline: imageBottom });
-    }
-    let started = false;
-    const continued = expanded(
-      [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
-      font,
-      bold
-    );
-    paintFitted(outstanding.heading);
-    started = true;
-    for (const item of outstanding.items) {
-      paintFitted(item, () => {
-        if (started) paint(continued);
-      });
-    }
-    if (options.disclaimer) {
-      const disclaimer = expanded(
-        [{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }],
-        font,
-        bold
-      );
-      paintFitted(disclaimer);
+    const ensure = (height: number, onPage: () => void) => {
+      if (y - height < bottom) {
+        newPage();
+        onPage();
+      }
+    };
+    if (wholeFitsPage) {
+      const blockH = outstandingHeadingH + rowsHeight(outstandingItems) + closingH;
+      if (y - blockH < bottom) newPage();
+      paint(outstanding.heading);
+      for (const item of outstandingItems) paint(item);
+      paintSignoffClose();
+    } else {
+      let used = linesHeight(continuedLines) + closingH;
+      let keep = 0;
+      for (let index = outstandingItems.length - 1; index >= 0; index -= 1) {
+        const height = linesHeight(outstandingItems[index] ?? []);
+        if (used + height > pageBudget) break;
+        used += height;
+        keep += 1;
+      }
+      if (keep < 1 && outstandingItems.length > 0) keep = 1;
+      const prefix = outstandingItems.slice(0, outstandingItems.length - keep);
+      const suffix = outstandingItems.slice(outstandingItems.length - keep);
+      if (prefix.length > 0) {
+        ensure(outstandingHeadingH, () => undefined);
+        paint(outstanding.heading);
+        for (const item of prefix) {
+          ensure(linesHeight(item), () => {
+            paint(continuedLines);
+          });
+          paint(item);
+        }
+      }
+      const suffixHead = prefix.length > 0 ? continuedLines : outstanding.heading;
+      const suffixH = linesHeight(suffixHead) + rowsHeight(suffix) + closingH;
+      const headingAlreadyHere =
+        prefix.length > 0 && trace.some((item) => item.page === pageNo && item.kind === 'outstanding');
+      if (y - suffixH < bottom) {
+        newPage();
+        paint(suffixHead);
+      } else if (!headingAlreadyHere) {
+        paint(suffixHead);
+      }
+      for (const item of suffix) paint(item);
+      paintSignoffClose();
     }
   }
 
@@ -572,13 +587,13 @@ function drawSheetFooter(sheet: PDFPage, reportId: string, company: string, page
 }
 
 function footerLabel(reportId: string, company: string, page: number, total: number, font: Face): string {
-  let name = pdfText(company, font);
-  const tail = ` · page ${page} of ${total}`;
-  const head = `${pdfText(reportId, font)} · `;
-  while (name.length > 4 && font.widthOfTextAtSize(head + name + tail, 9) > CONTENT_W) {
+  let name = pdfText(company);
+  const reference = pdfText(reportId);
+  const tail = ` · ${reference} · Page ${page} of ${total}`;
+  while (name.length > 4 && font.widthOfTextAtSize(name + tail, 9) > CONTENT_W) {
     name = name.slice(0, -2);
   }
-  return `${head}${name}${tail}`;
+  return `${name}${tail}`;
 }
 
 export function signatureStaysWithSnag(trace: SnagPdfTrace[], snagSeq: number): boolean {

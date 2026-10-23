@@ -299,7 +299,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
     }
     if (row.signature) {
       const signoffId = newId();
-      const confirmation = snagConfirmation(row.signature.company, row.signature.kind);
+      const confirmation = snagConfirmation(row.signature.company, row.signature.kind, 1);
       const photoPaths = bucket.photos.filter((photo) => photo.snag_id === id).map((photo) => photo.storage_path);
       bucket.signoffs.push({
         id: signoffId,
@@ -626,7 +626,7 @@ export function fixtureSignOffSnags(
   if (fixed.length < 1) throw new Error('closed');
   const signedAt = deviceTime(input.signedAt);
   const received = new Date().toISOString();
-  const confirmation = snagConfirmation(company, kind);
+  const confirmation = snagConfirmation(company, kind, fixed.length);
   const covered = fixed.map((row) => snapshot(bucket, row, 'Fixed'));
   const outstanding = open.map((row) => ({
     snag_id: row.id,
@@ -701,9 +701,11 @@ export function fixtureUploadSnagPhoto(
   companyId: string,
   siteId: string,
   bytes: Uint8Array,
-  contentType: string
+  contentType: string,
+  snagId?: string
 ): { storagePath: string; fileSizeBytes: number; contentType: string } {
-  const storagePath = `${companyId}/${siteId}/snags/${newId()}`;
+  const file = snagId ? `${snagId}/${newId()}` : newId();
+  const storagePath = `${companyId}/${siteId}/snags/${file}`;
   let binary = '';
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
   const base64 = typeof Buffer !== 'undefined' ? Buffer.from(bytes).toString('base64') : btoa(binary);
