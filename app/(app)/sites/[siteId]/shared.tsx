@@ -91,7 +91,7 @@ export default function SharedSiteScreen() {
   async function openDrawing(drawingId: string) {
     setNotice('');
     try {
-      const signed = await withShareRetry(() => repo.sharedDrawingUrl(drawingId));
+      const signed = await withShareRetry(() => repo.sharedDrawingUrl(siteId, drawingId));
       await Linking.openURL(signed.url);
     } catch (error) {
       setNotice(shareFailureNotice(classifyShareFailure(error)));

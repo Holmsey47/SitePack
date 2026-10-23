@@ -8,6 +8,7 @@ import {
   joinCodeFromPath,
   peekStagedJoinCode,
   peekStagedResetCode,
+  peekStagedShareCode,
   pkceCodeFromUrl,
   resetAppLinkCapture,
   resetCodeFromPath,
@@ -76,6 +77,12 @@ test('the router path keeps neither the code nor the tokens', () => {
   const resetPath = captureIncomingLink('https://sitepack-preview.vercel.app/reset/K7QM4XPR');
   assert.equal(resetPath, '/reset');
   assert.equal(peekStagedResetCode(), 'K7QM4XPR');
+
+  resetAppLinkCapture();
+  const sharePath = captureIncomingLink('https://sitepack-preview.vercel.app/share/K7QM4XPR');
+  assert.equal(sharePath, '/share');
+  assert.equal(peekStagedShareCode(), 'K7QM4XPR');
+  assert.equal(sharePath.includes('K7QM4XPR'), false);
 
   resetAppLinkCapture();
   const tokenUrl =

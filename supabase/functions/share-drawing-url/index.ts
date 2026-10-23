@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     return json({ error: 'not_authorized' }, 401);
   }
 
-  let body: { drawing_id?: string };
+  let body: { drawing_id?: string; site_id?: string };
   try {
     body = await req.json();
   } catch {
@@ -23,7 +23,10 @@ Deno.serve(async (req) => {
   }
 
   const user = userClient(req);
-  const checked = await user.rpc('shared_drawing_url', { p_drawing_id: body.drawing_id });
+  const checked = await user.rpc('shared_drawing_url', {
+    p_site_id: body.site_id,
+    p_drawing_id: body.drawing_id,
+  });
   if (checked.error) {
     const codeName = knownCode(checked.error, 'not_shared');
     const status = codeName === 'not_authorized' ? 403 : 400;

@@ -1,7 +1,10 @@
 import {
+  fixtureApproveSiteShare,
   fixtureCreateSiteShare,
+  fixtureDeclineSiteShare,
   fixtureListSiteShares,
   fixtureMySharedSites,
+  fixtureMyShareNotices,
   fixtureRedeemSiteShare,
   fixtureRevokeSiteShare,
   fixtureRevokeSiteShareInvite,
@@ -2040,8 +2043,27 @@ export const fixtureRepo: SitePackRepo = {
   },
 
   async revokeSiteShare(shareId) {
-    if (meOrThrow().role !== 'owner') throw new Error('not_authorized');
+    const person = meOrThrow();
+    if (person.role !== 'owner' && person.role !== 'cm') throw new Error('not_authorized');
     fixtureRevokeSiteShare(shareId);
+  },
+
+  async approveSiteShare(shareId) {
+    const person = meOrThrow();
+    if (person.role !== 'owner' && person.role !== 'cm') throw new Error('not_authorized');
+    fixtureApproveSiteShare(shareId);
+  },
+
+  async declineSiteShare(shareId) {
+    const person = meOrThrow();
+    if (person.role !== 'owner' && person.role !== 'cm') throw new Error('not_authorized');
+    fixtureDeclineSiteShare(shareId);
+  },
+
+  async myShareNotices() {
+    const person = meOrThrow();
+    if (person.role !== 'owner' && person.role !== 'cm') return [];
+    return fixtureMyShareNotices();
   },
 
   async revokeSiteShareInvite(inviteId) {
@@ -2069,7 +2091,7 @@ export const fixtureRepo: SitePackRepo = {
     return fixtureSharedDrawings(siteId);
   },
 
-  async sharedDrawingUrl() {
+  async sharedDrawingUrl(_siteId, _drawingId) {
     meOrThrow();
     return fixtureSharedDrawingUrl();
   },

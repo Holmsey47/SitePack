@@ -67,6 +67,7 @@ import {
   throwShareFunction,
   type ShareDrawingUrl,
   type ShareInviteCreated,
+  type ShareNotice,
   type ShareSections,
   type SharedDrawing,
   type SharedInductionRow,
@@ -1344,8 +1345,21 @@ export const supabaseRepo: SitePackRepo = {
       share_id: string;
       site_id: string;
       site_name: string;
+      status?: string;
     };
-    return { shareId: row.share_id, siteId: row.site_id, siteName: row.site_name };
+    return { shareId: row.share_id, siteId: row.site_id, siteName: row.site_name, status: row.status ?? 'pending' };
+  },
+
+  async approveSiteShare(shareId) {
+    await shareRpc('approve_site_share', { p_share_id: shareId });
+  },
+
+  async declineSiteShare(shareId) {
+    await shareRpc('decline_site_share', { p_share_id: shareId });
+  },
+
+  async myShareNotices() {
+    return shareRpc<ShareNotice[]>('my_share_notices', {});
   },
 
   async mySharedSites() {
@@ -1360,8 +1374,8 @@ export const supabaseRepo: SitePackRepo = {
     return shareRpc<SharedDrawing[]>('shared_drawings', { p_site_id: siteId });
   },
 
-  async sharedDrawingUrl(drawingId): Promise<ShareDrawingUrl> {
-    return (await invokeShareFunction('share-drawing-url', { drawing_id: drawingId })) as ShareDrawingUrl;
+  async sharedDrawingUrl(siteId, drawingId): Promise<ShareDrawingUrl> {
+    return (await invokeShareFunction('share-drawing-url', { site_id: siteId, drawing_id: drawingId })) as ShareDrawingUrl;
   },
 
   async sharedVariations(siteId) {

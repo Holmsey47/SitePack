@@ -1,4 +1,4 @@
-import { hashCode, json, knownCode, pepperOrNull, preflight, userClient } from '../_shared/joinHttp.ts';
+import { clientIp, hashCode, json, knownCode, pepperOrNull, preflight, userClient } from '../_shared/joinHttp.ts';
 
 /**
  * Logged-in redeem. verify_jwt is true.
@@ -29,7 +29,10 @@ Deno.serve(async (req) => {
   if (!codeHash) return json({ error: 'invalid_input' }, 400);
 
   const user = userClient(req);
-  const redeemed = await user.rpc('redeem_site_share', { p_code_hash: codeHash });
+  const redeemed = await user.rpc('redeem_site_share', {
+    p_code_hash: codeHash,
+    p_client_ip: clientIp(req),
+  });
   if (redeemed.error) {
     const codeName = knownCode(redeemed.error, 'invalid_input');
     const status = codeName === 'not_authorized' ? 403 : 400;

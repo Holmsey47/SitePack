@@ -50,6 +50,7 @@ import type {
 import type {
   ShareDrawingUrl,
   ShareInviteCreated,
+  ShareNotice,
   ShareSections,
   SharedDrawing,
   SharedInductionRow,
@@ -209,11 +210,14 @@ export type SitePackRepo = {
   setSiteShareSections(shareId: string, sections: ShareSections): Promise<void>;
   revokeSiteShare(shareId: string): Promise<void>;
   revokeSiteShareInvite(inviteId: string): Promise<void>;
-  redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string }>;
+  redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string; status: string }>;
+  approveSiteShare(shareId: string): Promise<void>;
+  declineSiteShare(shareId: string): Promise<void>;
+  myShareNotices(): Promise<ShareNotice[]>;
   mySharedSites(): Promise<SharedSiteCard[]>;
   sharedSiteView(siteId: string): Promise<SharedSiteView>;
   sharedDrawings(siteId: string): Promise<SharedDrawing[]>;
-  sharedDrawingUrl(drawingId: string): Promise<ShareDrawingUrl>;
+  sharedDrawingUrl(siteId: string, drawingId: string): Promise<ShareDrawingUrl>;
   sharedVariations(siteId: string): Promise<SharedVariation[]>;
   sharedSnags(siteId: string): Promise<SharedSnag[]>;
   sharedSignInRegister(siteId: string): Promise<SharedSignInRow[]>;

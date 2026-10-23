@@ -7,7 +7,7 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing }
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
-import { rememberSharedSiteIds, type SharedSiteCard } from '@/data/sharing';
+import { pendingShareRequestLabel, rememberSharedSiteIds, shareRenameNote, type ShareNotice, type SharedSiteCard } from '@/data/sharing';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { forgetSharedSite } from '@/lib/forgetShare';
@@ -42,6 +42,7 @@ export default function SitesScreen() {
   const [notices, setNotices] = useState<SeenNotice[]>([]);
   const [talkBadges, setTalkBadges] = useState<TalkBadge[]>([]);
   const [sharedSites, setSharedSites] = useState<SharedSiteCard[]>([]);
+  const [shareNotices, setShareNotices] = useState<ShareNotice[]>([]);
   const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
 
   useFocusEffect(
@@ -110,6 +111,27 @@ export default function SitesScreen() {
         active = false;
       };
     }, [person])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person || !manager) {
+        setShareNotices([]);
+        return;
+      }
+      let active = true;
+      repo
+        .myShareNotices()
+        .then((next) => {
+          if (active) setShareNotices(next);
+        })
+        .catch(() => {
+          if (active) setShareNotices([]);
+        });
+      return () => {
+        active = false;
+      };
+    }, [manager, person])
   );
 
   useFocusEffect(
@@ -294,6 +316,17 @@ export default function SitesScreen() {
       {resetNotice}
       <FixtureOfflineSwitch />
       <SharedWithCompany rows={sharedSites} onOpen={(id) => router.push(`/sites/${id}/shared`)} />
+      {shareNotices.map((row) => (
+        <Card key={row.share_id}>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{pendingShareRequestLabel(row)}</Text>
+          {shareRenameNote(row) ? <Muted>{shareRenameNote(row)}</Muted> : null}
+          <Button
+            label="Review"
+            minHeight={56}
+            onPress={() => router.push(`/sites/${row.site_id}/share`)}
+          />
+        </Card>
+      ))}
       {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>

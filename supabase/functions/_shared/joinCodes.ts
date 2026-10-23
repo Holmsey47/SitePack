@@ -36,9 +36,10 @@ export function isJoinCodeShape(input: string): boolean {
 }
 
 /** Where to leave the address bar after reading a code from the path. */
-export function publicCodePath(pathname: string): '/join' | '/reset' | null {
+export function publicCodePath(pathname: string): '/join' | '/reset' | '/share' | null {
   if (pathname.startsWith('/join/')) return '/join';
   if (pathname.startsWith('/reset/')) return '/reset';
+  if (pathname.startsWith('/share/')) return '/share';
   return null;
 }
 

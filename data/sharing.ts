@@ -41,13 +41,36 @@ export type ShareInviteRow = {
   sections: ShareSections;
 };
 
+export type ShareStatus = 'pending' | 'approved' | 'declined';
+
 export type SiteShareRow = {
   id: string;
   guest_company_id: string;
   guest_company_name: string;
+  current_company_name: string;
+  renamed: boolean;
+  redeemer_name: string;
+  redeemer_email: string;
   redeemed_at: string;
+  status: ShareStatus;
+  approved_at: string | null;
+  approved_by_name: string | null;
+  declined_at: string | null;
   revoked_at: string | null;
+  site_name: string;
   sections: ShareSections;
+};
+
+export type ShareNotice = {
+  share_id: string;
+  site_id: string;
+  site_name: string;
+  guest_company_name: string;
+  current_company_name: string;
+  renamed: boolean;
+  redeemer_name: string;
+  redeemer_email: string;
+  redeemed_at: string;
 };
 
 export type SiteShareList = {
@@ -156,32 +179,48 @@ export type ShareFailure =
   | { kind: 'business'; code: string };
 
 const NOTICES: Record<string, string> = {
-  other_firm: 'That code is for a different company.',
-  code_expired: 'That code has expired.',
-  code_used: 'That code has already been used.',
-  code_revoked: 'That code was revoked.',
+  other_firm: 'That code could not be used.',
+  code_expired: 'That code could not be used.',
+  code_used: 'That code could not be used.',
+  code_revoked: 'That code could not be used.',
   share_revoked: 'Access removed. This site is no longer shared with your company.',
   own_firm: 'Share with the main contractor, not your company.',
-  already_shared: 'That company already has this site.',
+  already_shared: 'That code could not be used.',
   section_off: 'That section is not shared.',
   not_shared: 'This site is not shared with your company.',
   not_current: 'That drawing is not the current revision.',
   invalid_path: 'That file cannot be opened.',
-  invalid_input: 'Check the company name and try again.',
+  invalid_input: 'That code could not be used.',
   not_authorized: 'You can’t do that.',
   not_allowed: 'Ask an owner or contracts manager to open this code.',
   too_many_attempts: 'Too many tries. Wait an hour and try again.',
   code_in_use: 'Try the share again.',
 };
 
-/** Trim and collapse spaces. Case stays, so "FIRM y" is not "Firm Y". */
+/** Trim, collapse spaces, then lower-case. "  FIRM   y " matches Firm Y. */
 export function shareCompanyKey(name: string): string {
-  return name.trim().replace(/\s+/g, ' ');
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /** Unused codes the owner can still cancel, including ones that have expired. */
 export function pendingShareInvites<T extends { revoked_at: string | null; uses: number }>(invites: readonly T[]): T[] {
   return invites.filter((row) => !row.revoked_at && row.uses < 1);
+}
+
+/** The sentence on a pending-approval card. The firm name is the one pinned at redeem. */
+export function pendingShareRequestLabel(row: {
+  guest_company_name: string;
+  redeemer_name: string;
+  redeemer_email: string;
+  site_name: string;
+}): string {
+  return `${row.guest_company_name} (${row.redeemer_name}, ${row.redeemer_email}) wants to see ${row.site_name}`;
+}
+
+/** Shown when the firm has changed its name since the code was redeemed. */
+export function shareRenameNote(row: { renamed: boolean; current_company_name: string }): string | null {
+  if (!row.renamed) return null;
+  return `Now called ${row.current_company_name}. The name above was pinned when they redeemed.`;
 }
 
 /** Pending card status. An unused code past its expiry reads Expired. */

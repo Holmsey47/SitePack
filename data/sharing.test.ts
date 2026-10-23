@@ -10,7 +10,9 @@ import {
   rememberSharedSiteIds,
   pendingInviteLabel,
   pendingShareInvites,
+  pendingShareRequestLabel,
   shareCompanyKey,
+  shareRenameNote,
   shareFailureNotice,
   shareFailureRetries,
   shareInviteText,
@@ -42,10 +44,11 @@ test('sections start off and the company placeholder is your company', () => {
   assert.equal(SHARE_COMPANY_PLACEHOLDER.includes('[company]'), false);
 });
 
-test('a company key collapses spaces and keeps the typed case', () => {
-  assert.equal(shareCompanyKey('  Firm   Y '), 'Firm Y');
-  assert.equal(shareCompanyKey('  FIRM   y '), 'FIRM y');
-  assert.notEqual(shareCompanyKey('  FIRM   y '), shareCompanyKey('Firm Y'));
+test('a company key collapses spaces and lower-cases the name', () => {
+  assert.equal(shareCompanyKey('  Firm   Y '), 'firm y');
+  assert.equal(shareCompanyKey('  FIRM   y '), 'firm y');
+  assert.equal(shareCompanyKey('  FIRM   y '), shareCompanyKey('Firm Y'));
+  assert.notEqual(shareCompanyKey('Firm Y'), shareCompanyKey('Firm YY'));
   assert.notEqual(shareCompanyKey('Firm Y'), shareCompanyKey('Firm Z'));
 });
 
@@ -94,6 +97,15 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(share, /PENDING CODES/);
   assert.match(share, /pendingInviteLabel/);
   assert.match(share, /formatUkDateTime\(invite\.expires_at\)/);
+  assert.match(share, /pendingShareRequestLabel/);
+  assert.match(share, /WHO HAS ACCESS/);
+  assert.match(share, /label="Approve"/);
+  assert.match(share, /label="Decline"/);
+  assert.match(share, /minHeight=\{56\}/);
+  const openShare = fs.readFileSync('components/open-share-screen.tsx', 'utf8');
+  assert.match(openShare, /history\.replaceState/);
+  assert.match(openShare, /publicCodePath/);
+  assert.match(openShare, /router\.replace\('\/share'\)/);
   assert.match(shared, /key=\{row\.id\}/);
   assert.equal(shared.includes('${row.talk_id}-${row.person_name}'), false);
   assert.match(shared, /SIGN-IN/);
@@ -113,7 +125,10 @@ test('network, 408, 429, and 5xx retry, and a business code becomes a notice', a
   assert.deepEqual(revoked, { kind: 'business', code: 'share_revoked' });
   assert.equal(shareFailureRetries(revoked), false);
   assert.equal(shareFailureNotice(revoked), accessRemovedMessage());
-  assert.match(shareFailureNotice(classifyShareFailure(new Error('other_firm'))), /different company/);
+  const same = 'That code could not be used.';
+  for (const code of ['other_firm', 'code_used', 'code_expired', 'code_revoked', 'invalid_input', 'already_shared']) {
+    assert.equal(shareFailureNotice(classifyShareFailure(new Error(code))), same);
+  }
   assert.match(shareFailureNotice(classifyShareFailure(new Error('not_allowed'))), /owner or contracts manager/);
   assert.match(shareFailureNotice(classifyShareFailure(new Error('too_many_attempts'))), /Wait an hour/);
   assert.equal(shareFailureRetries(classifyShareFailure({ status: 400, message: 'bad' })), false);
@@ -130,6 +145,18 @@ test('network, 408, 429, and 5xx retry, and a business code becomes a notice', a
     () => withShareRetry(async () => Promise.reject(new Error('code_used'))),
     /code_used/
   );
+});
+
+test('a pending approval names the pinned firm and flags a later rename', () => {
+  const label = pendingShareRequestLabel({
+    guest_company_name: 'Firm Z',
+    redeemer_name: 'Owner Z',
+    redeemer_email: 'ownerz@firmz.test',
+    site_name: 'Plot 12 – Oak Estate',
+  });
+  assert.equal(label, 'Firm Z (Owner Z, ownerz@firmz.test) wants to see Plot 12 – Oak Estate');
+  assert.equal(shareRenameNote({ renamed: false, current_company_name: 'Firm Z' }), null);
+  assert.match(shareRenameNote({ renamed: true, current_company_name: 'Firm Z Renamed' }) ?? '', /Firm Z Renamed/);
 });
 
 test('a share link keeps the code and names a company', () => {

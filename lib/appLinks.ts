@@ -27,10 +27,12 @@ type ParsedLink = {
 
 let stagedJoin = '';
 let stagedReset = '';
+let stagedShare = '';
 
 export function resetAppLinkCapture(): void {
   stagedJoin = '';
   stagedReset = '';
+  stagedShare = '';
 }
 
 /** A leading `//` is still an in-app path. Collapse it to one slash before routing. */
@@ -64,7 +66,7 @@ export function parseAppLink(input: string): ParsedLink | null {
   }
 }
 
-function singleSegment(pathname: string, root: 'join' | 'reset'): string | null {
+function singleSegment(pathname: string, root: 'join' | 'reset' | 'share'): string | null {
   const match = new RegExp(`^/${root}/([^/?#]+)$`).exec(pathname);
   if (!match?.[1]) return null;
   try {
@@ -82,6 +84,11 @@ export function joinCodeFromPath(pathname: string): string | null {
 /** Code segment of `/reset/<code>`, or null. `/reset` alone has no code. */
 export function resetCodeFromPath(pathname: string): string | null {
   return singleSegment(pathname, 'reset');
+}
+
+/** Code segment of `/share/<code>`, or null. `/share` alone has no code. */
+export function shareCodeFromPath(pathname: string): string | null {
+  return singleSegment(pathname, 'share');
 }
 
 function tokensFromParams(params: URLSearchParams): AuthTokens | null {
@@ -140,6 +147,7 @@ export function routerPathFromLink(input: string): string {
   if (!parsed) return '/';
   if (joinCodeFromPath(parsed.pathname)) return '/join';
   if (resetCodeFromPath(parsed.pathname)) return '/reset';
+  if (shareCodeFromPath(parsed.pathname)) return '/share';
   return browserPathWithoutAuth(input) ?? '/';
 }
 
@@ -167,6 +175,18 @@ export function clearStagedResetCode(): void {
   stagedReset = '';
 }
 
+export function stageShareCode(code: string): void {
+  stagedShare = code;
+}
+
+export function peekStagedShareCode(): string {
+  return stagedShare;
+}
+
+export function clearStagedShareCode(): void {
+  stagedShare = '';
+}
+
 /** Native entry. Returns the path the router may keep. Session acceptance is lib/authLink.ts. */
 export function captureIncomingLink(input: string): string {
   const parsed = parseAppLink(input);
@@ -175,6 +195,8 @@ export function captureIncomingLink(input: string): string {
     if (join) stageJoinCode(join);
     const reset = resetCodeFromPath(parsed.pathname);
     if (reset) stageResetCode(reset);
+    const share = shareCodeFromPath(parsed.pathname);
+    if (share) stageShareCode(share);
   }
   const next = routerPathFromLink(input);
   if (/access_token|refresh_token/.test(next)) return '/';

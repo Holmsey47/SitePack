@@ -5,6 +5,7 @@ import {
   shareCompanyKey,
   type ShareInviteCreated,
   type ShareInviteRow,
+  type ShareNotice,
   type ShareSections,
   type SharedDrawing,
   type SharedInductionRow,
@@ -66,9 +67,54 @@ export function resetShareFixture() {
       siteId: IDS.oak,
       guest_company_id: '99999999-9999-4999-8999-9999999999c1',
       guest_company_name: 'Northbuild',
+      current_company_name: 'Northbuild',
+      renamed: false,
+      redeemer_name: 'Sam North',
+      redeemer_email: 'sam@northbuild.test',
       redeemed_at: '2026-10-22T09:00:00.000Z',
+      status: 'approved',
+      approved_at: '2026-10-22T10:00:00.000Z',
+      approved_by_name: 'Alex Owner',
+      declined_at: null,
       revoked_at: null,
+      site_name: 'Plot 12 – Oak Estate',
       sections: { ...SHARE_SECTION_DEFAULTS, drawings: true, variations: true, snags: true },
+    },
+    {
+      id: '99999999-9999-4999-8999-9999999999b5',
+      siteId: IDS.oak,
+      guest_company_id: '99999999-9999-4999-8999-9999999999c2',
+      guest_company_name: 'Firm Z',
+      current_company_name: 'Firm Z Renamed',
+      renamed: true,
+      redeemer_name: 'Owner Z',
+      redeemer_email: 'ownerz@firmz.test',
+      redeemed_at: '2026-10-23T08:00:00.000Z',
+      status: 'pending',
+      approved_at: null,
+      approved_by_name: null,
+      declined_at: null,
+      revoked_at: null,
+      site_name: 'Plot 12 – Oak Estate',
+      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
+    },
+    {
+      id: '99999999-9999-4999-8999-9999999999b6',
+      siteId: IDS.oak,
+      guest_company_id: '99999999-9999-4999-8999-9999999999c3',
+      guest_company_name: 'Westbuild',
+      current_company_name: 'Westbuild',
+      renamed: false,
+      redeemer_name: 'Pat West',
+      redeemer_email: 'pat@westbuild.test',
+      redeemed_at: '2026-10-23T08:05:00.000Z',
+      status: 'pending',
+      approved_at: null,
+      approved_by_name: null,
+      declined_at: null,
+      revoked_at: null,
+      site_name: 'Plot 12 – Oak Estate',
+      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
     },
   ];
 }
@@ -132,6 +178,39 @@ export function fixtureRevokeSiteShare(shareId: string) {
   const share = shares.find((row) => row.id === shareId);
   if (!share) throw new Error('not_authorized');
   share.revoked_at = new Date().toISOString();
+}
+
+export function fixtureApproveSiteShare(shareId: string) {
+  const share = shares.find((row) => row.id === shareId && !row.revoked_at);
+  if (!share || share.status === 'declined') throw new Error('not_authorized');
+  if (share.status === 'approved') return;
+  share.status = 'approved';
+  share.approved_at = new Date().toISOString();
+  share.approved_by_name = 'Alex Owner';
+}
+
+export function fixtureDeclineSiteShare(shareId: string) {
+  const share = shares.find((row) => row.id === shareId && !row.revoked_at);
+  if (!share || share.status === 'approved') throw new Error('not_authorized');
+  if (share.status === 'declined') return;
+  share.status = 'declined';
+  share.declined_at = new Date().toISOString();
+}
+
+export function fixtureMyShareNotices(): ShareNotice[] {
+  return shares
+    .filter((row) => row.status === 'pending' && !row.revoked_at)
+    .map((row) => ({
+      share_id: row.id,
+      site_id: row.siteId,
+      site_name: row.site_name,
+      guest_company_name: row.guest_company_name,
+      current_company_name: row.current_company_name,
+      renamed: row.renamed,
+      redeemer_name: row.redeemer_name,
+      redeemer_email: row.redeemer_email,
+      redeemed_at: row.redeemed_at,
+    }));
 }
 
 export function fixtureRevokeSiteShareInvite(inviteId: string) {
@@ -266,7 +345,12 @@ export function fixtureSharedInductions(siteId: string): SharedInductionRow[] {
   ];
 }
 
-export function fixtureRedeemSiteShare(code: string): { shareId: string; siteId: string; siteName: string } {
+export function fixtureRedeemSiteShare(code: string): { shareId: string; siteId: string; siteName: string; status: string } {
   if (!code.trim()) throw new Error('invalid_input');
-  return { shareId: '99999999-9999-4999-8999-9999999999d1', siteId: HARBOUR_SITE_ID, siteName: 'Harbour Point' };
+  return {
+    shareId: '99999999-9999-4999-8999-9999999999d1',
+    siteId: HARBOUR_SITE_ID,
+    siteName: 'Harbour Point',
+    status: 'pending',
+  };
 }
