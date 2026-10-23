@@ -49,7 +49,7 @@ export default function FolderScreen() {
     if (!siteId) return;
     const rows = await repo.listDrawings(siteId);
     setDrawings(rows);
-    const seen = await refreshDrawingSeen(manage).catch(() => null);
+    const seen = await refreshDrawingSeen(manage, person?.auth_user_id).catch(() => null);
     if (seen) {
       setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
       setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
@@ -58,7 +58,7 @@ export default function FolderScreen() {
     setSeenSummary(manage ? await loadSiteSeenSummary(siteId) : null);
     setLoaded(true);
     navigation.setOptions({ title: folderName });
-  }, [folderName, manage, navigation, siteId]);
+  }, [folderName, manage, navigation, person?.auth_user_id, siteId]);
 
   useFocusEffect(
     useCallback(() => {

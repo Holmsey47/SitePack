@@ -3,10 +3,12 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
+  canSeeVariationValue,
   canSetVariationValue,
   formatPounds,
   isVariationLocked,
   parsePounds,
+  variationAmountEditorOpen,
   variationError,
   variationNumber,
   variationPdfFilename,
@@ -15,6 +17,7 @@ import {
 } from '@/data/variations';
 import { formatUkDateTime } from '@/lib/format';
 import { buildVariationPdf } from '@/lib/variationPdf';
+import { variationConfirmation, variationHandoverSummary } from '@/lib/variationWording';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
 import { theme } from '@/lib/theme';
@@ -46,7 +49,8 @@ export default function VariationDetailScreen() {
   const [error, setError] = useState('');
   const [signing, setSigning] = useState(false);
   const [signerName, setSignerName] = useState('');
-  const [roleCompany, setRoleCompany] = useState('');
+  const [signerRole, setSignerRole] = useState('');
+  const [signerCompany, setSignerCompany] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -73,6 +77,7 @@ export default function VariationDetailScreen() {
   }, [load]);
 
   const manager = person ? canSetVariationValue(person.role) : false;
+  const seeValue = person ? canSeeVariationValue(person.role) : false;
   const current = detail?.current;
 
   async function onSign() {
@@ -80,7 +85,13 @@ export default function VariationDetailScreen() {
     setBusy(true);
     setError('');
     try {
-      await repo.signVariation(current.version_id, { signerName, roleCompany, signaturePng: signature });
+      await repo.signVariation(current.version_id, {
+        signerName,
+        role: signerRole,
+        company: signerCompany,
+        expectedPence: seeValue ? current.value_pence : null,
+        signaturePng: signature,
+      });
       setSigning(false);
       await load();
     } catch (err) {
@@ -121,10 +132,12 @@ export default function VariationDetailScreen() {
       description: current.description,
       levelArea: current.level_area,
       quantityText: current.quantity_text,
-      valuePence: current.value_pence,
+      valuePence: seeValue ? current.signature?.shown_value_pence ?? null : null,
       whenIso: current.signature?.signed_at ?? current.locked_at ?? current.created_at,
       signerName: current.signature?.signer_name ?? null,
-      signerRoleCompany: current.signature?.signer_role_company ?? null,
+      signerRole: current.signature?.signer_role ?? null,
+      signerCompany: current.signature?.signer_company ?? null,
+      confirmationText: current.signature?.confirmation_text || variationConfirmation(signerCompany, false),
       photos,
       signaturePng,
     });
@@ -211,7 +224,7 @@ export default function VariationDetailScreen() {
       {current.description ? <Muted>{current.description}</Muted> : null}
       {current.level_area ? <Muted>Level or area · {current.level_area}</Muted> : null}
       {current.quantity_text ? <Muted>Quantity or hours · {current.quantity_text}</Muted> : null}
-      {current.value_pence != null ? <Muted>Amount · {formatPounds(current.value_pence)}</Muted> : null}
+      {seeValue && current.value_pence != null ? <Muted>Amount · {formatPounds(current.value_pence)}</Muted> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {current.photos.map((photo) =>
           photo.signed_url ? (
@@ -226,8 +239,10 @@ export default function VariationDetailScreen() {
       </View>
       {current.signature ? (
         <View style={{ gap: 8 }}>
+          <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{current.signature.confirmation_text}</Text>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{current.signature.signer_name}</Text>
-          <Muted>{current.signature.signer_role_company}</Muted>
+          <Muted>{current.signature.signer_role}</Muted>
+          <Muted>{current.signature.signer_company}</Muted>
           <Muted>{formatUkDateTime(current.signature.signed_at)}</Muted>
           <Image
             source={{ uri: current.signature.signature_png }}
@@ -246,9 +261,9 @@ export default function VariationDetailScreen() {
           ))}
         </View>
       ) : null}
-      {!locked && manager ? (
+      {variationAmountEditorOpen(locked, manager, signing) ? (
         <View style={{ gap: 8 }}>
-          <Field label="Amount (optional)" value={amount} onChangeText={setAmount} placeholder="0.00" />
+          <Field label="£ ex VAT" value={amount} onChangeText={setAmount} placeholder="0.00" />
           <Button label="Save amount" variant="secondary" minHeight={48} loading={busy} onPress={() => void onValue()} />
         </View>
       ) : null}
@@ -259,20 +274,21 @@ export default function VariationDetailScreen() {
         <View style={{ gap: 8 }}>
           <Title>Hand the phone over</Title>
           <Muted>The site manager types their name and signs.</Muted>
+          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
+            {variationHandoverSummary(detail.vo_seq, current.title, seeValue ? current.value_pence : null, current.photos.length)}
+          </Text>
           <Field label="Name" value={signerName} onChangeText={setSignerName} autoCapitalize="words" maxLength={120} />
-          <Field
-            label="Role and company"
-            value={roleCompany}
-            onChangeText={setRoleCompany}
-            autoCapitalize="words"
-            maxLength={160}
-          />
-          <SignaturePad onChange={setSignature} />
+          <Field label="Role" value={signerRole} onChangeText={setSignerRole} autoCapitalize="words" maxLength={120} />
+          <Field label="Company" value={signerCompany} onChangeText={setSignerCompany} autoCapitalize="words" maxLength={160} />
+          <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+            {variationConfirmation(signerCompany, seeValue && current.value_pence != null)}
+          </Text>
+          <SignaturePad disabled={!signerCompany.trim()} onChange={setSignature} />
           <Button
             label="Sign and lock"
             minHeight={56}
             loading={busy}
-            disabled={!signerName.trim() || !roleCompany.trim() || !signature}
+            disabled={!signerName.trim() || !signerRole.trim() || !signerCompany.trim() || !signature}
             onPress={() => void onSign()}
           />
         </View>
@@ -296,6 +312,7 @@ export default function VariationDetailScreen() {
               }}
             />
           ) : null}
+          {manager ? (
           <Button
             label="Edit as new version"
             variant="secondary"
@@ -309,6 +326,7 @@ export default function VariationDetailScreen() {
                 .finally(() => setBusy(false));
             }}
           />
+          ) : null}
         </View>
       ) : null}
       {showPreview ? (

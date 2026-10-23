@@ -4,6 +4,7 @@ import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 import { solidPng, strokesToPngDataUrl, dataUrlBytes } from './signaturePng.ts';
 import { buildVariationPdf, fitPhoto, photoRowKind, variationPdfFilename } from './variationPdf.ts';
+import { variationConfirmation, variationLockLine } from './variationWording.ts';
 
 const ZIGZAG = [
   0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
@@ -349,7 +350,9 @@ test('real-size photos keep their shape, the sign time is UK, and every page is 
     valuePence: 18000,
     whenIso: '2026-10-22T22:14:00.000Z',
     signerName: 'Dave Moran',
-    signerRoleCompany: 'Site manager, Northbuild',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    confirmationText: variationConfirmation('Northbuild', true),
     photos: [
       { bytes: wide, contentType: 'image/jpeg' },
       { bytes: tall, contentType: 'image/jpeg' },
@@ -366,7 +369,10 @@ test('real-size photos keep their shape, the sign time is UK, and every page is 
   assert.match(text, /Signed 22 Oct 2026, 11:14pm/);
   assert.match(text, /Version 2/);
   assert.match(text, /Amount:/);
-  assert.match(text, /180\.00/);
+  assert.match(text, /180\.00 \+ VAT/);
+  assert.match(text, new RegExp(variationConfirmation('Northbuild', true).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(text, /Record locked at signing, 22 Oct 2026, 11:14pm\. Any later change creates a new version\./);
+  assert.equal(variationLockLine('22 Oct 2026, 11:14pm'), 'Record locked at signing, 22 Oct 2026, 11:14pm. Any later change creates a new version.');
   for (let page = 1; page <= doc.getPageCount(); page += 1) {
     assert.match(text, new RegExp(`VO-7 . Ashfield Finishes . page ${page} of ${doc.getPageCount()}`));
   }
@@ -400,7 +406,9 @@ test('two landscape photos share a row, and a blank amount or first version stay
     valuePence: null,
     whenIso: '2026-01-15T22:14:00.000Z',
     signerName: 'Dave Moran',
-    signerRoleCompany: 'Site manager, Northbuild',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    confirmationText: variationConfirmation('Northbuild', false),
     photos: [
       { bytes: left, contentType: 'image/jpeg' },
       { bytes: right, contentType: 'image/jpeg' },
@@ -410,7 +418,11 @@ test('two landscape photos share a row, and a blank amount or first version stay
   const text = pdfText(bytes);
   assert.equal(text.includes('Version'), false);
   assert.equal(text.includes('Amount'), false);
+  assert.equal(text.includes('+ VAT'), false);
   assert.match(text, /Signed 15 Jan 2026, 10:14pm/);
+  assert.match(text, /I confirm I instructed this extra work on behalf of Northbuild\. The price is still to be agreed\./);
+  assert.equal(text.includes('agree the amount shown'), false);
+  assert.match(text, /Record locked at signing, 15 Jan 2026, 10:14pm\. Any later change creates a new version\./);
   assert.match(text, /Photo 1 of 2/);
   assert.match(text, /Photo 2 of 2/);
   const photos = drawnPhotos(text).filter((item) => item.height > 100 && item.height < 300);
@@ -435,7 +447,9 @@ test('the signature block shows the typed name, role and company beside the draw
     valuePence: null,
     whenIso: '2026-10-22T22:14:00.000Z',
     signerName: 'Dave Moran',
-    signerRoleCompany: 'Site manager, Northbuild',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    confirmationText: variationConfirmation('Northbuild', false),
     photos: [],
     signaturePng: signature,
   });
@@ -444,14 +458,18 @@ test('the signature block shows the typed name, role and company beside the draw
   assert.match(text, /Site manager/);
   assert.match(text, /Northbuild/);
   assert.match(text, /Signed 22 Oct 2026, 11:14pm/);
+  assert.match(text, /I confirm I instructed this extra work on behalf of Northbuild\. The price is still to be agreed\./);
   const name = textAt(text, 'Dave Moran');
-  const role = textAt(text, 'Site manager, Northbuild');
+  const role = textAt(text, 'Site manager');
+  const company = textAt(text, 'Northbuild');
   const drawing = placedImages(text).find((item) => item.height < 120 && item.height > 40);
   assert.ok(name);
   assert.ok(role);
+  assert.ok(company);
   assert.ok(drawing);
   assert.ok(name.x >= drawing.x + drawing.width);
   assert.ok(role.x >= drawing.x + drawing.width);
+  assert.ok(company.x >= drawing.x + drawing.width);
   assert.ok(name.y <= drawing.y + drawing.height + 2);
   assert.ok(name.y >= drawing.y - 2);
 });
@@ -471,7 +489,9 @@ test('the signature shares a page with the last real-size photo', async () => {
     valuePence: 18000,
     whenIso: '2026-10-22T22:14:00.000Z',
     signerName: 'Dave Moran',
-    signerRoleCompany: 'Site manager, Northbuild',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    confirmationText: variationConfirmation('Northbuild', true),
     photos: [
       { bytes: wide, contentType: 'image/jpeg' },
       { bytes: tall, contentType: 'image/jpeg' },
@@ -483,6 +503,8 @@ test('the signature shares a page with the last real-size photo', async () => {
   assert.equal(signed.length, 1);
   const body = signed[0] ?? '';
   assert.match(body, /Photo 2 of 2/);
+  assert.match(body, /I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown/);
+  assert.match(body, /Record locked at signing, 22 Oct 2026, 11:14pm/);
   const photos = drawnPhotos(body).filter((item) => item.height > 150);
   assert.ok(photos.length >= 1);
   assert.equal(body.includes('Photo 1 of 2'), false);
@@ -517,7 +539,7 @@ function placedImages(text: string): Array<{ width: number; height: number; x: n
 
 function textAt(text: string, label: string): { x: number; y: number } | null {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`1 0 0 1 ([0-9.]+) ([0-9.]+) Tm[\\s\\S]{0,160}?${escaped}`);
+  const pattern = new RegExp(`1 0 0 1 ([0-9.]+) ([0-9.]+) Tm\\s*${escaped} Tj`);
   const match = pattern.exec(text);
   if (!match) return null;
   return { x: Number(match[1]), y: Number(match[2]) };

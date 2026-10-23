@@ -1,4 +1,5 @@
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
   filterSnagDetails,
@@ -13,7 +14,7 @@ import {
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
-import { getSnagQueue, type QueuedSnag } from '@/lib/snagQueue';
+import { flushSnagQueue, getSnagQueue, noticesForOwner, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
@@ -36,14 +37,18 @@ async function photoBytes(url: string | null | undefined): Promise<Uint8Array | 
   if (!url) return null;
   if (url.startsWith('data:')) return dataUrlBytes(url);
   const response = await fetch(url);
+  if (!response.ok) return null;
   return new Uint8Array(await response.arrayBuffer());
 }
 
 export default function SnagsScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
+  const { person } = useAuth();
   const router = useRouter();
+  const ownerId = person?.auth_user_id ?? null;
   const [list, setList] = useState<SnagList | null>(null);
   const [queued, setQueued] = useState<QueuedSnag[]>([]);
+  const [notices, setNotices] = useState<SnagNotice[]>([]);
   const [status, setStatus] = useState<SnagStatusFilter>('All');
   const [level, setLevel] = useState<SnagLevelFilter>('All');
   const [error, setError] = useState('');
@@ -51,26 +56,20 @@ export default function SnagsScreen() {
 
   const load = useCallback(async () => {
     if (!siteId) return;
-    const pending = (await getSnagQueue().list()).filter((item) => item.siteId === siteId);
-    setQueued(pending);
-    if (pending.length > 0 && (await deviceIsOnline())) {
-      for (const item of pending) {
-        try {
-          await sendQueuedSnag(item);
-          await getSnagQueue().remove(item.localId);
-        } catch {
-          break;
-        }
-      }
-      setQueued((await getSnagQueue().list()).filter((item) => item.siteId === siteId));
+    const queue = getSnagQueue();
+    if (ownerId && (await deviceIsOnline())) {
+      await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
     }
+    const pending = (await queue.list()).filter((item) => item.siteId === siteId && item.ownerId === ownerId);
+    setQueued(pending);
+    setNotices(noticesForOwner(await queue.listNotices(), ownerId).filter((notice) => notice.siteId === siteId));
     try {
       setList(await repo.listSnags(siteId));
       setError('');
     } catch (err) {
       setError(snagError(err instanceof Error ? err.message : 'unknown'));
     }
-  }, [siteId]);
+  }, [ownerId, siteId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,13 +92,9 @@ export default function SnagsScreen() {
       const snags = [];
       for (const row of picked) {
         const photos = [];
-        let before = 0;
-        let after = 0;
         for (const photo of row.photos) {
           const bytes = await photoBytes(photo.signed_url);
-          if (!bytes) continue;
-          const caption = photo.kind === 'before' ? (before++ === 0 ? 'Before' : `Before ${before}`) : after++ === 0 ? 'After' : `After ${after}`;
-          photos.push({ bytes, contentType: photo.content_type, caption });
+          photos.push({ bytes, contentType: photo.content_type, kind: photo.kind });
         }
         const signaturePng = row.signature?.signature_png ? dataUrlBytes(row.signature.signature_png) : null;
         snags.push({
@@ -174,6 +169,21 @@ export default function SnagsScreen() {
           <ChoiceChip key={item} label={item} selected={level === item} onPress={() => setLevel(item)} />
         ))}
       </View>
+      {notices.map((notice) => (
+        <Card key={notice.id}>
+          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{notice.message}</Text>
+          <Button
+            label="Dismiss"
+            variant="secondary"
+            minHeight={48}
+            onPress={() => {
+              void getSnagQueue()
+                .removeNotice(notice.id)
+                .then(() => setNotices((current) => current.filter((row) => row.id !== notice.id)));
+            }}
+          />
+        </Card>
+      ))}
       {queued.length > 0 ? (
         <View style={{ gap: 8 }}>
           <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}>
@@ -202,6 +212,9 @@ export default function SnagsScreen() {
           </Muted>
         </Card>
       ))}
+      {list && list.fixed_count > 0 ? (
+        <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
+      ) : null}
       <Button label="Share report" minHeight={56} loading={busy} onPress={() => void onShare()} />
       <Button label="Raise a snag" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/new`)} />
     </Screen>

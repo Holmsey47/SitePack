@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { IDS, SEED_PASSWORD } from './ids.ts';
-import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
+import { editSnagSignoffForTests, fixtureRepo, resetFixtureStore, snagSignoffCountForTests } from './fixtureRepo.ts';
+import { newId } from './newId.ts';
 import { filterSnags, snagLevels, snagNumber } from './snags.ts';
+import { snagConfirmation } from '../lib/snagWording.ts';
 
 test('snag list filters by status and level', async () => {
   resetFixtureStore();
@@ -25,6 +27,7 @@ test('trade suggestions come from people on the site and a snag can use free tex
   assert.deepEqual(labels, ['contracts', 'dryliner', 'labourer']);
   const raisedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const created = await fixtureRepo.createSnag({
+    snagId: newId(),
     siteId: IDS.oak,
     note: 'Conduit not clipped',
     levelArea: 'Roof',
@@ -46,6 +49,7 @@ test('trade suggestions come from people on the site and a snag can use free tex
   await assert.rejects(
     () =>
       fixtureRepo.createSnag({
+        snagId: newId(),
         siteId: IDS.oak,
         note: 'Too old',
         tradeLabel: 'dryliner',
@@ -62,11 +66,14 @@ test('trade suggestions come from people on the site and a snag can use free tex
   );
 });
 
-test('a lad marks a snag fixed and a contracts manager signs it off', async () => {
+test('a lad marks a snag fixed and a contracts manager signs off only the ones put right', async () => {
   resetFixtureStore();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
-  const open = (await fixtureRepo.listSnags(IDS.oak)).rows.find((row) => row.status === 'Open');
+  const before = await fixtureRepo.listSnags(IDS.oak);
+  const open = before.rows.find((row) => row.status === 'Open');
   assert.ok(open);
+  const openCount = before.rows.filter((row) => row.status === 'Open').length;
+  const fixedCount = before.rows.filter((row) => row.status === 'Fixed').length;
   await assert.rejects(
     () => fixtureRepo.fixSnag(open.snag_id, new Date().toISOString(), []),
     /photo_count/
@@ -83,20 +90,105 @@ test('a lad marks a snag fixed and a contracts manager signs it off', async () =
   assert.equal(fixed?.status, 'Fixed');
   assert.equal(fixed?.photos.filter((photo) => photo.kind === 'after').length, 1);
   assert.equal(fixed?.fixed_at, new Date(fixedAt).toISOString());
-  await assert.rejects(() => fixtureRepo.signOffSnagAsManager(open.snag_id, new Date().toISOString()), /not_authorized/);
+  const sameId = newId();
+  await assert.rejects(
+    () =>
+      fixtureRepo.signOffSnagsInternal({
+        signoffId: sameId,
+        siteId: IDS.oak,
+        signedAt: new Date().toISOString(),
+        company: 'Northbuild',
+      }),
+    /not_authorized/
+  );
 
   await fixtureRepo.signIn('cm@sitepack.test', SEED_PASSWORD);
   const signedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  await fixtureRepo.signOffSnagAsManager(open.snag_id, signedAt);
+  const first = await fixtureRepo.signOffSnagsInternal({
+    signoffId: sameId,
+    siteId: IDS.oak,
+    signedAt,
+    company: 'Northbuild',
+  });
+  assert.equal(first.confirmation_text, snagConfirmation('Northbuild', 'internal'));
+  assert.equal(first.signer_company, 'Northbuild');
+  assert.equal(first.covered.length, fixedCount + 1);
+  assert.equal(first.outstanding.length, openCount - 1);
+  assert.equal(first.outstanding.some((row) => row.snag_id === open.snag_id), false);
+  assert.ok(first.covered.some((row) => row.snag_id === open.snag_id && row.status === 'Fixed' && (row.photo_paths?.length ?? 0) > 0));
   const signed = await fixtureRepo.getSnag(open.snag_id);
   assert.equal(signed?.status, 'Signed off');
-  assert.equal(signed?.signature?.kind, 'manager');
+  assert.equal(signed?.signature?.kind, 'internal');
+  assert.equal(signed?.signature?.confirmation_text, first.confirmation_text);
   assert.equal(signed?.signature?.signer_name, 'Priya Shah');
   assert.equal(signed?.signature?.signer_role, 'Contracts manager');
-  assert.equal(signed?.signature?.signer_company, 'Ashfield Finishes');
   assert.equal(signed?.signature?.signed_at, new Date(signedAt).toISOString());
-  assert.ok(signed?.signature?.signed_received_at);
-  await assert.rejects(() => fixtureRepo.fixSnag(open.snag_id, new Date().toISOString(), [
-    { storagePath: `${IDS.company}/${IDS.oak}/snags/again.jpg`, contentType: 'image/jpeg', fileSizeBytes: 10 },
-  ]), /snag_locked/);
+  assert.throws(() => editSnagSignoffForTests(sameId), /closed/);
+  const beforeSecond = snagSignoffCountForTests();
+  const stillOpen = (await fixtureRepo.listSnags(IDS.oak)).rows.find((row) => row.status === 'Open');
+  assert.ok(stillOpen);
+  assert.equal(first.outstanding.some((row) => row.snag_id === stillOpen.snag_id), true);
+  await fixtureRepo.fixSnag(stillOpen.snag_id, new Date(Date.now() - 5 * 60 * 1000).toISOString(), [
+    {
+      storagePath: `${IDS.company}/${IDS.oak}/snags/later.jpg`,
+      contentType: 'image/jpeg',
+      fileSizeBytes: 800,
+    },
+  ]);
+  const second = await fixtureRepo.signOffSnagsInternal({
+    signoffId: newId(),
+    siteId: IDS.oak,
+    signedAt: new Date().toISOString(),
+    company: 'Northbuild',
+  });
+  assert.equal(snagSignoffCountForTests(), beforeSecond + 1);
+  assert.notEqual(second.signoff_id, first.signoff_id);
+  assert.equal(second.covered.length, 1);
+  assert.equal(second.covered[0]?.snag_id, stillOpen.snag_id);
+  assert.equal(second.outstanding.length, first.outstanding.length - 1);
+  assert.equal(first.outstanding.length, openCount - 1);
+  await assert.rejects(
+    () =>
+      fixtureRepo.fixSnag(open.snag_id, new Date().toISOString(), [
+        { storagePath: `${IDS.company}/${IDS.oak}/snags/again.jpg`, contentType: 'image/jpeg', fileSizeBytes: 10 },
+      ]),
+    /snag_locked/
+  );
+});
+
+test('creating the same snag id twice keeps one row', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const snagId = newId();
+  const input = {
+    snagId,
+    siteId: IDS.oak,
+    note: 'Same snag',
+    tradeLabel: 'dryliner',
+    raisedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    photos: [
+      {
+        storagePath: `${IDS.company}/${IDS.oak}/snags/same.jpg`,
+        contentType: 'image/jpeg',
+        fileSizeBytes: 400,
+      },
+    ],
+  };
+  const first = await fixtureRepo.createSnag(input);
+  const second = await fixtureRepo.createSnag({
+    ...input,
+    note: 'Different note',
+    photos: [
+      {
+        storagePath: `${IDS.company}/${IDS.oak}/snags/other.jpg`,
+        contentType: 'image/jpeg',
+        fileSizeBytes: 400,
+      },
+    ],
+  });
+  assert.equal(second.snagId, first.snagId);
+  assert.equal(second.snagSeq, first.snagSeq);
+  const detail = await fixtureRepo.getSnag(snagId);
+  assert.equal(detail?.note, 'Same snag');
+  assert.equal(detail?.photos.length, 1);
 });

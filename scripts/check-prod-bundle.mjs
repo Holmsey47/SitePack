@@ -11,6 +11,7 @@ const forbidden = [
   'ben@sitepack.test',
   'chris@sitepack.test',
   'SitePack123!',
+  'sitepack.dev.forceOffline',
 ];
 
 if (!fs.existsSync(root)) {

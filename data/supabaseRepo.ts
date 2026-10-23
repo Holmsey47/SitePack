@@ -14,11 +14,12 @@ import type {
   VariationVersion,
 } from '@/data/variations';
 import { PHOTO_URL_SECONDS } from '@/data/variations';
-import type { CreateSnagInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagStatus } from '@/data/snags';
+import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagSignoff, SnagStatus } from '@/data/snags';
 import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 import {
   parseDrawingProof,
   parseDrawingRoster,
+  parseNotSeenPeople,
   parseSeenAt,
   parseSiteSeenGaps,
   parseSiteSeenSummary,
@@ -863,8 +864,10 @@ export const supabaseRepo: SitePackRepo = {
       await rpcJson('sign_variation', {
         p_version_id: versionId,
         p_signer_name: input.signerName,
-        p_role_company: input.roleCompany,
+        p_role: input.role,
+        p_company: input.company,
         p_signature_png: input.signaturePng,
+        p_expected_pence: input.expectedPence,
       }),
       null
     );
@@ -917,6 +920,10 @@ export const supabaseRepo: SitePackRepo = {
     return parseSiteSeenSummary(await rpcJson('site_drawing_seen', { p_site_id: siteId }));
   },
 
+  async siteNotSeen(siteId) {
+    return parseNotSeenPeople(await rpcJson('site_not_seen', { p_site_id: siteId }));
+  },
+
   async drawingSeenRoster(drawingId) {
     return parseDrawingRoster(await rpcJson('drawing_seen_roster', { p_drawing_id: drawingId }));
   },
@@ -960,6 +967,7 @@ export const supabaseRepo: SitePackRepo = {
   async createSnag(input: CreateSnagInput) {
     const data = unwrap(
       await rpcJson('create_snag', {
+        p_id: input.snagId,
         p_site_id: input.siteId,
         p_note: input.note,
         p_level_area: input.levelArea ?? null,
@@ -983,22 +991,31 @@ export const supabaseRepo: SitePackRepo = {
     );
   },
 
-  async signOffSnagAsManager(snagId, signedAt) {
-    unwrap(await rpcJson('sign_off_snag_as_manager', { p_snag_id: snagId, p_signed_at: signedAt }), null);
-  },
-
-  async signOffSnagAsContractor(snagId, signedAt, input) {
-    unwrap(
-      await rpcJson('sign_off_snag_as_contractor', {
-        p_snag_id: snagId,
-        p_signed_at: signedAt,
-        p_signer_name: input.signerName,
-        p_signer_role: input.signerRole,
-        p_signer_company: input.signerCompany,
-        p_signature_png: input.signaturePng,
+  async signOffSnagsInternal(input: SignOffSnagsInput) {
+    return unwrap(
+      await rpcJson('sign_off_snags_internal', {
+        p_signoff_id: input.signoffId,
+        p_site_id: input.siteId,
+        p_signed_at: input.signedAt,
+        p_company: input.company,
       }),
       null
-    );
+    ) as SnagSignoff;
+  },
+
+  async signOffSnagsContractor(input: SignOffSnagsInput) {
+    return unwrap(
+      await rpcJson('sign_off_snags_contractor', {
+        p_signoff_id: input.signoffId,
+        p_site_id: input.siteId,
+        p_signed_at: input.signedAt,
+        p_signer_name: input.signerName ?? '',
+        p_signer_role: input.signerRole ?? '',
+        p_company: input.company,
+        p_signature_png: input.signaturePng ?? '',
+      }),
+      null
+    ) as SnagSignoff;
   },
 
   async snagTradeLabels(siteId) {

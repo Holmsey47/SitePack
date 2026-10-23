@@ -43,6 +43,7 @@
     "data/variations.test.ts",
     "lib/photoPrep.test.ts",
     "lib/variationQueue.test.ts",
-    "lib/variationPdf.test.ts"
+    "lib/variationPdf.test.ts",
+    "lib/variationWording.test.ts"
   ]
 }

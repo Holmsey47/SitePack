@@ -205,6 +205,19 @@ export function SeenRejectNotice({ message, onDismiss }: { message: string; onDi
   );
 }
 
+/** Full-width row, at least 48dp. Used for the team line and the collapsed new-drawings row. */
+export function GlanceRow({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.glanceRow, pressed && styles.btnPressed]}>
+      <Text style={styles.glanceRowText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 /** Owner or contracts manager count. Tap opens who has and has not seen it. */
 export function SeenCountChip({
   seen,
@@ -386,6 +399,19 @@ const styles = StyleSheet.create({
   seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 },
   dismiss: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' },
   dismissText: { color: theme.current, fontSize: 17, fontWeight: '800' },
+  glanceRow: {
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.current,
+    backgroundColor: theme.surface,
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  glanceRowText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
   seenChip: {
     minHeight: 48,
     minWidth: 48,

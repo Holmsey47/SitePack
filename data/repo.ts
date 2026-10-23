@@ -26,12 +26,13 @@ import type {
 import type {
   DrawingProof,
   DrawingRoster,
+  NotSeenPerson,
   SiteSeenGap,
   SiteSeenSummary,
   UnseenDrawing,
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
-import type { CreateSnagInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport } from '@/data/snags';
+import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
 import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 
 export type SignInResult = {
@@ -122,7 +123,7 @@ export type SitePackRepo = {
   setVariationValue(versionId: string, valuePence: number | null): Promise<void>;
   signVariation(
     versionId: string,
-    input: { signerName: string; roleCompany: string; signaturePng: string }
+    input: { signerName: string; role: string; company: string; expectedPence: number | null; signaturePng: string }
   ): Promise<void>;
   sendVariation(versionId: string): Promise<void>;
   reviseVariation(versionId: string): Promise<{ versionId: string }>;
@@ -138,17 +139,14 @@ export type SitePackRepo = {
   getSnag(snagId: string): Promise<SnagDetail | null>;
   createSnag(input: CreateSnagInput): Promise<{ snagId: string; snagSeq: number }>;
   fixSnag(snagId: string, fixedAt: string, photos: SnagPhotoInput[]): Promise<void>;
-  signOffSnagAsManager(snagId: string, signedAt: string): Promise<void>;
-  signOffSnagAsContractor(
-    snagId: string,
-    signedAt: string,
-    input: { signerName: string; signerRole: string; signerCompany: string; signaturePng: string }
-  ): Promise<void>;
+  signOffSnagsInternal(input: SignOffSnagsInput): Promise<SnagSignoff>;
+  signOffSnagsContractor(input: SignOffSnagsInput): Promise<SnagSignoff>;
   snagTradeLabels(siteId: string): Promise<string[]>;
   signSitePhotoUrl(storagePath: string): Promise<{ url: string; expiresAt: string }>;
   listMyUnseenDrawings(): Promise<UnseenDrawing[]>;
   myDrawingProof(drawingId: string): Promise<DrawingProof>;
   siteDrawingSeen(siteId: string): Promise<SiteSeenSummary>;
+  siteNotSeen(siteId: string): Promise<NotSeenPerson[]>;
   drawingSeenRoster(drawingId: string): Promise<DrawingRoster>;
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;
@@ -232,6 +230,8 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'after_photo_required',
     'already_signed_in',
     'not_signed_in',
+    'closed',
+    'not_found',
   ]) {
     if (text.includes(known)) return known;
   }

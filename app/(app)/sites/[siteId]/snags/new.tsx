@@ -87,12 +87,17 @@ export default function NewSnagScreen() {
       setError('Add a photo.');
       return;
     }
+    if (!person.auth_user_id) {
+      setError('Sign in again before raising a snag.');
+      return;
+    }
     setSaving(true);
     setError('');
     const raisedAt = new Date().toISOString();
     const item = {
       kind: 'create' as const,
       localId: newId(),
+      ownerId: person.auth_user_id,
       siteId,
       companyId: person.company_id,
       note: note.trim(),

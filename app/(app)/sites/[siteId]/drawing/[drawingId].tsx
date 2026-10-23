@@ -1,4 +1,5 @@
 import { DrawingFrame } from '@/components/drawing-frame';
+import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
 import { Button, Muted, NewRevBadge, RevBadge, Screen, OutOfDateBadge, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -16,6 +17,8 @@ import {
   confirmQueued,
   getDrawingSeenQueue,
   isDroppedSeenCode,
+  noticesForOwner,
+  ownedQueue,
   queueId,
   queueSeenTap,
   rememberRejectedTap,
@@ -38,6 +41,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 export default function DrawingViewerScreen() {
   const { siteId, drawingId } = useLocalSearchParams<{ siteId: string; drawingId: string }>();
   const { person } = useAuth();
+  const ownerId = person?.auth_user_id ?? null;
   const router = useRouter();
   const [drawing, setDrawing] = useState<Drawing | null>(null);
   const [uri, setUri] = useState<string | null>(null);
@@ -109,14 +113,14 @@ export default function DrawingViewerScreen() {
       .list()
       .then(async (rows) => {
         if (cancelled) return;
-        setQueuedSeen(rows);
-        setSeenNotices(await queue.listNotices());
+        setQueuedSeen(ownedQueue(rows, ownerId));
+        setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [drawingId, retrying]);
+  }, [drawingId, ownerId, retrying]);
 
   const manage = person ? canManageSite(person.role) : false;
   const openedCurrent = Boolean(
@@ -130,8 +134,10 @@ export default function DrawingViewerScreen() {
       const queue = getDrawingSeenQueue();
       const online = await deviceIsOnline();
       if (!online) {
+        if (!ownerId) return;
         await queue.put({
-          id: queueId('open', drawing!.id, drawing!.revision),
+          id: queueId('open', drawing!.id, drawing!.revision, ownerId),
+          ownerId,
           kind: 'open',
           drawingId: drawing!.id,
           siteId: drawing!.site_id,
@@ -140,27 +146,29 @@ export default function DrawingViewerScreen() {
         });
         if (!cancelled) {
           setOpenedLocal(true);
-          setQueuedSeen(await queue.list());
-          setSeenNotices(await queue.listNotices());
+          setQueuedSeen(ownedQueue(await queue.list(), ownerId));
+          setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
         }
         return;
       }
       try {
-        await flushQueuedDrawingSeen();
+        if (ownerId) await flushQueuedDrawingSeen(ownerId);
         await repo.recordDrawingOpen(drawing!.id);
         if (cancelled) return;
         setOpenedLocal(true);
         setProof(await repo.myDrawingProof(drawing!.id));
-        setQueuedSeen(await queue.list());
-        setSeenNotices(await queue.listNotices());
+        setQueuedSeen(ownedQueue(await queue.list(), ownerId));
+        setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
       } catch (err) {
         const code = err instanceof Error ? err.message : '';
-        if (code === 'not_current' || code === 'not_authorized') {
-          if (!cancelled) setSeenNotices(await queue.listNotices());
+        if (code === 'not_current' || code === 'not_authorized' || code === 'drawing_not_found') {
+          if (!cancelled) setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
           return;
         }
+        if (!ownerId) return;
         await queue.put({
-          id: queueId('open', drawing!.id, drawing!.revision),
+          id: queueId('open', drawing!.id, drawing!.revision, ownerId),
+          ownerId,
           kind: 'open',
           drawingId: drawing!.id,
           siteId: drawing!.site_id,
@@ -169,8 +177,8 @@ export default function DrawingViewerScreen() {
         });
         if (!cancelled) {
           setOpenedLocal(true);
-          setQueuedSeen(await queue.list());
-          setSeenNotices(await queue.listNotices());
+          setQueuedSeen(ownedQueue(await queue.list(), ownerId));
+          setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
         }
       }
     }
@@ -178,7 +186,7 @@ export default function DrawingViewerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [drawing, openedCurrent]);
+  }, [drawing, openedCurrent, ownerId]);
 
   useEffect(() => {
     if (!drawingId || !manage) return;
@@ -207,7 +215,9 @@ export default function DrawingViewerScreen() {
     try {
       const online = await deviceIsOnline();
       if (!online) {
+        if (!ownerId) return;
         const result = await queueSeenTap(queue, {
+          ownerId,
           drawingId: drawing.id,
           siteId: drawing.site_id,
           revision: drawing.revision,
@@ -218,16 +228,16 @@ export default function DrawingViewerScreen() {
           setSeenNote('Open the sheet first.');
           return;
         }
-        setQueuedSeen(await queue.list());
+        setQueuedSeen(ownedQueue(await queue.list(), ownerId));
         setSeenNote(SAVED_ON_PHONE);
         return;
       }
-      await flushQueuedDrawingSeen();
+      if (ownerId) await flushQueuedDrawingSeen(ownerId);
       if (!proof?.opened) await repo.recordDrawingOpen(drawing.id);
       await repo.confirmDrawingSeen(drawing.id, tappedAt);
       setProof(await repo.myDrawingProof(drawing.id));
-      setQueuedSeen(await queue.list());
-      setSeenNotices(await queue.listNotices());
+      setQueuedSeen(ownedQueue(await queue.list(), ownerId));
+      setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
       if (manage) setRoster(await repo.drawingSeenRoster(drawing.id));
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
@@ -236,22 +246,26 @@ export default function DrawingViewerScreen() {
         return;
       }
       if (isDroppedSeenCode(code)) {
+        if (!ownerId) return;
         const currentRevision =
           code === 'not_current'
             ? await currentRevisionAfter({ drawingId: drawing.id, siteId: drawing.site_id })
             : null;
         await rememberRejectedTap(queue, {
+          ownerId,
           drawingId: drawing.id,
           siteId: drawing.site_id,
           revision: drawing.revision,
           code,
           currentRevision,
         });
-        setSeenNotices(await queue.listNotices());
-        setQueuedSeen(await queue.list());
+        setSeenNotices(noticesForOwner(await queue.listNotices(), ownerId));
+        setQueuedSeen(ownedQueue(await queue.list(), ownerId));
         return;
       }
+      if (!ownerId) return;
       const result = await queueSeenTap(queue, {
+        ownerId,
         drawingId: drawing.id,
         siteId: drawing.site_id,
         revision: drawing.revision,
@@ -262,7 +276,7 @@ export default function DrawingViewerScreen() {
         setSeenNote('Open the sheet first.');
         return;
       }
-      setQueuedSeen(await queue.list());
+      setQueuedSeen(ownedQueue(await queue.list(), ownerId));
       setSeenNote(SAVED_ON_PHONE);
     } finally {
       setConfirming(false);
@@ -323,6 +337,13 @@ export default function DrawingViewerScreen() {
             </Pressable>
           ) : null}
         </View>
+        <FixtureOfflineSwitch />
+        {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
+          <FixtureReplaceRev
+            drawingId={drawing.id}
+            onReplaced={() => router.replace('/sites')}
+          />
+        ) : null}
         {drawing || revision ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}

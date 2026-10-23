@@ -1,5 +1,5 @@
 import { Muted, Screen, Title } from '@/components/ui';
-import { personLabel, seenCountLabel, sheetLabel } from '@/data/drawingSeen';
+import { notSeenYetHeading, personLabel, seenCountLabel, sheetLabel } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import type { DrawingRoster } from '@/data/drawingSeen';
 import { formatUkDateTime } from '@/lib/format';
@@ -29,6 +29,8 @@ export default function DrawingSeenScreen() {
     }, [load])
   );
 
+  const unseenHeading = roster ? notSeenYetHeading(roster.unseen.length) : '';
+
   return (
     <Screen>
       <Title>Who has seen this</Title>
@@ -45,19 +47,23 @@ export default function DrawingSeenScreen() {
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {roster ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SEEN</Text>
+          <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }} accessibilityRole="header">
+            {unseenHeading}
+          </Text>
+          {roster.unseen.length === 0 ? <Muted>Everyone assigned has seen it.</Muted> : null}
+          {roster.unseen.map((person) => (
+            <View key={person.person_id} style={{ minHeight: 48, justifyContent: 'center' }}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{personLabel(person.display_name)}</Text>
+            </View>
+          ))}
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }} accessibilityRole="header">
+            Seen
+          </Text>
           {roster.seen.length === 0 ? <Muted>No one has seen this rev.</Muted> : null}
           {roster.seen.map((person) => (
             <View key={person.person_id} style={{ minHeight: 48, justifyContent: 'center', gap: 4 }}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{personLabel(person.display_name)}</Text>
               <Muted>{formatUkDateTime(person.seen_at)}</Muted>
-            </View>
-          ))}
-          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>NOT SEEN</Text>
-          {roster.unseen.length === 0 ? <Muted>Everyone assigned has seen it.</Muted> : null}
-          {roster.unseen.map((person) => (
-            <View key={person.person_id} style={{ minHeight: 48, justifyContent: 'center' }}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{personLabel(person.display_name)}</Text>
             </View>
           ))}
         </View>
