@@ -191,17 +191,45 @@ export function NewRevBadge({ sheet, revision }: { sheet: string; revision: stri
   );
 }
 
-/** A queued seen tap the server refused. Tap opens the current sheet. */
-export function SeenRejectNotice({ message, onPress }: { message: string; onPress: () => void }) {
+/** A refused queue item. Open jumps to the current sheet. Dismiss hides an hours notice on this phone. */
+export function SeenRejectNotice({
+  message,
+  onPress,
+  onDismiss,
+}: {
+  message: string;
+  onPress?: () => void;
+  onDismiss?: () => void;
+}) {
+  if (!onDismiss) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={message}
+        onPress={onPress}
+        style={({ pressed }) => [styles.seenReject, pressed && styles.btnPressed]}>
+        <Text style={styles.seenRejectText}>{message}</Text>
+        {onPress ? <Text style={styles.seenRejectOpen}>Open</Text> : null}
+      </Pressable>
+    );
+  }
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={message}
-      onPress={onPress}
-      style={({ pressed }) => [styles.seenReject, pressed && styles.btnPressed]}>
-      <Text style={styles.seenRejectText}>{message}</Text>
-      <Text style={styles.seenRejectOpen}>Open</Text>
-    </Pressable>
+    <View style={styles.seenReject}>
+      {onPress ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={message}
+          onPress={onPress}
+          style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}>
+          <Text style={styles.seenRejectText}>{message}</Text>
+        </Pressable>
+      ) : (
+        <Text style={styles.seenRejectText}>{message}</Text>
+      )}
+      <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={onDismiss} style={styles.dismiss}>
+        <Text style={styles.dismissText}>Dismiss</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -400,6 +428,8 @@ const styles = StyleSheet.create({
   },
   seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24, flex: 1 },
   seenRejectOpen: { color: theme.current, fontSize: 17, fontWeight: '800' },
+  dismiss: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' },
+  dismissText: { color: theme.current, fontSize: 17, fontWeight: '800' },
   glanceRow: {
     minHeight: 48,
     minWidth: 48,

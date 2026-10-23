@@ -15,6 +15,7 @@ import type {
 } from '@/data/variations';
 import { PHOTO_URL_SECONDS } from '@/data/variations';
 import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhoto, SnagReport, SnagSignoff, SnagStatus } from '@/data/snags';
+import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 import {
   parseDrawingProof,
   parseDrawingRoster,
@@ -47,16 +48,19 @@ import type {
   Role,
   Site,
 } from '@/data/types';
-import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
+import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
   data: T | null,
-  error: { message: string; details?: string | null; code?: string | null; status?: number } | null,
+  error: { message: string; details?: string | null; code?: string | null } | null,
   fallback?: string
 ): T {
   if (error) throw snagRpcError(error);
-  if (data == null) throw new Error(fallback ?? 'not_found');
+  if (data == null) {
+    const code = fallback ?? 'not_found';
+    throw new SnagRequestError({ kind: 'business', code });
+  }
   return data;
 }
 
@@ -67,6 +71,13 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
   return throwSnagRpc(await getSupabase().rpc(name, args));
+}
+
+function rpcOrNull<T>(response: { data: T | null; error: unknown; status?: number }): T | null {
+  if (response.error || (typeof response.status === 'number' && response.status >= 400)) {
+    throw snagRpcError(response.error, response.status);
+  }
+  return response.data;
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
@@ -1054,6 +1065,58 @@ export const supabaseRepo: SitePackRepo = {
   async snagTradeLabels(siteId) {
     const data = unwrap(await rpcJson('snag_trade_labels', { p_site_id: siteId }), null);
     return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
+  },
+
+  async signInSite(siteId, deviceAt) {
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_in_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
+  },
+
+  async signOutSite(siteId, deviceAt) {
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_out_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
+  },
+
+  async mySiteAttendance(siteId) {
+    return unwrap(await rpcJson('my_site_attendance', { p_site_id: siteId }), null) as MySiteAttendance;
+  },
+
+  async listMyAttendance(siteId) {
+    const data = unwrap(await rpcJson('list_my_attendance', { p_site_id: siteId }), null);
+    return Array.isArray(data) ? (data as AttendanceEntry[]) : [];
+  },
+
+  async listOnSiteNow(siteId) {
+    return rpcOrNull<OnSiteNow>(await getSupabase().rpc('list_on_site_now', { p_site_id: siteId }));
+  },
+
+  async weeklyAttendance(siteId, weekStart) {
+    return rpcOrNull<WeeklyAttendance>(
+      await getSupabase().rpc('weekly_attendance', { p_site_id: siteId, p_week_start: weekStart })
+    );
+  },
+
+  async attendanceEntry(entryId) {
+    try {
+      return unwrap(await rpcJson('attendance_entry', { p_entry_id: entryId }), null) as AttendanceEntry;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_authorized') return null;
+      throw err;
+    }
+  },
+
+  async correctAttendance(entryId, inAt, outAt, reason) {
+    return unwrap(
+      await rpcJson('correct_attendance', {
+        p_entry_id: entryId,
+        p_in_at: inAt,
+        p_out_at: outAt,
+        p_reason: reason,
+      }),
+      null
+    ) as AttendanceEntry;
   },
 };
 

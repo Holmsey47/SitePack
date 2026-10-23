@@ -225,7 +225,7 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.match(sql, /revoke all on function public\.confirm_drawing_seen\(uuid, timestamptz\) from public, anon;/);
   assert.match(sql, /revoke all on function public\.site_not_seen\(uuid\) from public, anon;/);
   assert.match(sql, /p\.role = 'operative'/);
-  const stub = fs.readFileSync('scripts/throwaway-auth.sql', 'utf8');
+  const stub = fs.readFileSync('scripts/anon-default-grants.sql', 'utf8');
   assert.match(stub, /grant all on functions to anon, authenticated, service_role/);
   const who = fs.readFileSync('app/(app)/sites/[siteId]/seen/[drawingId].tsx', 'utf8');
   assert.ok(who.indexOf('notSeenYetHeading') < who.indexOf('roster.seen.map'));

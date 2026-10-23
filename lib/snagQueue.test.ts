@@ -157,7 +157,7 @@ test('a wiped snag queue is not sent for the next signed-in user', async () => {
   assert.doesNotMatch(offline, /function clearLocalMetadata\(\) \{[\s\S]*if \(!store\) return;/);
   assert.match(fs.readFileSync('lib/snagQueue.ts', 'utf8'), /export \{ SAVED_ON_PHONE, deviceIsOnline \} from '@\/lib\/variationQueue'/);
   assert.match(fs.readFileSync('lib/variationQueue.ts', 'utf8'), /if \(fixtureForceOffline\(\)\) return false/);
-  assert.match(fs.readFileSync('scripts/throwaway-auth.sql', 'utf8'), /grant all on functions to anon, authenticated, service_role/);
+  assert.match(fs.readFileSync('scripts/anon-default-grants.sql', 'utf8'), /grant all on functions to anon, authenticated, service_role/);
   assert.match(auth, /deleteAllDrawingCaches/);
   assert.match(auth, /bindCache\(null\)/);
 });

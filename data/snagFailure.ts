@@ -4,7 +4,7 @@ import { rpcErrorCode, type RpcErrorLike } from '@/data/repo';
 export type SnagFailure =
   | { kind: 'network'; message: string }
   | { kind: 'http'; status: number; message: string }
-  | { kind: 'business'; code: string };
+  | { kind: 'business'; code: string; detail?: string; hint?: string };
 
 export class SnagRequestError extends Error {
   readonly failure: SnagFailure;
@@ -55,7 +55,14 @@ export function snagFailureFrom(err: unknown): SnagFailure {
   const like: RpcErrorLike | string =
     err && typeof err === 'object' ? (err as RpcErrorLike) : message;
   const code = rpcErrorCode(like);
-  if (code !== 'unknown') return { kind: 'business', code };
+  if (code !== 'unknown') {
+    const raw = err && typeof err === 'object' && 'details' in err ? (err as { details?: unknown }).details : undefined;
+    const detail = typeof raw === 'string' && raw.trim() ? raw : undefined;
+    const hintRaw = err && typeof err === 'object' && 'hint' in err ? (err as { hint?: unknown }).hint : undefined;
+    const hint = typeof hintRaw === 'string' && hintRaw.trim() ? hintRaw : undefined;
+    if (!detail && !hint) return { kind: 'business', code };
+    return { kind: 'business', code, ...(detail ? { detail } : {}), ...(hint ? { hint } : {}) };
+  }
   if (message === 'unknown') return { kind: 'network', message: 'unknown' };
   if (status === 408 || status === 429 || (status !== undefined && status >= 500 && status <= 599)) {
     return { kind: 'http', status, message: message || String(status) };

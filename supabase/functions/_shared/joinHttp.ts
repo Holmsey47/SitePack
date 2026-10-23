@@ -91,6 +91,7 @@ export function errorText(error: unknown): string {
 
 const KNOWN = [
   'username_taken',
+  'invalid_display_name',
   'invalid_input',
   'weak_password',
   'not_authorized',
