@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { createClient } from '@supabase/supabase-js';
 import {
   adoptTalkOwner,
+  classifyTalkFailure,
   flushTalkQueue,
+  keptTalkMessage,
   memoryTalkQueue,
   persistThenSendTalk,
   refusedTalkNotice,
   storageTalkQueue,
+  talkBackoffMs,
+  TalkRpcError,
+  throwTalkRpc,
   TALK_NOTICE_KEY,
   TALK_OWNER_KEY,
   TALK_QUEUE_KEY,
@@ -136,8 +142,168 @@ test('a refused queued signature is dropped and leaves an in-app notice', async 
   assert.equal(result, 'refused');
   assert.equal((await queue.list()).length, 0);
   const notices = await queue.listNotices();
-  assert.equal(notices[0]?.message, refusedTalkNotice('sign'));
+  assert.equal(notices[0]?.message, refusedTalkNotice('sign', 'not_authorized'));
   assert.match(notices[0]?.message ?? '', /not saved/);
+  assert.match(notices[0]?.message ?? '', /Ask the site manager/);
+});
+
+function queued(localId: string, signer: string, talkId: string, deviceAt: string): QueuedTalk {
+  return {
+    ...item('user-a', signer),
+    localId,
+    talkId,
+    deviceAt,
+  };
+}
+
+test('a network failure stays queued with backoff and does not block another signer', async () => {
+  const queue = memoryTalkQueue();
+  const now = Date.parse('2026-10-23T00:00:00.000Z');
+  await queue.put(queued('a', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
+  await queue.put(queued('c', 'signer-1', 'talk-1', '2026-10-22T07:05:00.000Z'));
+  await queue.put(queued('b', 'signer-2', 'talk-1', '2026-10-22T07:02:00.000Z'));
+  const calls: string[] = [];
+  await flushTalkQueue(
+    queue,
+    'user-a',
+    async (row) => {
+      calls.push(row.localId);
+      if (row.localId === 'a') throw new TypeError('Failed to fetch');
+    },
+    now
+  );
+  assert.deepEqual(calls, ['a', 'b']);
+  const left = await queue.list();
+  assert.deepEqual(left.map((row) => row.localId).sort(), ['a', 'c']);
+  const held = left.find((row) => row.localId === 'a');
+  assert.equal(held?.attempts, 1);
+  assert.equal(Date.parse(held?.nextAttemptAt ?? '') - now, talkBackoffMs(1));
+  const notices = await queue.listNotices();
+  assert.equal(notices.find((row) => row.retryLocalId === 'a')?.message, keptTalkMessage('sign'));
+  const duringBackoff: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    duringBackoff.push(row.localId);
+  }, now + 500);
+  assert.deepEqual(duringBackoff, []);
+  const afterBackoff: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    afterBackoff.push(row.localId);
+  }, now + talkBackoffMs(1));
+  assert.deepEqual(afterBackoff, ['a', 'c']);
+});
+
+test('a phone network error, a 503, and an unknown storage error each take their own path', async () => {
+  const queue = memoryTalkQueue();
+  const network = new TypeError('Network request failed');
+  const storage = new Error('unknown');
+  assert.equal(classifyTalkFailure(network).kind, 'network');
+  assert.deepEqual(classifyTalkFailure(storage), { kind: 'permanent', code: 'unknown' });
+  const httpFailures = await postgrestFailures();
+  await queue.put(queued('net', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
+  await queue.put(queued('pgrst', 'signer-2', 'talk-1', '2026-10-22T07:01:00.000Z'));
+  await queue.put(queued('plain', 'signer-3', 'talk-1', '2026-10-22T07:02:00.000Z'));
+  await queue.put(queued('html', 'signer-4', 'talk-1', '2026-10-22T07:03:00.000Z'));
+  await queue.put(queued('empty', 'signer-5', 'talk-1', '2026-10-22T07:04:00.000Z'));
+  await queue.put(queued('storage', 'signer-6', 'talk-1', '2026-10-22T07:05:00.000Z'));
+  await queue.put(queued('bad', 'signer-7', 'talk-1', '2026-10-22T07:06:00.000Z'));
+  await queue.put(queued('unauth', 'signer-8', 'talk-1', '2026-10-22T07:07:00.000Z'));
+  await queue.put(queued('after', 'signer-9', 'talk-1', '2026-10-22T07:08:00.000Z'));
+  const calls: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    calls.push(row.localId);
+    if (row.localId === 'net') throw network;
+    const failure = httpFailures.get(row.localId);
+    if (failure) throw failure;
+    if (row.localId === 'storage') throw storage;
+  });
+  assert.deepEqual(calls, ['net', 'pgrst', 'plain', 'html', 'empty', 'storage', 'bad', 'unauth', 'after']);
+  const left = (await queue.list()).map((row) => row.localId).sort();
+  assert.deepEqual(left, ['empty', 'html', 'net', 'pgrst', 'plain']);
+  const notices = await queue.listNotices();
+  assert.equal(notices.some((row) => row.id === 'reject:storage' && row.retryLocalId === null), true);
+  assert.equal(notices.some((row) => row.id === 'reject:bad' && row.retryLocalId === null), true);
+  assert.equal(notices.some((row) => row.id === 'reject:unauth' && row.retryLocalId === null), true);
+  assert.match(notices.find((row) => row.id === 'reject:bad')?.message ?? '', /not saved/);
+  assert.match(notices.find((row) => row.id === 'reject:unauth')?.message ?? '', /not saved/);
+  assert.equal(notices.filter((row) => row.retryLocalId).length, 5);
+});
+
+const PGRST002 = JSON.stringify({
+  code: 'PGRST002',
+  details: null,
+  hint: null,
+  message: 'Could not query the database for the schema cache. Retrying the connection.',
+});
+
+/** A real supabase-js client. Status comes from the response, never stuck onto the error. */
+async function postgrestFailures(): Promise<Map<string, TalkRpcError>> {
+  const specs: Array<[string, number, string, string]> = [
+    ['pgrst', 503, PGRST002, 'application/json'],
+    ['plain', 503, 'upstream connect error', 'text/plain'],
+    ['html', 502, '<html><body>Bad Gateway</body></html>', 'text/html'],
+    ['empty', 503, '', 'text/plain'],
+    ['bad', 400, JSON.stringify({ code: 'PGRST102', message: 'Empty or invalid json', details: null, hint: null }), 'application/json'],
+    ['unauth', 401, JSON.stringify({ message: 'Unauthorized' }), 'application/json'],
+  ];
+  const failures = new Map<string, TalkRpcError>();
+  for (const [id, status, body, contentType] of specs) {
+    const fetchImpl: typeof fetch = async () => new Response(body, { status, headers: { 'content-type': contentType } });
+    const client = createClient('https://example.invalid', 'sb_publishable_test', {
+      global: { fetch: fetchImpl },
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const response = await client.rpc('sign_site_talk', { p_talk_id: '00000000-0000-4000-8000-000000000001' });
+    assert.equal(response.status, status);
+    assert.ok(response.error);
+    assert.equal(Object.hasOwn(response.error, 'status'), false);
+    try {
+      throwTalkRpc(response);
+      assert.fail('rpc should throw');
+    } catch (err) {
+      assert.ok(err instanceof TalkRpcError);
+      if (status >= 500) assert.deepEqual(err.failure, { kind: 'http', status });
+      else assert.equal(err.failure.kind, 'permanent');
+      failures.set(id, err);
+    }
+  }
+  return failures;
+}
+
+test('a duplicate signature is already saved, and an expired session wipes the queue', async () => {
+  const queue = memoryTalkQueue();
+  const duplicate = Object.assign(new Error('duplicate key value violates unique constraint "site_talk_signatures_version_id_person_id_signature_role_key"'), {
+    code: '23505',
+  });
+  await queue.put(queued('dup', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
+  await queue.put(queued('next', 'signer-2', 'talk-1', '2026-10-22T07:01:00.000Z'));
+  const calls: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    calls.push(row.localId);
+    if (row.localId === 'dup') throw duplicate;
+  });
+  assert.deepEqual(calls, ['dup', 'next']);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).some((row) => row.id === 'reject:dup'), false);
+
+  await queue.put(queued('old', 'signer-1', 'talk-1', '2026-10-22T07:00:00.000Z'));
+  await queue.put(queued('later', 'signer-2', 'talk-9', '2026-10-22T07:02:00.000Z'));
+  const expired: string[] = [];
+  await flushTalkQueue(queue, 'user-a', async (row) => {
+    expired.push(row.localId);
+    if (row.localId === 'old') throw new Error('JWT expired');
+  });
+  assert.deepEqual(expired, ['old']);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 0);
+});
+
+test('a new version tells the person to read and sign again', async () => {
+  const queue = memoryTalkQueue();
+  const result = await persistThenSendTalk(item('user-a'), true, async () => {
+    throw new Error('version_locked');
+  }, queue);
+  assert.equal(result, 'refused');
+  assert.match((await queue.listNotices())[0]?.message ?? '', /Read it and sign again/);
 });
 
 test('sign-out, owner change, and a rejected session wipe the talk queue', () => {

@@ -65,52 +65,59 @@ $$;
 create temp table probe (k text primary key, v jsonb);
 grant all on table probe to authenticated;
 
+create temp table new_talk_funcs as
+select
+  n.nspname as schema_name,
+  p.proname as func_name,
+  pg_get_function_identity_arguments(p.oid) as identity_args,
+  p.oid,
+  p.proconfig
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'private')
+  and not exists (
+    select 1
+    from public.probe_funcs_before b
+    where b.schema_name = n.nspname
+      and b.func_name = p.proname
+      and b.identity_args = pg_get_function_identity_arguments(p.oid)
+  );
+
 select pg_temp.ok(
-  (
-    select count(*)
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname in (
-        'create_site_talk',
-        'revise_site_talk',
-        'sign_site_talk',
-        'ask_site_talk',
-        'set_talk_person_note',
-        'sign_talk_presenter',
-        'list_site_talks',
-        'my_outstanding_talks',
-        'site_talk_detail',
-        'talk_meaning_line',
-        'induction_sign_in_gaps',
-        'my_talk_badges'
-      )
-      and p.prosecdef
-      and exists (
-        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) c
-        where c like 'search_path=%'
-      )
-  ) = 12,
-  'talk functions are security definer and pin search_path'
+  (select count(*) from new_talk_funcs) = :talk_func_count
+  and (select count(*) from new_talk_funcs where schema_name = 'public') = :talk_public_count
+  and (select count(*) from new_talk_funcs where schema_name = 'private') = :talk_private_count
+  and not exists (
+    select 1
+    from new_talk_funcs f
+    where not exists (
+      select 1
+      from unnest(coalesce(f.proconfig, array[]::text[])) c
+      where c in ('search_path=""', 'search_path=')
+    )
+  )
+  and not exists (
+    select 1
+    from new_talk_funcs f
+    where has_function_privilege('anon', f.oid, 'execute')
+       or has_function_privilege('public', f.oid, 'execute')
+  )
+  and not exists (
+    select 1
+    from new_talk_funcs f
+    where f.schema_name = 'private'
+      and has_function_privilege('authenticated', f.oid, 'execute')
+  ),
+  'every new function pins an empty search_path and anon and public cannot execute it'
 );
 
 select pg_temp.ok(
-  not has_function_privilege('anon', 'public.create_site_talk(uuid,text,text,text,text,text,text,uuid[],text,text,timestamptz)', 'execute')
-  and not has_function_privilege('anon', 'public.sign_site_talk(uuid,uuid,uuid,boolean,text,timestamptz,text)', 'execute')
-  and not has_function_privilege('anon', 'public.ask_site_talk(uuid,uuid,uuid,text,timestamptz,text)', 'execute')
-  and not has_function_privilege('anon', 'public.site_talk_detail(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.my_talk_badges()', 'execute')
-  and not has_function_privilege('anon', 'public.induction_sign_in_gaps(uuid)', 'execute')
-  and not has_function_privilege('public', 'public.sign_site_talk(uuid,uuid,uuid,boolean,text,timestamptz,text)', 'execute')
-  and not has_function_privilege('anon', 'private.talk_actor()', 'execute')
-  and not has_function_privilege('anon', 'private.talk_meaning(text,text,text,text,text,text,timestamptz)', 'execute')
-  and not has_function_privilege('authenticated', 'private.talk_meaning(text,text,text,text,text,text,timestamptz)', 'execute')
-  and not has_table_privilege('anon', 'public.site_talks', 'select')
+  not has_table_privilege('anon', 'public.site_talks', 'select')
   and not has_table_privilege('anon', 'public.site_talk_signatures', 'select')
   and not has_table_privilege('authenticated', 'public.site_talks', 'insert')
   and not has_table_privilege('authenticated', 'public.site_talk_signatures', 'insert')
   and not has_table_privilege('authenticated', 'public.site_talk_signatures', 'update'),
-  'anon cannot call and clients cannot write the tables directly'
+  'anon cannot read and clients cannot write the tables directly'
 );
 
 select pg_temp.ok(
@@ -431,21 +438,18 @@ values (
     :'firmx' || '/' || :'sitea' || '/talks/brief.pdf',
     'all',
     array[]::uuid[],
-    'Priya Shah',
-    'Contracts manager',
+    'Op A',
+    'Operative',
     timestamptz '2026-10-22 12:00:00+00'
   )
 );
 
 select pg_temp.ok(
-  (select v->>'content_hash' is not null from probe where k = 'inperson'),
-  'an in-person toolbox talk accepts a talks/ PDF path'
+  (select v->>'content_hash' is not null
+      and v->>'presenter_person_id' = :'opa'
+   from probe where k = 'inperson'),
+  'an in-person toolbox talk accepts a talks/ PDF path and the named presenter is that person'
 );
-
-reset role;
-update public.site_talks
-set presenter_person_id = :'opa'::uuid
-where id = (select (v->>'talk_id')::uuid from probe where k = 'inperson');
 
 select pg_temp.jwt(:'opc'::uuid);
 set local role authenticated;
@@ -486,17 +490,12 @@ select pg_temp.ok(
 );
 
 reset role;
-
-update public.site_talks
-set presenter_person_id = :'ownerx'::uuid
-where id = (select (v->>'talk_id')::uuid from probe where k = 'inperson');
-
 select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
 
 insert into probe (k, v)
 values (
-  'presenter-sign',
+  'presenter-for',
   public.sign_talk_presenter(
     (select (v->>'talk_id')::uuid from probe where k = 'inperson'),
     (select (v->>'version_id')::uuid from probe where k = 'inperson'),
@@ -507,8 +506,115 @@ values (
 );
 
 select pg_temp.ok(
+  (select v->>'meaning' = 'signed by Owner X for Op A'
+      and v->>'meaning' is distinct from 'I gave this talk to the people listed.'
+   from probe where k = 'presenter-for')
+  and (
+    select s.meaning = 'signed by Owner X for Op A'
+    from public.site_talk_signatures s
+    where s.version_id = (select (v->>'version_id')::uuid from probe where k = 'inperson')
+      and s.signature_role = 'presenter'
+  ),
+  'a manager signing for the named presenter is stored as signed by that manager'
+);
+
+insert into probe (k, v)
+values (
+  'presenter-own',
+  public.create_site_talk(
+    :'sitea'::uuid,
+    'toolbox',
+    'in_person',
+    'Afternoon brief',
+    'Watch the leading edge.',
+    null,
+    'all',
+    array[]::uuid[],
+    'Op A',
+    'Operative',
+    timestamptz '2026-10-22 12:00:00+00'
+  )
+);
+
+reset role;
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_talk_presenter('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+      || quote_literal(:'png') || ', now(), ''session-opc-2'')',
+    'not_authorized'
+  ),
+  'another operative cannot sign the presenter line'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'presenter-sign',
+  public.sign_talk_presenter(
+    (select (v->>'talk_id')::uuid from probe where k = 'presenter-own'),
+    (select (v->>'version_id')::uuid from probe where k = 'presenter-own'),
+    :'png',
+    timestamptz '2026-10-22 12:10:00+00',
+    'session-opa-2'
+  )
+);
+
+select pg_temp.ok(
   (select v->>'meaning' = 'I gave this talk to the people listed.' from probe where k = 'presenter-sign'),
-  'the presenter sign-off stores its own sentence'
+  'the named presenter sign-off stores its own sentence'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'chosen',
+  public.create_site_talk(
+    :'sitea'::uuid,
+    'toolbox',
+    'phone',
+    'Chosen only',
+    'Chosen muster words.',
+    null,
+    'chosen',
+    array[:'opa'::uuid],
+    'Owner X',
+    'Owner',
+    timestamptz '2026-10-22 12:00:00+00'
+  )
+);
+
+reset role;
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.site_talks where title = 'Chosen only') = 0
+  and (select count(*) from public.site_talk_versions where body = 'Chosen muster words.') = 0
+  and pg_temp.raises(
+    'select public.site_talk_detail(' || quote_literal((select v->>'talk_id' from probe where k = 'chosen')) || '::uuid)',
+    'not_authorized'
+  ),
+  'an operative who was not chosen cannot read that talk'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'chosen'))->>'body') = 'Chosen muster words.',
+  'a chosen operative can read that talk'
 );
 
 reset role;
@@ -539,14 +645,36 @@ select pg_temp.ok(
 );
 
 reset role;
+grant select on new_talk_funcs to anon;
 set local role anon;
 
 select pg_temp.ok(
-  pg_temp.raises('select public.my_talk_badges()', 'permission denied for function my_talk_badges')
-  and pg_temp.raises('select public.create_site_talk(null, null, null, null, null, null, null, null, null, null, null)', 'permission denied for function create_site_talk')
-  and pg_temp.raises('select public.sign_site_talk(null, null, null, null, null, null, null)', 'permission denied for function sign_site_talk')
-  and pg_temp.raises('select public.site_talk_detail(null)', 'permission denied for function site_talk_detail'),
-  'anon cannot call the talk functions'
+  (
+    select bool_and(
+      pg_temp.raises(
+        format(
+          'select %I.%I(%s)',
+          f.schema_name,
+          f.func_name,
+          case
+            when f.identity_args = '' then ''
+            else (
+              select string_agg(
+                'null::' || btrim(regexp_replace(btrim(part), '^[[:alpha:]_][[:alnum:]_]*[[:space:]]+', '')),
+                ', '
+              )
+              from unnest(string_to_array(f.identity_args, ',')) part
+            )
+          end
+        ),
+        'permission denied for function ' || f.func_name
+      )
+    )
+    from new_talk_funcs f
+    where f.schema_name = 'public'
+  )
+  and (select count(*) from new_talk_funcs where schema_name = 'public') = :talk_public_count,
+  'anon cannot call any new public function'
 );
 
 reset role;

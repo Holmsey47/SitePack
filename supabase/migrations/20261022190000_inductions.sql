@@ -382,6 +382,27 @@ create policy site_talks_select
   using (
     company_id = private.my_company_id()
     and private.can_access_site(site_id)
+    and (
+      private.my_role() in ('owner', 'cm')
+      or presenter_person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      or (
+        audience = 'all'
+        and exists (
+          select 1
+          from public.site_assignments a
+          join public.people p on p.id = a.person_id
+          where a.site_id = site_talks.site_id
+            and p.auth_user_id = (select auth.uid())
+            and p.role = 'operative'
+        )
+      )
+      or exists (
+        select 1
+        from public.site_talk_required r
+        where r.talk_id = site_talks.id
+          and r.person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      )
+    )
   );
 
 create policy site_talk_versions_select
@@ -389,6 +410,11 @@ create policy site_talk_versions_select
   using (
     company_id = private.my_company_id()
     and private.can_access_site(site_id)
+    and exists (
+      select 1
+      from public.site_talks t
+      where t.id = site_talk_versions.talk_id
+    )
   );
 
 create policy site_talk_required_select
@@ -465,6 +491,7 @@ declare
   v_id uuid;
   v_version uuid;
   v_hash text;
+  v_presenter uuid;
   v_expected integer;
   v_inserted integer;
 begin
@@ -501,6 +528,16 @@ begin
   end if;
   perform private.talk_device_time(p_presented_at);
 
+  select p.id into v_presenter
+  from public.people p
+  where p.company_id = v_company
+    and lower(btrim(p.display_name)) = lower(v_name)
+  order by case when p.id = v_actor.person_id then 0 else 1 end, p.id
+  limit 1;
+  if v_presenter is null then
+    v_presenter := v_actor.person_id;
+  end if;
+
   v_id := pg_catalog.gen_random_uuid();
   v_version := pg_catalog.gen_random_uuid();
   v_hash := private.talk_hash(p_kind, p_delivery, v_title, coalesce(v_body, ''), v_pdf);
@@ -510,7 +547,7 @@ begin
     presenter_person_id, presenter_name, presenter_role, presented_at, created_by
   ) values (
     v_id, p_site_id, v_company, p_kind, p_delivery, v_title, p_audience,
-    v_actor.person_id, v_name, v_role, p_presented_at, v_actor.person_id
+    v_presenter, v_name, v_role, p_presented_at, v_actor.person_id
   );
 
   insert into public.site_talk_versions (
@@ -545,7 +582,8 @@ begin
     'talk_id', v_id,
     'version_id', v_version,
     'version_no', 1,
-    'content_hash', v_hash
+    'content_hash', v_hash,
+    'presenter_person_id', v_presenter
   );
 end;
 $fn$;
@@ -898,14 +936,20 @@ declare
   v_received timestamptz;
   v_id uuid;
   v_meaning text;
+  v_named boolean;
 begin
   select * into v_actor from private.talk_actor();
   select * into v_talk from public.site_talks t where t.id = p_talk_id;
+  v_named := v_talk.id is not null
+    and lower(btrim(v_actor.display_name)) = lower(btrim(v_talk.presenter_name));
   if v_actor.person_id is null
      or v_talk.id is null
      or v_talk.company_id is distinct from v_actor.company_id
      or not private.can_access_site(v_talk.site_id)
-     or v_actor.person_id is distinct from v_talk.presenter_person_id then
+     or (
+       not (v_actor.person_id = v_talk.presenter_person_id and v_named)
+       and not (v_actor.role in ('owner', 'cm') and not v_named)
+     ) then
     raise exception 'not_authorized';
   end if;
   if v_talk.delivery is distinct from 'in_person' then
@@ -934,9 +978,13 @@ begin
   select s.name into v_site_name from public.sites s where s.id = v_talk.site_id;
   v_device := private.talk_device_time(p_device_at);
   v_received := pg_catalog.now();
-  v_meaning := private.talk_meaning(
-    v_talk.kind, v_talk.delivery, 'presenter', v_site_name, v_talk.title, v_talk.presenter_name, v_talk.presented_at
-  );
+  if v_named then
+    v_meaning := private.talk_meaning(
+      v_talk.kind, v_talk.delivery, 'presenter', v_site_name, v_talk.title, v_talk.presenter_name, v_talk.presented_at
+    );
+  else
+    v_meaning := 'signed by ' || private.talk_label(v_actor.display_name) || ' for ' || private.talk_label(v_talk.presenter_name);
+  end if;
   v_id := pg_catalog.gen_random_uuid();
   insert into public.site_talk_signatures (
     id, talk_id, version_id, site_id, company_id, person_id, person_name,

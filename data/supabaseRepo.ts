@@ -64,6 +64,7 @@ import type {
   Site,
 } from '@/data/types';
 import { getSupabase } from '@/lib/supabase';
+import { TalkRpcError, throwTalkRpc } from '@/lib/talkQueue';
 
 function unwrap<T>(
   data: T | null,
@@ -86,6 +87,14 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 async function rpcJson(name: string, args: Record<string, unknown>) {
   const { data, error } = await getSupabase().rpc(name, args);
   return unwrap(data, error);
+}
+
+/** Talk writes read `status` from the postgrest-js response, not from `error`. */
+async function rpcTalk(name: string, args: Record<string, unknown>) {
+  const response = await getSupabase().rpc(name, args);
+  throwTalkRpc(response);
+  if (response.data == null) throw new TalkRpcError({ kind: 'permanent', code: 'not_found' }, 'not_found');
+  return response.data;
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
@@ -1119,7 +1128,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signTalk(input: SignTalkInput) {
-    return (await rpcJson('sign_site_talk', {
+    return (await rpcTalk('sign_site_talk', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_person_id: input.personId,
@@ -1131,7 +1140,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async askTalk(input: AskTalkInput) {
-    return (await rpcJson('ask_site_talk', {
+    return (await rpcTalk('ask_site_talk', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_person_id: input.personId,
@@ -1142,7 +1151,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async setTalkNote(talkId, personId, explained, interpreter) {
-    await rpcJson('set_talk_person_note', {
+    await rpcTalk('set_talk_person_note', {
       p_talk_id: talkId,
       p_person_id: personId,
       p_explained: explained,
@@ -1151,7 +1160,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signTalkPresenter(input: PresenterSignInput) {
-    return (await rpcJson('sign_talk_presenter', {
+    return (await rpcTalk('sign_talk_presenter', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_signature_png: input.signaturePng,

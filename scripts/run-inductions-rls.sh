@@ -31,10 +31,34 @@ for migration in supabase/migrations/*.sql; do
   if [[ "$base" == "20261022190000_inductions.sql" ]]; then
     echo "apply anon default grants"
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/anon-default-grants.sql
+    echo "snapshot functions before inductions"
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+drop table if exists public.probe_funcs_before;
+create table public.probe_funcs_before (
+  schema_name text,
+  func_name text,
+  identity_args text
+);
+insert into public.probe_funcs_before (schema_name, func_name, identity_args)
+select n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'private');
+SQL
   fi
   echo "apply ${migration}"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
 done
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/inductions-rls.sql
+talk_file="supabase/migrations/20261022190000_inductions.sql"
+talk_func_count="$(grep -cE '^create or replace function ' "$talk_file")"
+talk_public_count="$(grep -cE '^create or replace function public\.' "$talk_file")"
+talk_private_count="$(grep -cE '^create or replace function private\.' "$talk_file")"
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v talk_func_count="$talk_func_count" \
+  -v talk_public_count="$talk_public_count" \
+  -v talk_private_count="$talk_private_count" \
+  -f scripts/inductions-rls.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public.probe_funcs_before'
 echo "inductions RLS ok"

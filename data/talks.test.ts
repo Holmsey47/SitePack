@@ -239,7 +239,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
   assert.ok(talk);
   const [sam, lee, nia] = world.lads;
   assert.ok(sam && lee && nia);
-  talk.presenter_person_id = sam.id;
+  assert.equal(talk.presenter_person_id, sam.id);
   assert.throws(
     () => sign(world, actor(lee), nia.id, created.talk_id, created.version_id),
     /not_authorized/
@@ -284,7 +284,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
     () =>
       fixtureSignPresenter(
         world.bucket,
-        owner,
+        actor(lee),
         {
           talkId: created.talk_id,
           versionId: created.version_id,
@@ -298,12 +298,60 @@ test('an operative cannot sign as someone else, and the presenter can on that si
       ),
     /not_authorized/
   );
+  const forThem = fixtureSignPresenter(
+    world.bucket,
+    owner,
+    {
+      talkId: created.talk_id,
+      versionId: created.version_id,
+      signaturePng: png,
+      deviceAt: new Date().toISOString(),
+      sessionId: session,
+    },
+    world.sites,
+    world.people,
+    world.access
+  );
+  assert.equal(
+    forThem.meaning,
+    talkMeaning({
+      kind: 'toolbox',
+      delivery: 'in_person',
+      signatureRole: 'on_behalf',
+      siteName: 'Oak yard',
+      title: 'Fire exits',
+      presenterName: 'Sam Reed',
+      presentedOn: formatDate('2026-10-22T12:00:00.000Z'),
+      managerName: 'Jordan Hale',
+    })
+  );
+  const second = fixtureCreateTalk(
+    world.bucket,
+    owner,
+    {
+      siteId: world.site.id,
+      kind: 'toolbox',
+      delivery: 'in_person',
+      title: 'Afternoon brief',
+      body: 'Walk to the gate.',
+      pdfPath: null,
+      audience: 'all',
+      personIds: [],
+      presenterName: 'Sam Reed',
+      presenterRole: 'Operative',
+      presentedAt: '2026-10-22T12:00:00.000Z',
+    },
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access
+  );
   const presenter = fixtureSignPresenter(
     world.bucket,
     actor(sam),
     {
-      talkId: created.talk_id,
-      versionId: created.version_id,
+      talkId: second.talk_id,
+      versionId: second.version_id,
       signaturePng: png,
       deviceAt: new Date().toISOString(),
       sessionId: session,
@@ -323,7 +371,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
     world.access,
     () => null
   );
-  assert.equal(detail?.register?.presenter_signature?.meaning, 'I gave this talk to the people listed.');
+  assert.equal(detail?.register?.presenter_signature?.meaning, 'signed by Jordan Hale for Sam Reed');
   const hidden = fixtureTalkDetail(
     world.bucket,
     actor(lee),

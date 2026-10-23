@@ -6,13 +6,13 @@ import { repo } from '@/data/index';
 import { talkError, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { isFixtureOffline } from '@/lib/fixtureOffline';
-import { SAVED_ON_PHONE, persistThenSendTalk } from '@/lib/talkQueue';
+import { SAVED_ON_PHONE, SESSION_ENDED, getTalkQueue, persistThenSendTalk } from '@/lib/talkQueue';
 import { talkMeaning } from '@/lib/talkMeaning';
 import { talkSessionId } from '@/lib/talkSession';
 import { talkSend } from '@/lib/talkSync';
 import { theme } from '@/lib/theme';
 import { deviceIsOnline } from '@/lib/variationQueue';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -20,6 +20,7 @@ export default function SignTalkScreen() {
   const params = useLocalSearchParams<{ siteId: string; talkId: string; personId?: string; presenter?: string }>();
   const { person } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
   const [talk, setTalk] = useState<TalkDetail | null>(null);
   const [meaning, setMeaning] = useState('');
   const [understood, setUnderstood] = useState(false);
@@ -31,6 +32,13 @@ export default function SignTalkScreen() {
   const [saving, setSaving] = useState(false);
   const presenter = params.presenter === '1';
   const signerId = presenter ? person?.id ?? '' : params.personId || person?.id || '';
+  const onBehalf =
+    presenter &&
+    Boolean(person && talk && (person.display_name ?? '').trim().toLowerCase() !== talk.presenter_name.trim().toLowerCase());
+
+  useEffect(() => {
+    navigation.setOptions({ title: presenter ? 'Presenter sign-off' : 'Sign' });
+  }, [navigation, onBehalf, presenter]);
 
   useEffect(() => {
     if (!params.talkId) return;
@@ -40,14 +48,17 @@ export default function SignTalkScreen() {
       .then((next) => {
         if (!active || !next) return;
         setTalk(next);
+        const behalf =
+          presenter && person && (person.display_name ?? '').trim().toLowerCase() !== next.presenter_name.trim().toLowerCase();
         const local = talkMeaning({
           kind: next.kind,
           delivery: next.delivery,
-          signatureRole: presenter ? 'presenter' : 'attendee',
+          signatureRole: behalf ? 'on_behalf' : presenter ? 'presenter' : 'attendee',
           siteName: next.site_name,
           title: next.title,
           presenterName: next.presenter_name,
           presentedOn: formatDate(next.presented_at),
+          managerName: person?.display_name ?? undefined,
         });
         setMeaning(presenter ? local : next.attendee_meaning || local);
         if (!presenter && signerId && signerId !== person?.id) {
@@ -97,13 +108,25 @@ export default function SignTalkScreen() {
     try {
       const online = !isFixtureOffline() && (await deviceIsOnline());
       const result = await persistThenSendTalk(item, online, talkSend);
+      if (result === 'rejected') {
+        setError(SESSION_ENDED);
+        setSaving(false);
+        return;
+      }
       if (result === 'queued') {
-        setNotice(SAVED_ON_PHONE);
+        const saved = (await getTalkQueue().list()).find((row) => row.localId === item.localId);
+        if ((saved?.attempts ?? 0) > 0) {
+          const queuedNotice = (await getTalkQueue().listNotices()).find((row) => row.retryLocalId === item.localId);
+          setError(queuedNotice?.message ?? 'That signature is still on this phone. Try again when you have a signal.');
+        } else {
+          setNotice(SAVED_ON_PHONE);
+        }
         setSaving(false);
         return;
       }
       if (result === 'refused') {
-        setNotice(action === 'question' ? 'That question was not saved.' : 'That signature was not saved.');
+        const refused = (await getTalkQueue().listNotices()).find((row) => row.id === `reject:${item.localId}`);
+        setError(refused?.message ?? talkError('unknown'));
         setSaving(false);
         return;
       }
@@ -157,7 +180,7 @@ export default function SignTalkScreen() {
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
       <Button
-        label={presenter ? 'Sign that I gave this talk' : 'Sign'}
+        label={presenter ? (onBehalf ? 'Sign for the presenter' : 'Sign that I gave this talk') : 'Sign'}
         minHeight={56}
         loading={saving}
         disabled={!understood || !signature}

@@ -37,7 +37,7 @@ function decodedPdfText(bytes: Uint8Array): string {
     if (hex.length < 2 || hex.length % 2 !== 0) continue;
     shown.push(Buffer.from(hex, 'hex').toString('latin1'));
   }
-  return shown.join('\n');
+  return shown.join('\n').replace(/\u0097/g, '—').replace(/\u0096/g, '–');
 }
 
 const meaning = "I was at the toolbox talk 'Fire exits' given by Jordan Hale at Oak yard on 22 Oct 2026, and I understood it.";
@@ -132,4 +132,170 @@ test('the register prints the stored sentence, markers, presenter, and page foot
   for (let page = 1; page <= footers.length; page += 1) {
     assert.match(text, new RegExp(`page ${page} of ${footers.length}`));
   }
+});
+
+test('the presenter sign-off stays with an attendee for every gang size', async () => {
+  for (let size = 1; size <= 30; size += 1) {
+    const input = register();
+    input.notSigned = [];
+    input.signed = Array.from({ length: size }, (_, index) => ({
+      name: `Gang ${index + 1}`,
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning,
+      signaturePng: png,
+      sharedDevice: false,
+    }));
+    const { pages } = await buildTalkPdf(input);
+    const signOff = pages.filter((page) => page.some((line) => line.includes('I gave this talk')));
+    assert.ok(signOff.length > 0, `gang ${size} has a sign-off`);
+    for (const page of signOff) {
+      assert.match(page.join('\n'), /Gang \d+/, `gang ${size} sign-off page`);
+    }
+  }
+});
+
+function pdfContentBottoms(bytes: Uint8Array): { text: number; image: number }[] {
+  const raw = Buffer.from(bytes);
+  const pages: { text: number; image: number }[] = [];
+  let index = 0;
+  while (index < raw.length) {
+    const start = raw.indexOf('stream', index);
+    if (start < 0) break;
+    let dataStart = start + 'stream'.length;
+    if (raw[dataStart] === 0x0d && raw[dataStart + 1] === 0x0a) dataStart += 2;
+    else if (raw[dataStart] === 0x0a) dataStart += 1;
+    const end = raw.indexOf('endstream', dataStart);
+    if (end < 0) break;
+    let dataEnd = end;
+    if (raw[dataEnd - 1] === 0x0a) dataEnd -= 1;
+    if (raw[dataEnd - 1] === 0x0d) dataEnd -= 1;
+    let source = '';
+    try {
+      source = zlib.inflateSync(raw.subarray(dataStart, dataEnd)).toString('latin1');
+    } catch {
+      index = end + 'endstream'.length;
+      continue;
+    }
+    if (!source.includes('Tm')) {
+      index = end + 'endstream'.length;
+      continue;
+    }
+    const ops = source.split('\n');
+    let text = 999;
+    let image = 999;
+    for (let op = 0; op < ops.length; op += 1) {
+      const placed = ops[op]?.match(/^1 0 0 1 [\d.]+ ([\d.]+) Tm$/);
+      if (placed) {
+        const y = Number(placed[1]);
+        if (y !== 28 && y < text) text = y;
+      }
+      if (ops[op]?.includes(' Do')) {
+        for (let back = op; back >= 0; back -= 1) {
+          const moved = ops[back]?.match(/^1 0 0 1 ([\d.]+) ([\d.]+) cm$/);
+          if (moved && moved[1] !== '0') {
+            image = Math.min(image, Number(moved[2]));
+            break;
+          }
+        }
+      }
+    }
+    pages.push({ text, image });
+    index = end + 'endstream'.length;
+  }
+  return pages;
+}
+
+test('every signer is printed once and no row crosses the footer', async () => {
+  for (const size of [60, 120]) {
+    const input = register();
+    input.notSigned = [];
+    input.signed = Array.from({ length: size }, (_, index) => ({
+      name: `Signer ${String(index + 1).padStart(3, '0')}`,
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning,
+      signaturePng: png,
+      sharedDevice: false,
+    }));
+    const { bytes, footers, pages } = await buildTalkPdf(input);
+    const text = decodedPdfText(bytes);
+    for (let index = 1; index <= size; index += 1) {
+      const name = `Signer ${String(index).padStart(3, '0')}`;
+      assert.equal(text.split(name).length - 1, 1, name);
+    }
+    assert.ok(footers.length > 1, `gang ${size} continues onto another page`);
+    assert.equal(footers.length, pages.length);
+    footers.forEach((footer, index) => {
+      assert.equal(footer, `Oak yard · Ashfield Finishes · page ${index + 1} of ${footers.length}`);
+      assert.match(text, new RegExp(`page ${index + 1} of ${footers.length}`));
+    });
+    const signOff = pages.filter((page) => page.some((line) => line.includes('I gave this talk')));
+    assert.equal(signOff.length, 1);
+    assert.match(signOff[0]?.join('\n') ?? '', /Signer \d+/);
+    for (const bottom of pdfContentBottoms(bytes)) {
+      assert.ok(bottom.text >= 72, `text baseline ${bottom.text}`);
+      if (bottom.image < 900) assert.ok(bottom.image >= 72, `image bottom ${bottom.image}`);
+    }
+  }
+});
+
+test('a row taller than one page continues instead of being clipped', async () => {
+  const input = register();
+  input.notSigned = [];
+  input.presenterSignature = null;
+  const tokens = Array.from({ length: 600 }, (_, index) => `token${String(index).padStart(3, '0')}`);
+  input.signed = [
+    {
+      name: 'Tall Signer',
+      hasQuestion: true,
+      question: tokens.join(' '),
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning,
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  const { bytes, footers } = await buildTalkPdf(input);
+  const text = decodedPdfText(bytes);
+  assert.equal(text.split('Tall Signer').length - 1, 1);
+  for (const token of tokens) assert.equal(text.split(token).length - 1, 1, token);
+  assert.ok(footers.length > 1);
+  for (const bottom of pdfContentBottoms(bytes)) {
+    assert.ok(bottom.text >= 72, `text baseline ${bottom.text}`);
+    if (bottom.image < 900) assert.ok(bottom.image >= 72, `image bottom ${bottom.image}`);
+  }
+});
+
+test('Polish and Irish names and an em dash are kept', async () => {
+  const input = register();
+  input.siteName = 'Siobhán Ó Briain — yard';
+  input.companyName = 'Ashfield Finishes';
+  input.signed = [
+    {
+      name: 'Łukasz Wójcik',
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning: 'Noted — understood.',
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  const { bytes } = await buildTalkPdf(input);
+  const text = decodedPdfText(bytes);
+  assert.match(text, /Lukasz Wójcik/);
+  assert.equal(text.includes('ukasz Wjcik'), false);
+  assert.match(text, /Siobhán Ó Briain/);
+  assert.match(text, /—/);
 });

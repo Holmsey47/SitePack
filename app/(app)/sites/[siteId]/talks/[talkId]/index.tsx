@@ -1,4 +1,5 @@
 import { DrawingFrame } from '@/components/drawing-frame';
+import { TalkNoticeList } from '@/components/TalkRows';
 import { Button, Card, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
@@ -6,15 +7,15 @@ import { canManageSite } from '@/data/repo';
 import { signedCountLabel, talkError, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { buildTalkPdf, talkPdfFilename } from '@/lib/talkPdf';
-import { SAVED_ON_PHONE, getTalkQueue, persistThenSendTalk } from '@/lib/talkQueue';
+import { SAVED_ON_PHONE, SESSION_ENDED, dismissTalkNotice, getTalkQueue, persistThenSendTalk, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { talkSessionId } from '@/lib/talkSession';
-import { talkSend } from '@/lib/talkSync';
+import { refreshTalks, talkSend } from '@/lib/talkSync';
 import { isFixtureOffline } from '@/lib/fixtureOffline';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { theme } from '@/lib/theme';
 import { talkMeaning } from '@/lib/talkMeaning';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { saveSheet } from '@/lib/saveSheet';
 
@@ -22,30 +23,45 @@ export default function TalkDetailScreen() {
   const { siteId, talkId } = useLocalSearchParams<{ siteId: string; talkId: string }>();
   const { person } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
   const manage = person ? canManageSite(person.role) : false;
   const [talk, setTalk] = useState<TalkDetail | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [notices, setNotices] = useState<TalkNotice[]>([]);
   const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     if (!talkId) return;
     try {
-      setTalk(await repo.getTalk(talkId));
-      const queued = await getTalkQueue().list();
-      const waiting = queued.some((item) => item.talkId === talkId);
-      setNotice(waiting ? SAVED_ON_PHONE : '');
+      const next = await repo.getTalk(talkId);
+      setTalk(next);
+      if (person?.auth_user_id) {
+        const refreshed = await refreshTalks(person.auth_user_id);
+        setNotices(refreshed.notices.filter((row) => row.talkId === talkId));
+        const waiting = refreshed.queued.some((item) => item.talkId === talkId && (item.attempts ?? 0) === 0);
+        setNotice(waiting ? SAVED_ON_PHONE : '');
+      } else {
+        const queued = await getTalkQueue().list();
+        setNotice(queued.some((item) => item.talkId === talkId) ? SAVED_ON_PHONE : '');
+      }
       setError('');
     } catch (err) {
       setError(talkError(err instanceof Error ? err.message : 'unknown'));
     }
-  }, [talkId]);
+  }, [person?.auth_user_id, talkId]);
 
   useFocusEffect(
     useCallback(() => {
       load().catch(() => setError('Could not load the talk.'));
     }, [load])
   );
+
+  useEffect(() => {
+    if (!talk) return;
+    const title = talk.register ? "Who's signed" : talk.kind === 'induction' ? 'Induction' : 'Toolbox talk';
+    navigation.setOptions({ title });
+  }, [navigation, talk]);
 
   async function toggleNote(personId: string, explained: boolean, interpreter: boolean) {
     if (!talkId || !person?.auth_user_id || !talk) return;
@@ -70,7 +86,11 @@ export default function TalkDetailScreen() {
       talkSend
     );
     if (result === 'queued') setNotice(SAVED_ON_PHONE);
-    if (result === 'refused') setNotice('That note was not saved.');
+    if (result === 'refused') {
+      const saved = await getTalkQueue().listNotices();
+      setNotice(saved.find((row) => row.talkId === talkId)?.message ?? 'That note was not saved. Try again.');
+    }
+    if (result === 'rejected') setError(SESSION_ENDED);
     if (result === 'sent') await load();
   }
 
@@ -139,14 +159,18 @@ export default function TalkDetailScreen() {
 
   const register = talk.register;
   const canRun = manage || person?.id === talk.presenter_person_id;
+  const namedPresenter =
+    person?.id === talk.presenter_person_id &&
+    (person.display_name ?? '').trim().toLowerCase() === talk.presenter_name.trim().toLowerCase();
   const presenterLine = talkMeaning({
     kind: talk.kind,
     delivery: talk.delivery,
-    signatureRole: 'presenter',
+    signatureRole: namedPresenter ? 'presenter' : 'on_behalf',
     siteName: talk.site_name,
     title: talk.title,
     presenterName: talk.presenter_name,
     presentedOn: formatDate(talk.presented_at),
+    managerName: person?.display_name ?? undefined,
   });
 
   return (
@@ -160,6 +184,21 @@ export default function TalkDetailScreen() {
       </Text>
       <Muted>{formatUkDateTime(talk.presented_at)}</Muted>
       <Muted>{talk.delivery === 'in_person' ? 'Given in person' : 'Read on the phone'}</Muted>
+      <TalkNoticeList
+        notices={notices}
+        onDismiss={(item) => {
+          void dismissTalkNotice(getTalkQueue(), item).then(() =>
+            setNotices((current) => current.filter((row) => row.id !== item.id))
+          );
+        }}
+        onRetry={(item) => {
+          if (!item.retryLocalId || !person?.auth_user_id) return;
+          const userId = person.auth_user_id;
+          void retryQueuedTalk(getTalkQueue(), item.retryLocalId)
+            .then(() => refreshTalks(userId))
+            .then((next) => setNotices(next.notices.filter((row) => row.talkId === talkId)));
+        }}
+      />
       {notice ? <SeenRejectNotice message={notice} /> : null}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {talk.body ? <Text style={{ color: theme.text, fontSize: 17, lineHeight: 24 }}>{talk.body}</Text> : null}
@@ -235,11 +274,11 @@ export default function TalkDetailScreen() {
               ))}
             </View>
           ) : null}
-          {talk.delivery === 'in_person' && person?.id === talk.presenter_person_id && !register.presenter_signature ? (
+          {talk.delivery === 'in_person' && !register.presenter_signature && (namedPresenter || manage) ? (
             <View style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{presenterLine}</Text>
               <Button
-                label="Sign that I gave this talk"
+                label={namedPresenter ? 'Sign that I gave this talk' : 'Sign for the presenter'}
                 minHeight={56}
                 onPress={() => router.push(`/sites/${siteId}/talks/${talk.talk_id}/sign?presenter=1`)}
               />

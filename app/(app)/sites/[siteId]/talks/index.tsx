@@ -1,8 +1,11 @@
+import { TalkNoticeList } from '@/components/TalkRows';
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import { signedCountLabel, talkError, type TalkListItem } from '@/data/talks';
+import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
+import { refreshTalks } from '@/lib/talkSync';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -14,17 +17,22 @@ export default function TalksScreen() {
   const router = useRouter();
   const manage = person ? canManageSite(person.role) : false;
   const [rows, setRows] = useState<TalkListItem[]>([]);
+  const [notices, setNotices] = useState<TalkNotice[]>([]);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     if (!siteId) return;
     try {
       setRows(await repo.listTalks(siteId));
+      if (person?.auth_user_id) {
+        const refreshed = await refreshTalks(person.auth_user_id);
+        setNotices(refreshed.notices.filter((row) => row.siteId === siteId));
+      }
       setError('');
     } catch (err) {
       setError(talkError(err instanceof Error ? err.message : 'unknown'));
     }
-  }, [siteId]);
+  }, [person?.auth_user_id, siteId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -35,6 +43,21 @@ export default function TalksScreen() {
   return (
     <Screen>
       <Title>Inductions and talks</Title>
+      <TalkNoticeList
+        notices={notices}
+        onDismiss={(notice) => {
+          void dismissTalkNotice(getTalkQueue(), notice).then(() =>
+            setNotices((current) => current.filter((row) => row.id !== notice.id))
+          );
+        }}
+        onRetry={(notice) => {
+          if (!notice.retryLocalId || !person?.auth_user_id) return;
+          const userId = person.auth_user_id;
+          void retryQueuedTalk(getTalkQueue(), notice.retryLocalId)
+            .then(() => refreshTalks(userId))
+            .then((next) => setNotices(next.notices.filter((row) => row.siteId === siteId)));
+        }}
+      />
       {error ? <Text style={{ color: theme.danger, fontSize: 16 }}>{error}</Text> : null}
       {manage ? (
         <Button label="Create a talk" minHeight={56} onPress={() => router.push(`/sites/${siteId}/talks/new`)} />
