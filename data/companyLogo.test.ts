@@ -97,6 +97,11 @@ test('company logo policies stay on the private bucket and the owner column', ()
   assert.match(sql, /for update to authenticated/);
   assert.match(sql, /for delete to authenticated/);
   assert.match(sql, /companies_guard_logo/);
+  assert.equal(sql.match(/array_length\(storage\.foldername\(name\), 1\), 0\) = 1/g)?.length, 5);
+  assert.doesNotMatch(sql, /foldername\(name\), 1\), 0\) = 2/);
+  const stub = fs.readFileSync('scripts/throwaway-auth.sql', 'utf8');
+  assert.match(stub, /storage\.foldername returns the folders only/);
+  assert.match(stub, /\[1:coalesce\(array_length\(string_to_array\(name, '\/'\), 1\), 0\) - 1\]/);
   assert.doesNotMatch(sql, /to anon/);
   assert.doesNotMatch(sql, /service_role/);
 

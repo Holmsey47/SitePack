@@ -97,10 +97,12 @@ create table if not exists storage.objects (
   metadata jsonb
 );
 
+-- Hosted storage.foldername returns the folders only.
+-- public/subfolder/avatar.png -> {public,subfolder}
 create or replace function storage.foldername(name text)
 returns text[]
 language sql
 immutable
 as $$
-  select string_to_array(name, '/');
+  select (string_to_array(name, '/'))[1:coalesce(array_length(string_to_array(name, '/'), 1), 0) - 1];
 $$;

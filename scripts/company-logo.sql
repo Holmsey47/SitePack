@@ -38,6 +38,13 @@ $$;
 grant update, delete on table storage.objects to authenticated;
 
 select pg_temp.ok(
+  storage.foldername('11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg')
+    = array['11111111-1111-4111-8111-111111111111']::text[]
+  and storage.foldername('public/subfolder/avatar.png') = array['public', 'subfolder']::text[],
+  'foldername drops the filename, so a logo path is one folder'
+);
+
+select pg_temp.ok(
   (
     select public is false
       and file_size_limit = 1048576

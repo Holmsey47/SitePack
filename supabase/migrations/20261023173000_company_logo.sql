@@ -43,7 +43,8 @@ create trigger companies_guard_logo
   before update on public.companies
   for each row execute function private.companies_guard_logo();
 
--- Private bucket. Path is <company_id>/<file>, one folder deep.
+-- Private bucket. Path is <company_id>/<file>.
+-- storage.foldername leaves out the filename, so that path has length 1.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'company-logos',
@@ -68,7 +69,7 @@ create policy company_logos_select
   using (
     bucket_id = 'company-logos'
     and private.storage_company_id(name) = private.my_company_id()
-    and coalesce(array_length(storage.foldername(name), 1), 0) = 2
+    and coalesce(array_length(storage.foldername(name), 1), 0) = 1
     and position('..' in name) = 0
     and left(name, 1) <> '/'
   );
@@ -79,7 +80,7 @@ create policy company_logos_insert
     bucket_id = 'company-logos'
     and private.my_role() = 'owner'
     and private.storage_company_id(name) = private.my_company_id()
-    and coalesce(array_length(storage.foldername(name), 1), 0) = 2
+    and coalesce(array_length(storage.foldername(name), 1), 0) = 1
     and position('..' in name) = 0
     and left(name, 1) <> '/'
   );
@@ -90,7 +91,7 @@ create policy company_logos_update
     bucket_id = 'company-logos'
     and private.my_role() = 'owner'
     and private.storage_company_id(name) = private.my_company_id()
-    and coalesce(array_length(storage.foldername(name), 1), 0) = 2
+    and coalesce(array_length(storage.foldername(name), 1), 0) = 1
     and position('..' in name) = 0
     and left(name, 1) <> '/'
   )
@@ -98,7 +99,7 @@ create policy company_logos_update
     bucket_id = 'company-logos'
     and private.my_role() = 'owner'
     and private.storage_company_id(name) = private.my_company_id()
-    and coalesce(array_length(storage.foldername(name), 1), 0) = 2
+    and coalesce(array_length(storage.foldername(name), 1), 0) = 1
     and position('..' in name) = 0
     and left(name, 1) <> '/'
   );
@@ -109,7 +110,7 @@ create policy company_logos_delete
     bucket_id = 'company-logos'
     and private.my_role() = 'owner'
     and private.storage_company_id(name) = private.my_company_id()
-    and coalesce(array_length(storage.foldername(name), 1), 0) = 2
+    and coalesce(array_length(storage.foldername(name), 1), 0) = 1
     and position('..' in name) = 0
     and left(name, 1) <> '/'
   );
