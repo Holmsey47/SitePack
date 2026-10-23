@@ -16,7 +16,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { forgetSharedSite } from '@/lib/forgetShare';
 import { theme } from '@/lib/theme';
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 
 type Loaded<T> = { rows: T[]; failed: boolean };
@@ -43,6 +43,8 @@ export default function SharedSiteScreen() {
   const [removed, setRemoved] = useState(false);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [retryNote, setRetryNote] = useState('');
+  const failedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -64,6 +66,8 @@ export default function SharedSiteScreen() {
       setSignIns(nextSignIns);
       setInductions(nextInductions);
       setRemoved(false);
+      failedRef.current =
+        nextDrawings.failed || nextVariations.failed || nextSnags.failed || nextSignIns.failed || nextInductions.failed;
     } catch (error) {
       const failure = classifyShareFailure(error);
       setView(null);
@@ -72,6 +76,7 @@ export default function SharedSiteScreen() {
       setSnags(EMPTY);
       setSignIns(EMPTY);
       setInductions(EMPTY);
+      failedRef.current = false;
       if (failure.kind === 'business' && failure.code === 'share_revoked') {
         await forgetSharedSite(siteId);
         setRemoved(true);
@@ -88,6 +93,23 @@ export default function SharedSiteScreen() {
     void load();
   }, [load]);
 
+  async function onRetry() {
+    setRetryNote('Trying again…');
+    const started = Date.now();
+    await load();
+    if (!failedRef.current) {
+      setRetryNote('');
+      return;
+    }
+    const wait = 450 - (Date.now() - started);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    if (failedRef.current) setRetryNote('Still not loading, check signal');
+  }
+
+  function sectionProblem(): string {
+    return retryNote || 'This section did not load.';
+  }
+
   async function openDrawing(drawingId: string) {
     setNotice('');
     try {
@@ -100,6 +122,21 @@ export default function SharedSiteScreen() {
 
   return (
     <Screen>
+      {view ? (
+        <View
+          style={{
+            backgroundColor: theme.current,
+            borderRadius: 12,
+            minHeight: 48,
+            justifyContent: 'center',
+            paddingHorizontal: 14,
+            paddingVertical: 12,
+          }}>
+          <Text style={{ color: theme.currentInk, fontSize: 17, fontWeight: '800' }}>
+            {`Shared by ${view.host_company_name}, view only`}
+          </Text>
+        </View>
+      ) : null}
       <Title>{removed ? 'Access removed' : (view?.site_name ?? 'Shared site')}</Title>
       {loading ? <Muted>Loading the shared site…</Muted> : null}
       {notice ? <SeenRejectNotice message={notice} onDismiss={() => setNotice('')} /> : null}
@@ -115,8 +152,8 @@ export default function SharedSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>DRAWINGS</Text>
               {drawings.failed ? (
                 <Card>
-                  <Muted>This section did not load.</Muted>
-                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                  <Muted>{sectionProblem()}</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void onRetry()} />
                 </Card>
               ) : null}
               {!drawings.failed && drawings.rows.length === 0 ? <Muted>No current drawings.</Muted> : null}
@@ -142,8 +179,8 @@ export default function SharedSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>VARIATIONS</Text>
               {variations.failed ? (
                 <Card>
-                  <Muted>This section did not load.</Muted>
-                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                  <Muted>{sectionProblem()}</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void onRetry()} />
                 </Card>
               ) : null}
               {!variations.failed && variations.rows.length === 0 ? <Muted>No signed or sent variations.</Muted> : null}
@@ -162,8 +199,8 @@ export default function SharedSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SNAGS</Text>
               {snags.failed ? (
                 <Card>
-                  <Muted>This section did not load.</Muted>
-                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                  <Muted>{sectionProblem()}</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void onRetry()} />
                 </Card>
               ) : null}
               {!snags.failed && snags.rows.length === 0 ? <Muted>No snags.</Muted> : null}
@@ -181,8 +218,8 @@ export default function SharedSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SIGN-IN</Text>
               {signIns.failed ? (
                 <Card>
-                  <Muted>This section did not load.</Muted>
-                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                  <Muted>{sectionProblem()}</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void onRetry()} />
                 </Card>
               ) : null}
               {!signIns.failed && signIns.rows.length === 0 ? <Muted>No one has signed in.</Muted> : null}
@@ -202,8 +239,8 @@ export default function SharedSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>INDUCTIONS</Text>
               {inductions.failed ? (
                 <Card>
-                  <Muted>This section did not load.</Muted>
-                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                  <Muted>{sectionProblem()}</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void onRetry()} />
                 </Card>
               ) : null}
               {!inductions.failed && inductions.rows.length === 0 ? <Muted>No induction signatures.</Muted> : null}

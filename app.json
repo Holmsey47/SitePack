@@ -92,6 +92,9 @@
       "expo-secure-store",
       "./plugins/withReleaseSigning.js"
     ],
+    "extra": {
+      "webOrigin": "https://sitepack-preview.vercel.app"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

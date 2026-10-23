@@ -48,6 +48,7 @@ import type {
   TalkVersionRef,
 } from '@/data/talks';
 import type {
+  ShareCodePreview,
   ShareDrawingUrl,
   ShareInviteCreated,
   ShareNotice,
@@ -211,6 +212,7 @@ export type SitePackRepo = {
   revokeSiteShare(shareId: string): Promise<void>;
   revokeSiteShareInvite(inviteId: string): Promise<void>;
   redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string; status: string }>;
+  previewSiteShare(code: string): Promise<ShareCodePreview>;
   approveSiteShare(shareId: string): Promise<void>;
   declineSiteShare(shareId: string): Promise<void>;
   myShareNotices(): Promise<ShareNotice[]>;

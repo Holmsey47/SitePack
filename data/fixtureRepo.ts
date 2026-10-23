@@ -5,6 +5,7 @@ import {
   fixtureListSiteShares,
   fixtureMySharedSites,
   fixtureMyShareNotices,
+  fixturePreviewSiteShare,
   fixtureRedeemSiteShare,
   fixtureRevokeSiteShare,
   fixtureRevokeSiteShareInvite,
@@ -2076,6 +2077,11 @@ export const fixtureRepo: SitePackRepo = {
   async redeemSiteShare(code) {
     meOrThrow();
     return fixtureRedeemSiteShare(code);
+  },
+
+  async previewSiteShare(code) {
+    meOrThrow();
+    return fixturePreviewSiteShare(code);
   },
 
   async mySharedSites() {

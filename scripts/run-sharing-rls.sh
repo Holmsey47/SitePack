@@ -63,8 +63,8 @@ for name in names:
     if key not in seen:
         seen.append(key)
 replaced = {"private.visible_variation_pence", "private.visible_shown_pence"}
-if len(seen) != 29 or replaced - set(seen):
-    raise SystemExit(f"expected 29 functions including the 2 replaced, found {len(seen)}")
+if len(seen) != 30 or replaced - set(seen):
+    raise SystemExit(f"expected 30 functions including the 2 replaced, found {len(seen)}")
 lines = [
     "drop table if exists public.share_funcs_expected;",
     "create table public.share_funcs_expected (nspname text, proname text, replaced boolean);",

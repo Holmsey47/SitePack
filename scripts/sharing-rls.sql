@@ -93,11 +93,11 @@ begin
     );
   select count(*) into v_expected from public.share_funcs_expected where not replaced;
   select count(*) into v_replaced from public.share_funcs_expected where replaced;
-  if v_expected <> 27 or v_replaced <> 2 then
-    raise exception 'FAIL: migration list expected 27 new and 2 replaced, found % / %', v_expected, v_replaced;
+  if v_expected <> 28 or v_replaced <> 2 then
+    raise exception 'FAIL: migration list expected 28 new and 2 replaced, found % / %', v_expected, v_replaced;
   end if;
-  if v_count <> 27 then
-    raise exception 'FAIL: expected 27 new functions, found %', v_count;
+  if v_count <> 28 then
+    raise exception 'FAIL: expected 28 new functions, found %', v_count;
   end if;
   if exists (
     select 1
@@ -439,6 +439,55 @@ select pg_temp.ok(
   (public.redeem_site_share(:'hashused') ->> 'error') = 'invalid_input',
   'a used code returns the same error as a bad code'
 );
+
+select pg_temp.ok(
+  (public.preview_site_share(:'hashok') ->> 'site_name') = 'Site A'
+  and (public.preview_site_share(:'hashok') ->> 'host_company_name') = 'Firm X'
+  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'drawings') = 'true'
+  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'snags') = 'true'
+  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'sign_in') = 'false'
+  and position('@' in (public.preview_site_share(:'hashok'))::text) = 0
+  and pg_temp.raises(
+    'select public.shared_drawings(' || quote_literal(:'sitea') || '::uuid)',
+    'share_revoked'
+  ),
+  'a code preview names the site and sections and does not grant access'
+);
+
+reset role;
+select pg_temp.ok(
+  (select uses from public.site_share_invites where code_hash = decode(:'hashok', 'hex')) = 0
+  and not exists (
+    select 1
+    from public.site_shares s
+    join public.site_share_invites i on i.id = s.invite_id
+    where i.code_hash = decode(:'hashok', 'hex')
+  ),
+  'a code preview does not use the code or open a share'
+);
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.jwt(:'ownerz'::uuid);
+select pg_temp.ok(
+  (public.preview_site_share(:'hashok') ->> 'error') = 'invalid_input'
+  and (public.preview_site_share('abcd') ->> 'error') = 'invalid_input',
+  'a preview for another firm returns the same error as a bad code'
+);
+
+select pg_temp.jwt(:'opy'::uuid);
+select pg_temp.ok(
+  (public.preview_site_share(:'hashop') ->> 'error') = 'not_allowed',
+  'an operative cannot preview a code open'
+);
+reset role;
+select pg_temp.ok(
+  (select uses from public.site_share_invites where code_hash = decode(:'hashop', 'hex')) = 0,
+  'an operative preview does not use the code'
+);
+
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
 
 insert into share_probe (k, v)
 values ('redeemed', public.redeem_site_share(:'hashok'));
@@ -1024,6 +1073,10 @@ select pg_temp.ok(
   and position(
     'share-ip:'
     in pg_get_functiondef('public.redeem_site_share(text,text)'::regprocedure)
+  ) > 0
+  and position(
+    'pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)'
+    in pg_get_functiondef('public.preview_site_share(text,text)'::regprocedure)
   ) > 0,
   'the redeem lock is hashtext of the person id'
 );

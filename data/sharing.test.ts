@@ -16,6 +16,9 @@ import {
   shareFailureNotice,
   shareFailureRetries,
   shareInviteText,
+  shareWebOrigin,
+  sharedSectionLine,
+  stopSharingBody,
   withShareRetry,
 } from './sharing.ts';
 import {
@@ -32,7 +35,7 @@ import {
 import { IDS } from './ids.ts';
 import fs from 'node:fs';
 
-test('sections start off and the company placeholder is your company', () => {
+test('sections start off and the company placeholder names an example firm', () => {
   assert.deepEqual(SHARE_SECTION_DEFAULTS, {
     drawings: false,
     variations: false,
@@ -40,7 +43,7 @@ test('sections start off and the company placeholder is your company', () => {
     sign_in: false,
     inductions: false,
   });
-  assert.equal(SHARE_COMPANY_PLACEHOLDER, 'your company');
+  assert.equal(SHARE_COMPANY_PLACEHOLDER, 'e.g. Kerr Construction');
   assert.equal(SHARE_COMPANY_PLACEHOLDER.includes('[company]'), false);
 });
 
@@ -102,6 +105,11 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(share, /label="Approve"/);
   assert.match(share, /label="Decline"/);
   assert.match(share, /minHeight=\{56\}/);
+  assert.match(share, /sharedSectionLine/);
+  assert.match(share, /label="New share code"/);
+  assert.match(share, /label="Stop sharing"/);
+  assert.match(share, /stopSharingBody/);
+  assert.match(share, /SHARE_COMPANY_PLACEHOLDER/);
   const openShare = fs.readFileSync('components/open-share-screen.tsx', 'utf8');
   assert.match(openShare, /history\.replaceState/);
   assert.match(openShare, /publicCodePath/);
@@ -111,6 +119,18 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(shared, /SIGN-IN/);
   assert.match(shared, /INDUCTIONS/);
   assert.match(shared, /label="Retry"/);
+  assert.match(shared, /Shared by \$\{view\.host_company_name\}, view only/);
+  assert.match(shared, /Trying again…/);
+  assert.match(shared, /Still not loading, check signal/);
+  const sites = fs.readFileSync('app/(app)/sites/index.tsx', 'utf8');
+  assert.match(sites, />\s*Shared\s*</);
+  assert.match(sites, /Their contracts manager:/);
+  assert.match(openShare, /shared by \$\{preview\.host_company_name\}/);
+  assert.match(openShare, /sharedSectionLine/);
+  const notice = fs.readFileSync('components/ui.tsx', 'utf8');
+  const reject = notice.slice(notice.indexOf('export function SeenRejectNotice'), notice.indexOf('export function GlanceRow'));
+  assert.match(reject, /if \(!onDismiss\)/);
+  assert.match(reject, /<View style=\{styles\.seenReject\}>/);
   assert.equal(shared.includes('.catch(() => [])'), false);
   assert.match(layout, /headerShown: false/);
   assert.equal(layout.includes("title: 'Open a share'"), false);
@@ -159,12 +179,35 @@ test('a pending approval names the pinned firm and flags a later rename', () => 
   assert.match(shareRenameNote({ renamed: true, current_company_name: 'Firm Z Renamed' }) ?? '', /Firm Z Renamed/);
 });
 
-test('a share link keeps the code and names a company', () => {
-  const text = shareInviteText({ company: 'Northbuild', site: 'Harbour Point', code: 'ABCD2345' });
+test('a share link names the sections and uses the configured origin', () => {
+  const sections = { ...SHARE_SECTION_DEFAULTS, drawings: true, snags: true };
+  const text = shareInviteText({
+    company: 'Northbuild',
+    site: 'Harbour Point',
+    code: 'ABCD2345',
+    sections,
+    origin: 'https://links.example',
+  });
   assert.match(text, /Northbuild/);
   assert.match(text, /Harbour Point/);
-  assert.match(text, /\/share\/ABCD2345/);
+  assert.match(text, /https:\/\/links\.example\/share\/ABCD2345/);
   assert.match(text, /ABCD-2345/);
+  assert.equal(sharedSectionLine(sections), 'They will see: Drawings, Snags report');
+  assert.match(text, /They will see: Drawings, Snags report/);
+  assert.match(stopSharingBody(sections), /They will lose: Drawings, Snags report/);
+  const source = fs.readFileSync('data/sharing.ts', 'utf8');
+  assert.equal(source.includes('sitepack-preview.vercel.app'), false);
+  assert.match(fs.readFileSync('app.json', 'utf8'), /"webOrigin": "https:\/\/sitepack-preview\.vercel\.app"/);
+  const previous = process.env.EXPO_PUBLIC_WEB_ORIGIN;
+  delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+  try {
+    assert.equal(shareWebOrigin(), 'https://sitepack-preview.vercel.app');
+    process.env.EXPO_PUBLIC_WEB_ORIGIN = 'https://from-env.example/';
+    assert.equal(shareWebOrigin(), 'https://from-env.example');
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+    else process.env.EXPO_PUBLIC_WEB_ORIGIN = previous;
+  }
 });
 
 test('dropping a shared site wipes that site only', () => {

@@ -6,14 +6,14 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawi
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
-import { pendingShareRequestLabel, shareRenameNote, type ShareNotice } from '@/data/sharing';
+import { pendingShareRequestLabel, shareRenameNote, sharedSectionLine, type ShareNotice } from '@/data/sharing';
 import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
-import { formatDate, formatWhen } from '@/lib/format';
+import { formatDate, formatUkDateTime, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
 import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
@@ -356,6 +356,8 @@ export default function SitePackScreen() {
           {shareNotices.map((row) => (
             <Card key={row.share_id}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{pendingShareRequestLabel(row)}</Text>
+              <Muted>{sharedSectionLine(row.sections)}</Muted>
+              {row.code_expires_at ? <Muted>{`Expires ${formatUkDateTime(row.code_expires_at)}`}</Muted> : null}
               {shareRenameNote(row) ? <Muted>{shareRenameNote(row)}</Muted> : null}
               <Button label="Review" minHeight={56} onPress={() => router.push(`/sites/${siteId}/share`)} />
             </Card>

@@ -65,6 +65,7 @@ import type {
 } from '@/data/types';
 import {
   throwShareFunction,
+  type ShareCodePreview,
   type ShareDrawingUrl,
   type ShareInviteCreated,
   type ShareNotice,
@@ -1348,6 +1349,10 @@ export const supabaseRepo: SitePackRepo = {
       status?: string;
     };
     return { shareId: row.share_id, siteId: row.site_id, siteName: row.site_name, status: row.status ?? 'pending' };
+  },
+
+  async previewSiteShare(code) {
+    return (await invokeShareFunction('redeem-site-share', { code, preview: true })) as ShareCodePreview;
   },
 
   async approveSiteShare(shareId) {

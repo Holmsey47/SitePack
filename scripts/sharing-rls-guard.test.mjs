@@ -26,7 +26,7 @@ test('the sharing migration pins search_path and revokes anon on every function 
   const parsed = functionsIn(sql);
   const created = parsed.filter((fn) => !replacedNames.has(fn.name));
   const replaced = parsed.filter((fn) => replacedNames.has(fn.name));
-  assert.equal(created.length, 27, `parsed ${created.length} new functions`);
+  assert.equal(created.length, 28, `parsed ${created.length} new functions`);
   assert.equal(replaced.length, 2);
   for (const fn of [...created, ...replaced]) {
     assert.equal(fn.definer, true, fn.name);

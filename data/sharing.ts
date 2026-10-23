@@ -1,8 +1,9 @@
-import { formatJoinCode, JOIN_WEB_ORIGIN, normalizeJoinCode } from '@/data/joinCodes';
+import appConfig from '../app.json' with { type: 'json' };
+import { formatJoinCode, normalizeJoinCode } from '@/data/joinCodes';
 import { snagFailureFrom, snagRpcError } from '@/data/snagFailure';
 
 export const SHARE_DAYS = 7;
-export const SHARE_COMPANY_PLACEHOLDER = 'your company';
+export const SHARE_COMPANY_PLACEHOLDER = 'e.g. Kerr Construction';
 
 export type ShareSections = {
   drawings: boolean;
@@ -20,6 +21,41 @@ export const SHARE_SECTION_DEFAULTS: ShareSections = {
   sign_in: false,
   inductions: false,
 };
+
+/** Labels the host, the copied text, and the guest all use for the same sections. */
+export const SHARE_SECTION_LABELS: { key: keyof ShareSections; label: string }[] = [
+  { key: 'drawings', label: 'Drawings' },
+  { key: 'variations', label: 'Variations' },
+  { key: 'snags', label: 'Snags report' },
+  { key: 'sign_in', label: 'Sign-in register' },
+  { key: 'inductions', label: 'Inductions register' },
+];
+
+/** The sections that are actually on. An empty share says so. */
+export function sharedSectionList(sections: ShareSections): string {
+  const on = SHARE_SECTION_LABELS.filter((row) => sections[row.key]).map((row) => row.label);
+  return on.length > 0 ? on.join(', ') : 'nothing yet';
+}
+
+/** Shown before a code is opened, on the host card, and in the copied invite. */
+export function sharedSectionLine(sections: ShareSections): string {
+  return `They will see: ${sharedSectionList(sections)}`;
+}
+
+/** Confirm copy. Names what the other firm loses, which is the sections that are on. */
+export function stopSharingBody(sections: ShareSections): string {
+  return `They will lose: ${sharedSectionList(sections)}. They lose this site on their next open, and their copy of it is wiped.`;
+}
+
+/**
+ * Base URL for a copied share link. The env wins, then app.json extra.webOrigin.
+ * The preview host lives in that config, not in this file.
+ */
+export function shareWebOrigin(): string {
+  const fromEnv = process.env.EXPO_PUBLIC_WEB_ORIGIN?.trim() ?? '';
+  const fromConfig = appConfig.expo.extra?.webOrigin?.trim() ?? '';
+  return (fromEnv || fromConfig).replace(/\/$/, '');
+}
 
 export type ShareInviteCreated = {
   id: string;
@@ -58,6 +94,15 @@ export type SiteShareRow = {
   declined_at: string | null;
   revoked_at: string | null;
   site_name: string;
+  /** The invite's expiry. This is not a share end date. */
+  code_expires_at: string | null;
+  sections: ShareSections;
+};
+
+export type ShareCodePreview = {
+  site_name: string;
+  host_company_name: string;
+  expires_at: string;
   sections: ShareSections;
 };
 
@@ -71,6 +116,8 @@ export type ShareNotice = {
   redeemer_name: string;
   redeemer_email: string;
   redeemed_at: string;
+  code_expires_at: string | null;
+  sections: ShareSections;
 };
 
 export type SiteShareList = {
@@ -230,10 +277,16 @@ export function pendingInviteLabel(invite: { expires_at: string }, now = Date.no
   return `${state}. Cancel it if you do not want it opened.`;
 }
 
-export function shareInviteText(input: { company: string; site: string; code: string; origin?: string }): string {
+export function shareInviteText(input: {
+  company: string;
+  site: string;
+  code: string;
+  sections: ShareSections;
+  origin?: string;
+}): string {
   const compact = normalizeJoinCode(input.code);
-  const origin = (input.origin ?? JOIN_WEB_ORIGIN).replace(/\/$/, '');
-  return `${input.company} can view ${input.site} on SitePack: ${origin}/share/${compact} Code: ${formatJoinCode(compact)}`;
+  const origin = (input.origin ?? shareWebOrigin()).replace(/\/$/, '');
+  return `${input.company} can view ${input.site} on SitePack: ${origin}/share/${compact} Code: ${formatJoinCode(compact)} ${sharedSectionLine(input.sections)}`;
 }
 
 export function accessRemovedMessage(): string {

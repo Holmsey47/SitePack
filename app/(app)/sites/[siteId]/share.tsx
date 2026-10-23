@@ -11,6 +11,8 @@ import {
   pendingShareRequestLabel,
   shareFailureNotice,
   shareRenameNote,
+  sharedSectionLine,
+  stopSharingBody,
   type ShareInviteRow,
   type ShareSections,
   type SiteShareRow,
@@ -29,11 +31,6 @@ const SECTION_ROWS: { key: keyof ShareSections; label: string; hint: string }[] 
   { key: 'inductions', label: 'Inductions register', hint: 'Off unless you turn it on' },
 ];
 
-function sectionLine(sections: ShareSections): string {
-  const on = SECTION_ROWS.filter((row) => sections[row.key]).map((row) => row.label);
-  return on.length > 0 ? on.join(', ') : 'No sections yet';
-}
-
 export default function ShareSiteScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const { person } = useAuth();
@@ -46,6 +43,7 @@ export default function ShareSiteScreen() {
   const [loading, setLoading] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<SiteShareRow | null>(null);
   const [cancelInvite, setCancelInvite] = useState<ShareInviteRow | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const owner = person?.role === 'owner';
   const manage = person ? canManageSite(person.role) : false;
 
@@ -54,8 +52,10 @@ export default function ShareSiteScreen() {
     repo
       .listSiteShares(siteId)
       .then((list) => {
+        const nextInvites = pendingShareInvites(list.invites);
         setShares(list.shares.filter((row) => !row.revoked_at && row.status !== 'declined'));
-        setInvites(pendingShareInvites(list.invites));
+        setInvites(nextInvites);
+        if (nextInvites.length === 0) setFormOpen(true);
       })
       .catch((error: unknown) => setNotice(shareFailureNotice(classifyShareFailure(error))));
   }, [manage, siteId]);
@@ -85,6 +85,9 @@ export default function ShareSiteScreen() {
         guestCompanyName: company,
         sections,
       });
+      setCompany('');
+      setSections({ ...SHARE_SECTION_DEFAULTS });
+      setFormOpen(false);
       router.push({
         pathname: '/sites/[siteId]/share-code',
         params: {
@@ -93,6 +96,7 @@ export default function ShareSiteScreen() {
           expires: created.expires_at,
           firm: created.guest_company_name,
           siteName: created.site_name,
+          sections: JSON.stringify(created.sections),
         },
       });
     } catch (error) {
@@ -169,6 +173,8 @@ export default function ShareSiteScreen() {
         return (
           <Card key={share.id}>
             <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{pendingShareRequestLabel(share)}</Text>
+            <Muted>{sharedSectionLine(share.sections)}</Muted>
+            {share.code_expires_at ? <Muted>{`Expires ${formatUkDateTime(share.code_expires_at)}`}</Muted> : null}
             {renamed ? <Muted>{renamed}</Muted> : null}
             <Button label="Approve" minHeight={56} onPress={() => void onApprove(share)} />
             <Button label="Decline" variant="danger" minHeight={56} onPress={() => void onDecline(share)} />
@@ -186,7 +192,7 @@ export default function ShareSiteScreen() {
             <Muted>{`Redeemer: ${share.redeemer_name}`}</Muted>
             <Muted>{`Approved by ${share.approved_by_name ?? 'the host'}${share.approved_at ? ` on ${formatUkDateTime(share.approved_at)}` : ''}`}</Muted>
             {renamed ? <Muted>{renamed}</Muted> : null}
-            <Muted>{sectionLine(share.sections)}</Muted>
+            <Muted>{sharedSectionLine(share.sections)}</Muted>
             {owner
               ? SECTION_ROWS.map((row) => (
                   <Pressable
@@ -204,7 +210,7 @@ export default function ShareSiteScreen() {
                   </Pressable>
                 ))
               : null}
-            <Button label="Revoke" variant="danger" minHeight={56} onPress={() => setRevokeTarget(share)} />
+            <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => setRevokeTarget(share)} />
           </Card>
         );
       })}
@@ -216,6 +222,7 @@ export default function ShareSiteScreen() {
           {invites.map((invite) => (
             <Card key={invite.id}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{invite.guest_company_name}</Text>
+              <Muted>{sharedSectionLine(invite.sections)}</Muted>
               <Muted>{pendingInviteLabel(invite)}</Muted>
               <Muted>{`Expires ${formatUkDateTime(invite.expires_at)}`}</Muted>
               <Button label="Cancel" variant="danger" minHeight={56} onPress={() => setCancelInvite(invite)} />
@@ -231,31 +238,45 @@ export default function ShareSiteScreen() {
               <Button label="Keep code" variant="secondary" minHeight={48} onPress={() => setCancelInvite(null)} />
             </Card>
           ) : null}
-          <Field
-            label="Their company"
-            value={company}
-            onChangeText={setCompany}
-            autoCapitalize="words"
-            placeholder={SHARE_COMPANY_PLACEHOLDER}
-          />
-          {SECTION_ROWS.map((row) => (
-            <Pressable
-              key={row.key}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: sections[row.key] }}
-              accessibilityLabel={`${row.label} ${sections[row.key] ? 'on' : 'off'}`}
-              onPress={() => flip(row.key)}
-              style={{ minHeight: 48, justifyContent: 'center' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>{row.label}</Text>
-                <Text style={{ color: sections[row.key] ? theme.current : theme.muted, fontSize: 17, fontWeight: '800' }}>
-                  {sections[row.key] ? 'On' : 'Off'}
-                </Text>
-              </View>
-              <Muted>{row.hint}</Muted>
-            </Pressable>
-          ))}
-          <Button label="Create share code" onPress={() => void onCreate()} loading={loading} minHeight={56} />
+          {formOpen ? (
+            <>
+              <Field
+                label="Their company"
+                value={company}
+                onChangeText={setCompany}
+                autoCapitalize="words"
+                placeholder={SHARE_COMPANY_PLACEHOLDER}
+              />
+              {SECTION_ROWS.map((row) => (
+                <Pressable
+                  key={row.key}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: sections[row.key] }}
+                  accessibilityLabel={`${row.label} ${sections[row.key] ? 'on' : 'off'}`}
+                  onPress={() => flip(row.key)}
+                  style={{ minHeight: 48, justifyContent: 'center' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                    <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }}>{row.label}</Text>
+                    <Text style={{ color: sections[row.key] ? theme.current : theme.muted, fontSize: 17, fontWeight: '800' }}>
+                      {sections[row.key] ? 'On' : 'Off'}
+                    </Text>
+                  </View>
+                  <Muted>{row.hint}</Muted>
+                </Pressable>
+              ))}
+              <Button label="Create share code" onPress={() => void onCreate()} loading={loading} minHeight={56} />
+            </>
+          ) : (
+            <Button
+              label="New share code"
+              minHeight={56}
+              onPress={() => {
+                setCompany('');
+                setSections({ ...SHARE_SECTION_DEFAULTS });
+                setFormOpen(true);
+              }}
+            />
+          )}
         </>
       ) : null}
 
@@ -264,10 +285,10 @@ export default function ShareSiteScreen() {
       {revokeTarget ? (
         <Card>
           <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
-            {`Revoke access for ${revokeTarget.guest_company_name}?`}
+            {`Stop sharing with ${revokeTarget.guest_company_name}?`}
           </Text>
-          <Muted>They lose this site on their next open. Their copy of it is wiped.</Muted>
-          <Button label="Revoke access" variant="danger" minHeight={56} onPress={() => void onRevoke()} />
+          <Muted>{stopSharingBody(revokeTarget.sections)}</Muted>
+          <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => void onRevoke()} />
           <Button label="Keep sharing" variant="secondary" minHeight={48} onPress={() => setRevokeTarget(null)} />
         </Card>
       ) : null}

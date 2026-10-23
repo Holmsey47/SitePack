@@ -3,6 +3,7 @@ import { formatJoinCode, generateJoinCode } from '@/data/joinCodes';
 import {
   SHARE_SECTION_DEFAULTS,
   shareCompanyKey,
+  type ShareCodePreview,
   type ShareInviteCreated,
   type ShareInviteRow,
   type ShareNotice,
@@ -47,7 +48,7 @@ export function resetShareFixture() {
       uses: 0,
       revoked_at: null,
       created_at: '2026-10-22T09:00:00.000Z',
-      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
+      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true, snags: true },
     },
     {
       id: '99999999-9999-4999-8999-9999999999ab',
@@ -78,6 +79,7 @@ export function resetShareFixture() {
       declined_at: null,
       revoked_at: null,
       site_name: 'Plot 12 – Oak Estate',
+      code_expires_at: '2026-10-29T09:00:00.000Z',
       sections: { ...SHARE_SECTION_DEFAULTS, drawings: true, variations: true, snags: true },
     },
     {
@@ -96,7 +98,8 @@ export function resetShareFixture() {
       declined_at: null,
       revoked_at: null,
       site_name: 'Plot 12 – Oak Estate',
-      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
+      code_expires_at: '2026-10-30T09:00:00.000Z',
+      sections: { ...SHARE_SECTION_DEFAULTS, drawings: true, snags: true },
     },
     {
       id: '99999999-9999-4999-8999-9999999999b6',
@@ -114,6 +117,7 @@ export function resetShareFixture() {
       declined_at: null,
       revoked_at: null,
       site_name: 'Plot 12 – Oak Estate',
+      code_expires_at: '2026-10-30T09:00:00.000Z',
       sections: { ...SHARE_SECTION_DEFAULTS, drawings: true },
     },
   ];
@@ -210,7 +214,21 @@ export function fixtureMyShareNotices(): ShareNotice[] {
       redeemer_name: row.redeemer_name,
       redeemer_email: row.redeemer_email,
       redeemed_at: row.redeemed_at,
+      code_expires_at: row.code_expires_at,
+      sections: sectionsOf(row),
     }));
+}
+
+export function fixturePreviewSiteShare(code: string): ShareCodePreview {
+  const compact = code.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  const invite = invites.find((row) => row.code === compact && !row.revoked_at && row.uses < 1);
+  if (!invite) throw new Error('invalid_input');
+  return {
+    site_name: invite.siteId === IDS.oak ? 'Plot 12 – Oak Estate' : 'Shared site',
+    host_company_name: 'Ashfield Finishes',
+    expires_at: invite.expires_at,
+    sections: { ...invite.sections },
+  };
 }
 
 export function fixtureRevokeSiteShareInvite(inviteId: string) {

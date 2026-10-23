@@ -6,6 +6,8 @@
 -- Guests read through the security-definer shared_* functions. Table policies stay
 -- host-only. can_access_site is unchanged. Redeeming a code creates a pending
 -- share. The host owner or contracts manager approves it before any read works.
+-- preview_site_share names the site, the host firm, and the sections. It does not
+-- grant access and it does not use the code.
 -- Every new function is security definer with search_path empty.
 -- Execute is revoked from public and anon. This file does not alter storage or auth.
 
@@ -723,6 +725,105 @@ $fn$;
 revoke all on function public.create_site_share_invite(uuid, text, boolean, boolean, boolean, boolean, boolean, text) from public, anon;
 grant execute on function public.create_site_share_invite(uuid, text, boolean, boolean, boolean, boolean, boolean, text) to authenticated;
 
+-- What the code would share. Same refusal as a bad redeem. No share row, no use.
+create or replace function public.preview_site_share(p_code_hash text, p_client_ip text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor record;
+  v_hash bytea;
+  v_invite public.site_share_invites;
+  v_site_name text;
+  v_host_name text;
+  v_failed integer;
+  v_ip text;
+  v_ip_failed integer;
+begin
+  select * into v_actor from private.share_actor();
+  if not found or v_actor.company_id is null then
+    raise exception 'not_authorized';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)::bigint);
+
+  v_ip := private.ip_subject(coalesce(p_client_ip, ''));
+  if v_ip is distinct from 'unknown' then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('share-ip:' || v_ip)::bigint);
+  end if;
+
+  select count(*) into v_failed
+  from public.site_share_attempts a
+  where a.actor_id = v_actor.person_id
+    and a.created_at > pg_catalog.now() - interval '1 hour';
+  if v_failed >= 10 then
+    return jsonb_build_object('error', 'too_many_attempts');
+  end if;
+
+  if v_ip is distinct from 'unknown' then
+    select count(*) into v_ip_failed
+    from public.site_share_attempts a
+    where a.client_ip = v_ip
+      and a.created_at > pg_catalog.now() - interval '15 minutes';
+    if v_ip_failed >= 40 then
+      return jsonb_build_object('error', 'too_many_attempts');
+    end if;
+  end if;
+
+  begin
+    v_hash := decode(p_code_hash, 'hex');
+  exception
+    when others then
+      v_hash := null;
+  end;
+
+  if v_hash is null or octet_length(v_hash) <> 32 then
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
+    return jsonb_build_object('error', 'invalid_input');
+  end if;
+
+  select * into v_invite
+  from public.site_share_invites
+  where code_hash = v_hash;
+
+  if not found
+     or v_invite.revoked_at is not null
+     or v_invite.expires_at <= pg_catalog.now()
+     or v_invite.uses >= v_invite.max_uses
+     or private.share_company_key(v_actor.company_name) is distinct from v_invite.guest_company_key
+  then
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
+    return jsonb_build_object('error', 'invalid_input');
+  end if;
+
+  if v_actor.role not in ('owner', 'cm') then
+    insert into public.site_share_attempts (actor_id, client_ip)
+    values (v_actor.person_id, nullif(v_ip, 'unknown'));
+    return jsonb_build_object('error', 'not_allowed');
+  end if;
+
+  select s.name into v_site_name from public.sites s where s.id = v_invite.site_id;
+  select c.name into v_host_name from public.companies c where c.id = v_invite.host_company_id;
+
+  return jsonb_build_object(
+    'site_name', v_site_name,
+    'host_company_name', v_host_name,
+    'expires_at', v_invite.expires_at,
+    'sections', private.share_sections(
+      v_invite.share_drawings, v_invite.share_variations, v_invite.share_snags,
+      v_invite.share_sign_in, v_invite.share_inductions
+    )
+  );
+end;
+$fn$;
+
+revoke all on function public.preview_site_share(text, text) from public, anon;
+grant execute on function public.preview_site_share(text, text) to authenticated;
+
 create or replace function public.redeem_site_share(p_code_hash text, p_client_ip text default null)
 returns jsonb
 language plpgsql
@@ -1151,6 +1252,7 @@ begin
     'declined_at', s.declined_at,
     'revoked_at', s.revoked_at,
     'site_name', site.name,
+    'code_expires_at', i.expires_at,
     'sections', private.share_sections(
       s.share_drawings, s.share_variations, s.share_snags, s.share_sign_in, s.share_inductions
     )
@@ -1160,6 +1262,7 @@ begin
   join public.companies c on c.id = s.guest_company_id
   join public.sites site on site.id = s.site_id
   left join public.people approver on approver.id = s.approved_by
+  left join public.site_share_invites i on i.id = s.invite_id
   where s.site_id = p_site_id
     and s.host_company_id = v_actor.company_id;
 
@@ -1195,12 +1298,17 @@ begin
     'renamed', private.share_company_key(c.name) is distinct from private.share_company_key(s.guest_company_name),
     'redeemer_name', s.redeemer_name,
     'redeemer_email', s.redeemer_email,
-    'redeemed_at', s.redeemed_at
+    'redeemed_at', s.redeemed_at,
+    'code_expires_at', i.expires_at,
+    'sections', private.share_sections(
+      s.share_drawings, s.share_variations, s.share_snags, s.share_sign_in, s.share_inductions
+    )
   ) order by s.redeemed_at desc), '[]'::jsonb)
   into v_rows
   from public.site_shares s
   join public.sites site on site.id = s.site_id
   join public.companies c on c.id = s.guest_company_id
+  left join public.site_share_invites i on i.id = s.invite_id
   where s.host_company_id = v_actor.company_id
     and s.status = 'pending'
     and s.revoked_at is null

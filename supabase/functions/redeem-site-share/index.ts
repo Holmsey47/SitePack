@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
     return json({ error: 'not_authorized' }, 401);
   }
 
-  let body: { code?: string };
+  let body: { code?: string; preview?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -29,6 +29,25 @@ Deno.serve(async (req) => {
   if (!codeHash) return json({ error: 'invalid_input' }, 400);
 
   const user = userClient(req);
+  if (body.preview === true) {
+    const previewed = await user.rpc('preview_site_share', {
+      p_code_hash: codeHash,
+      p_client_ip: clientIp(req),
+    });
+    if (previewed.error) {
+      const codeName = knownCode(previewed.error, 'invalid_input');
+      const status = codeName === 'not_authorized' ? 403 : 400;
+      return json({ error: codeName }, status);
+    }
+    const previewRow = previewed.data && typeof previewed.data === 'object' ? (previewed.data as { error?: unknown }) : {};
+    if (typeof previewRow.error === 'string') {
+      const codeName = knownCode(previewRow.error, 'invalid_input');
+      const status = codeName === 'not_authorized' ? 403 : 400;
+      return json({ error: codeName }, status);
+    }
+    return json(previewed.data ?? {});
+  }
+
   const redeemed = await user.rpc('redeem_site_share', {
     p_code_hash: codeHash,
     p_client_ip: clientIp(req),

@@ -7,7 +7,7 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing }
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
-import { pendingShareRequestLabel, rememberSharedSiteIds, shareRenameNote, type ShareNotice, type SharedSiteCard } from '@/data/sharing';
+import { pendingShareRequestLabel, rememberSharedSiteIds, shareRenameNote, sharedSectionLine, type ShareNotice, type SharedSiteCard } from '@/data/sharing';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { forgetSharedSite } from '@/lib/forgetShare';
@@ -18,7 +18,7 @@ import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from 
 import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
-import { formatWhen } from '@/lib/format';
+import { formatUkDateTime, formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -319,6 +319,8 @@ export default function SitesScreen() {
       {shareNotices.map((row) => (
         <Card key={row.share_id}>
           <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{pendingShareRequestLabel(row)}</Text>
+          <Muted>{sharedSectionLine(row.sections)}</Muted>
+          {row.code_expires_at ? <Muted>{`Expires ${formatUkDateTime(row.code_expires_at)}`}</Muted> : null}
           {shareRenameNote(row) ? <Muted>{shareRenameNote(row)}</Muted> : null}
           <Button
             label="Review"
@@ -419,9 +421,23 @@ function SharedWithCompany({ rows, onOpen }: { rows: SharedSiteCard[]; onOpen: (
       {rows.map((row) => (
         <Card key={row.share_id} onPress={() => onOpen(row.site_id)}>
           <View style={{ minHeight: 48, justifyContent: 'center', gap: 4 }}>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.site_name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.site_name}</Text>
+              <Text
+                style={{
+                  color: theme.currentInk,
+                  backgroundColor: theme.current,
+                  fontWeight: '800',
+                  overflow: 'hidden',
+                  borderRadius: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                }}>
+                Shared
+              </Text>
+            </View>
             <Muted>{row.host_company_name}</Muted>
-            <Muted>Contracts manager: {row.cm_contact_name || 'the host company'}</Muted>
+            <Muted>Their contracts manager: {row.cm_contact_name || 'the host company'}</Muted>
           </View>
         </Card>
       ))}
