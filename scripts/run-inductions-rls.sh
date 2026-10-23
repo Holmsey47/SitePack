@@ -48,6 +48,29 @@ SQL
   fi
   echo "apply ${migration}"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+  if [[ "$base" == "20261022190000_inductions.sql" ]]; then
+    echo "snapshot functions added by inductions"
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+drop table if exists public.probe_funcs_talk;
+create table public.probe_funcs_talk (
+  schema_name text,
+  func_name text,
+  identity_args text
+);
+insert into public.probe_funcs_talk (schema_name, func_name, identity_args)
+select n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'private')
+  and not exists (
+    select 1
+    from public.probe_funcs_before b
+    where b.schema_name = n.nspname
+      and b.func_name = p.proname
+      and b.identity_args = pg_get_function_identity_arguments(p.oid)
+  );
+SQL
+  fi
 done
 
 talk_file="supabase/migrations/20261022190000_inductions.sql"
@@ -60,5 +83,5 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v talk_public_count="$talk_public_count" \
   -v talk_private_count="$talk_private_count" \
   -f scripts/inductions-rls.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public.probe_funcs_before'
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public.probe_funcs_before; drop table if exists public.probe_funcs_talk'
 echo "inductions RLS ok"
