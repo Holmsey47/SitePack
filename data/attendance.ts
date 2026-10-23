@@ -1,6 +1,6 @@
 import { SnagRequestError } from '@/data/snagFailure';
 import type { Role } from '@/data/types';
-import { clockGap, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
+import { clockGap, describeShift, priorPhrase, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
 
 export type AttendanceState = 'in' | 'out';
 
@@ -55,7 +55,16 @@ export function canManageHours(role: Role): boolean {
 
 export function hourSpans(entries: AttendanceEntry[]): HourSpan[] {
   return entries.map((entry) => {
-    const audits = entry.audit ?? [];
+    const audits = (entry.audit ?? [])
+      .filter((row) => row.reason !== LATE_SIGN_OUT_REASON)
+      .slice()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const first = audits[0];
+    const last = audits[audits.length - 1];
+    const before = first?.before_entry ?? {};
+    const priorForgot = before.forgot_sign_out === true;
+    const priorLate = typeof before.late_out_at === 'string' && before.late_out_at.length > 0;
+    const late = entry.late_sign_out || (entry.audit ?? []).some((row) => row.reason === LATE_SIGN_OUT_REASON);
     return {
       personId: entry.person_id,
       personName: entry.person_name,
@@ -67,10 +76,32 @@ export function hourSpans(entries: AttendanceEntry[]): HourSpan[] {
           entry.out_gap ||
           (entry.late_out_device_at && entry.late_out_received_at && clockGap(entry.late_out_device_at, entry.late_out_received_at))
       ),
-      late: entry.late_sign_out || audits.some((row) => row.reason === LATE_SIGN_OUT_REASON),
-      corrected: audits.some((row) => row.reason !== LATE_SIGN_OUT_REASON),
+      late,
+      corrected: audits.length > 0,
+      correctedBy: last?.corrected_by_name ?? '',
+      reason: last?.reason ?? '',
+      prior: audits.length > 0 ? priorPhrase(priorForgot, priorLate) : undefined,
     };
   });
+}
+
+/** The week card, the PDF, and the CSV all use this wording. */
+export function shiftCard(entry: AttendanceEntry): { correction: string | null; reason: string | null; flags: string[] } {
+  const [span] = hourSpans([entry]);
+  if (!span) return { correction: null, reason: null, flags: [] };
+  const described = describeShift(span, span.forgot);
+  return { correction: described.correction, reason: described.reason, flags: described.flags };
+}
+
+export async function signOutThenSignIn(
+  openSiteId: string,
+  hereSiteId: string,
+  deviceAt: string,
+  signOut: (siteId: string, at: string) => Promise<unknown>,
+  signIn: (siteId: string, at: string) => Promise<unknown>
+): Promise<void> {
+  await signOut(openSiteId, deviceAt);
+  await signIn(hereSiteId, deviceAt);
 }
 
 export function attendanceError(err: unknown): string {
@@ -88,6 +119,10 @@ export function attendanceError(err: unknown): string {
       return 'That time is not valid.';
     case 'invalid_input':
       return 'Check the time and the reason.';
+    case 'correction_overlaps':
+      return detail ? `That overlaps another shift, ${detail}.` : 'That overlaps another shift.';
+    case 'shift_too_long':
+      return 'That shift is longer than 24 hours.';
     default:
       return 'Could not save the hours.';
   }

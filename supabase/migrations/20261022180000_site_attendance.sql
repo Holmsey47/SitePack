@@ -11,6 +11,9 @@
 -- On site now and the weekly sheet return null unless the caller is an owner or contracts manager.
 -- Writes are SECURITY DEFINER with search_path pinned to empty.
 -- Reads run as the caller, so RLS applies, after the forgotten-close function.
+-- sign_out_site and correct_attendance lock the shift before reading it into the audit.
+-- Two sign-ins at once are already_signed_in. A shift over 24 hours is shift_too_long.
+-- A display name with a control character is invalid_display_name.
 -- This migration does not alter storage, auth, or any Supabase-managed object.
 
 -- ---------------------------------------------------------------------------
@@ -261,7 +264,10 @@ revoke all on function private.attendance_require_site(uuid) from public, anon, 
 
 -- A shift the overnight rule can still own: signed in at or after 14:00
 -- Europe/London and still inside the 16 hour hold. 16 is (24 - 14) + 6,
--- so a 14:00 sign-in reaches exactly the 06:00 grace end.
+-- so a 14:00 sign-in reaches exactly 06:00 on a 24 hour day.
+-- On the October clock-change night the civil day is 25 hours. A 14:00–15:00
+-- BST sign-in loses the hold at 05:00 GMT, because the 16 hour limit runs out
+-- before 06:00. That is intended: the hold is absolute time, not civil time.
 create or replace function private.attendance_overnight(p_in timestamptz, p_now timestamptz)
 returns boolean
 language sql
@@ -455,13 +461,14 @@ declare
   v_received timestamptz;
   v_id uuid;
   v_open_name text;
+  v_open_id uuid;
 begin
   select * into v_actor from private.attendance_require_site(p_site_id);
   v_received := private.attendance_now();
   v_device := private.attendance_device_time(p_device_at);
   perform private.close_forgotten_attendance();
 
-  select s.name into v_open_name
+  select s.name, s.id into v_open_name, v_open_id
   from public.site_attendance a
   join public.sites s on s.id = a.site_id
   where a.person_id = v_actor.person_id
@@ -469,18 +476,29 @@ begin
   limit 1;
 
   if v_open_name is not null then
-    raise exception 'already_signed_in' using detail = v_open_name;
+    raise exception 'already_signed_in' using detail = v_open_name, hint = v_open_id::text;
   end if;
 
   v_id := gen_random_uuid();
-  insert into public.site_attendance (
-    id, site_id, company_id, person_id, person_name,
-    in_device_at, in_received_at, in_at, in_gap
-  ) values (
-    v_id, p_site_id, v_actor.company_id, v_actor.person_id,
-    private.attendance_person_label(v_actor.display_name),
-    v_device, v_received, v_received, private.attendance_gap(v_device, v_received)
-  );
+  begin
+    insert into public.site_attendance (
+      id, site_id, company_id, person_id, person_name,
+      in_device_at, in_received_at, in_at, in_gap
+    ) values (
+      v_id, p_site_id, v_actor.company_id, v_actor.person_id,
+      private.attendance_person_label(v_actor.display_name),
+      v_device, v_received, v_received, private.attendance_gap(v_device, v_received)
+    );
+  exception
+    when unique_violation then
+      select s.name, s.id into v_open_name, v_open_id
+      from public.site_attendance a
+      join public.sites s on s.id = a.site_id
+      where a.person_id = v_actor.person_id
+        and a.out_at is null
+      limit 1;
+      raise exception 'already_signed_in' using detail = v_open_name, hint = v_open_id::text;
+  end;
 
   return private.attendance_json(v_id);
 end;
@@ -509,9 +527,14 @@ begin
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
-    and a.out_at is null;
+    and a.out_at is null
+  for update of a;
 
   if v_row.id is not null then
+    if v_received > v_row.in_at + interval '24 hours' then
+      raise exception 'shift_too_long';
+    end if;
+
     update public.site_attendance
     set out_device_at = v_device,
         out_received_at = v_received,
@@ -523,20 +546,34 @@ begin
     return private.attendance_json(v_row.id);
   end if;
 
-  -- Already closed at 23:59. Attach only when this shift is still one the grace could own.
+  -- Already closed at 23:59. Attach only when this shift is still one the grace
+  -- could own, and no later shift exists for this person on this site.
   select a.* into v_row
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
     and a.forgot_sign_out
     and private.attendance_overnight(a.in_at, v_received)
+    and not exists (
+      select 1
+      from public.site_attendance later
+      where later.person_id = a.person_id
+        and later.site_id = a.site_id
+        and later.in_at > a.in_at
+    )
   order by a.in_at desc
-  limit 1;
+  limit 1
+  for update of a;
 
   if v_row.id is null or v_row.late_out_at is not null then
     raise exception 'not_signed_in';
   end if;
 
+  if v_received > v_row.in_at + interval '24 hours' then
+    raise exception 'shift_too_long';
+  end if;
+
+  -- v_row is the locked shift. The audit before and after come from that row.
   v_before := jsonb_build_object(
     'in_at', v_row.in_at,
     'out_at', v_row.out_at,
@@ -592,12 +629,17 @@ set search_path = ''
 as $fn$
 declare
   v_row public.site_attendance;
+  v_overlap public.site_attendance;
   v_actor record;
   v_reason text;
   v_before jsonb;
   v_after jsonb;
 begin
-  select * into v_row from public.site_attendance where id = p_entry_id;
+  select * into v_row
+  from public.site_attendance
+  where id = p_entry_id
+  for update;
+
   if v_row.id is null then
     raise exception 'not_authorized';
   end if;
@@ -607,7 +649,12 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  v_reason := btrim(coalesce(p_reason, ''));
+  v_reason := btrim(regexp_replace(
+    coalesce(p_reason, ''),
+    '[' || chr(1) || '-' || chr(31) || chr(127) || ']',
+    '',
+    'g'
+  ));
   if char_length(v_reason) < 1 or char_length(v_reason) > 500
      or p_in_at is null or p_out_at is null or p_out_at < p_in_at then
     raise exception 'invalid_input';
@@ -618,6 +665,31 @@ begin
     raise exception 'invalid_time';
   end if;
 
+  if p_out_at > p_in_at + interval '24 hours' then
+    raise exception 'shift_too_long';
+  end if;
+
+  select other.* into v_overlap
+  from public.site_attendance other
+  where other.person_id = v_row.person_id
+    and other.id <> v_row.id
+    and other.in_at < p_out_at
+    and (other.out_at is null or other.out_at > p_in_at)
+  order by other.in_at
+  limit 1;
+
+  if v_overlap.id is not null then
+    raise exception 'correction_overlaps'
+      using detail =
+        to_char(timezone('Europe/London', v_overlap.in_at), 'YYYY-MM-DD HH24:MI')
+        || ' – '
+        || case
+             when v_overlap.out_at is null then 'still signed in'
+             else to_char(timezone('Europe/London', v_overlap.out_at), 'YYYY-MM-DD HH24:MI')
+           end;
+  end if;
+
+  -- v_row is the locked shift. The audit before and after come from that row.
   v_before := jsonb_build_object(
     'in_at', v_row.in_at,
     'out_at', v_row.out_at,
@@ -836,6 +908,38 @@ begin
   return v_row;
 end;
 $fn$;
+
+-- U+0000 cannot be stored in text. U+0001–001F and U+007F are rejected.
+-- U+0080 and above, including C1, stay allowed.
+create or replace function private.reject_control_display_name()
+returns trigger
+language plpgsql
+set search_path = ''
+as $fn$
+begin
+  if new.display_name is not null
+     and new.display_name ~ (
+       '[' || pg_catalog.chr(1) || '-' || pg_catalog.chr(31) || pg_catalog.chr(127) || ']'
+     ) then
+    raise exception 'invalid_display_name';
+  end if;
+  return new;
+end;
+$fn$;
+
+revoke all on function private.reject_control_display_name() from public, anon, authenticated;
+
+drop trigger if exists people_display_name_controls on public.people;
+create trigger people_display_name_controls
+  before insert or update of display_name on public.people
+  for each row
+  execute function private.reject_control_display_name();
+
+drop trigger if exists join_events_display_name_controls on public.join_events;
+create trigger join_events_display_name_controls
+  before insert or update of display_name on public.join_events
+  for each row
+  execute function private.reject_control_display_name();
 
 revoke all on function public.close_forgotten_attendance() from public, anon;
 revoke all on function public.sign_in_site(uuid, timestamptz) from public, anon;

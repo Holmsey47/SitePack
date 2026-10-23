@@ -1,14 +1,26 @@
 import { rpcErrorCode } from '@/data/repo';
-import { snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
+import { isRetryableSnagFailure, snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
+import { MAX_SNAG_RETRY_DELAY_MS } from '@/lib/snagQueue';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 /** Wait this long, times the attempt count, before a failed tap is sent again. */
 export const ATTENDANCE_BACKOFF_MS = 30_000;
 
+/** Network, session, and unknown-error retries never wait longer than the shared cap. */
+export const ATTENDANCE_BACKOFF_MAX_MS = MAX_SNAG_RETRY_DELAY_MS;
+
+export const SIGN_IN_AGAIN = 'Sign in again to send this.';
+
+export function attendanceRetryDelayMs(attempts: number): number {
+  const delay = ATTENDANCE_BACKOFF_MS * Math.max(attempts, 1);
+  return Math.min(delay, ATTENDANCE_BACKOFF_MAX_MS);
+}
+
 export const ATTENDANCE_QUEUE_KEY = 'sitepack.attendance.queue';
 export const ATTENDANCE_NOTICE_KEY = 'sitepack.attendance.notices';
 export const ATTENDANCE_OWNER_KEY = 'sitepack.attendance.owner';
+export const ATTENDANCE_FORGOT_SEEN_KEY = 'sitepack.attendance.forgot-seen';
 
 export type QueuedTap = {
   localId: string;
@@ -18,6 +30,7 @@ export type QueuedTap = {
   deviceAt: string;
   attempts?: number;
   retryAt?: string;
+  needsSignIn?: boolean;
 };
 
 export type AttendanceNotice = {
@@ -25,6 +38,9 @@ export type AttendanceNotice = {
   userId: string;
   siteId: string;
   message: string;
+  /** Open site, when a sign-in was refused because they are still signed in there. */
+  openSiteId?: string;
+  openSiteName?: string;
 };
 
 export type AttendanceQueueStore = {
@@ -43,13 +59,22 @@ type MemoryStorage = {
   removeItem(key: string): void;
 };
 
-const DROP = new Set(['not_signed_in', 'already_signed_in', 'not_authorized', 'invalid_time', 'invalid_input']);
+const DROP = new Set([
+  'not_signed_in',
+  'already_signed_in',
+  'not_authorized',
+  'invalid_time',
+  'invalid_input',
+  'shift_too_long',
+  'correction_overlaps',
+]);
 
 export function isDroppedAttendanceCode(code: string): boolean {
   return DROP.has(code);
 }
 
 export function refusedTapNotice(action: QueuedTap['action'], code: string, detail?: string): string {
+  if (code === 'shift_too_long') return 'That shift is longer than 24 hours.';
   if (code === 'not_signed_in') return 'Sign out was not saved. You were already signed out.';
   if (code === 'already_signed_in') {
     return detail
@@ -61,28 +86,86 @@ export function refusedTapNotice(action: QueuedTap['action'], code: string, deta
 }
 
 /**
- * Retry a dropped connection, a timeout, 408, 429, and 5xx.
- * Known business codes and other 4xx (auth, validation) are permanent.
+ * Retry a dropped connection, a timeout, 408, 429, 5xx, and a 401 for this user.
+ * Known business codes and other 4xx (validation) are permanent.
  * An unexpected error still retries.
  */
 function knownBusiness(code: string): boolean {
   return rpcErrorCode(code) === code;
 }
 
-/** Network, timeout, 408, 429, and 5xx retry. Known business codes and other 4xx do not. */
-export function isRetryableAttendanceFailure(err: unknown): boolean {
+/** A 401 or an expired session. The tap stays queued and the screen asks them to sign in. */
+export function isSessionAttendanceFailure(err: unknown): boolean {
   const failure = snagFailureFrom(err);
-  if (failure.kind === 'network') return true;
-  if (failure.kind === 'http') {
-    return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
-  }
+  if (failure.kind === 'http' && failure.status === 401) return true;
+  const text = failure.kind === 'business' ? failure.code : failure.message;
+  return /jwt expired/i.test(text) || text === 'session_expired' || text === 'PGRST301';
+}
+
+/**
+ * Same retry classes as a snag send, including a 401.
+ * An unexpected error still retries. A known business code and any other 4xx do not.
+ */
+export function isRetryableAttendanceFailure(err: unknown): boolean {
+  if (isSessionAttendanceFailure(err) || isRetryableSnagFailure(err)) return true;
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'http' || failure.kind === 'network') return false;
   return !knownBusiness(failure.code);
 }
 
-function failureOf(failure: SnagFailure): { code: string; detail?: string } {
-  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail };
+function queuedAgain(item: QueuedTap, err: unknown): QueuedTap {
+  const attempts = (item.attempts ?? 0) + 1;
+  return {
+    ...item,
+    attempts,
+    retryAt: new Date(Date.now() + attendanceRetryDelayMs(attempts)).toISOString(),
+    needsSignIn: isSessionAttendanceFailure(err),
+  };
+}
+
+function failureOf(failure: SnagFailure): { code: string; detail?: string; hint?: string } {
+  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail, hint: failure.hint };
   if (failure.kind === 'http') return { code: String(failure.status) };
   return { code: failure.message };
+}
+
+const memoryForgotSeen = new Set<string>();
+
+function readForgotRaw(storage: MemoryStorage): string[] {
+  const raw = storage.getItem(ATTENDANCE_FORGOT_SEEN_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/** Entry ids this login has already been shown the next-morning notice for. */
+export function forgotSeenIds(userId: string, storage: MemoryStorage | null = browserStorage()): Set<string> {
+  if (!userId) return new Set();
+  const prefix = `${userId}:`;
+  const raw = storage ? readForgotRaw(storage) : [...memoryForgotSeen];
+  return new Set(raw.filter((item) => item.startsWith(prefix)).map((item) => item.slice(prefix.length)));
+}
+
+export function markForgotSeen(userId: string, entryId: string, storage: MemoryStorage | null = browserStorage()) {
+  if (!userId || !entryId) return;
+  const id = `${userId}:${entryId}`;
+  if (!storage) {
+    memoryForgotSeen.add(id);
+    return;
+  }
+  const next = readForgotRaw(storage);
+  if (!next.includes(id)) next.push(id);
+  storage.setItem(ATTENDANCE_FORGOT_SEEN_KEY, JSON.stringify(next));
+}
+
+function clearForgotSeen(storage: MemoryStorage | null) {
+  memoryForgotSeen.clear();
+  storage?.removeItem(ATTENDANCE_FORGOT_SEEN_KEY);
 }
 
 function shiftKey(item: QueuedTap): string {
@@ -103,7 +186,8 @@ function isTap(value: unknown): value is QueuedTap {
     (item.action === 'in' || item.action === 'out') &&
     typeof item.deviceAt === 'string' &&
     (item.attempts == null || typeof item.attempts === 'number') &&
-    (item.retryAt == null || typeof item.retryAt === 'string')
+    (item.retryAt == null || typeof item.retryAt === 'string') &&
+    (item.needsSignIn == null || typeof item.needsSignIn === 'boolean')
   );
 }
 
@@ -114,8 +198,22 @@ function isNotice(value: unknown): value is AttendanceNotice {
     typeof notice.id === 'string' &&
     typeof notice.userId === 'string' &&
     typeof notice.siteId === 'string' &&
-    typeof notice.message === 'string'
+    typeof notice.message === 'string' &&
+    (notice.openSiteId == null || typeof notice.openSiteId === 'string') &&
+    (notice.openSiteName == null || typeof notice.openSiteName === 'string')
   );
+}
+
+function copyNotice(notice: AttendanceNotice): AttendanceNotice {
+  const copy: AttendanceNotice = {
+    id: notice.id,
+    userId: notice.userId,
+    siteId: notice.siteId,
+    message: notice.message,
+  };
+  if (notice.openSiteId) copy.openSiteId = notice.openSiteId;
+  if (notice.openSiteName) copy.openSiteName = notice.openSiteName;
+  return copy;
 }
 
 export function memoryAttendanceQueue(): AttendanceQueueStore {
@@ -132,10 +230,10 @@ export function memoryAttendanceQueue(): AttendanceQueueStore {
       rows.delete(localId);
     },
     async listNotices() {
-      return [...notices.values()].map((notice) => ({ ...notice }));
+      return [...notices.values()].map(copyNotice);
     },
     async putNotice(notice) {
-      notices.set(notice.id, { ...notice });
+      notices.set(notice.id, copyNotice(notice));
     },
     async dismissNotice(id) {
       notices.delete(id);
@@ -143,6 +241,7 @@ export function memoryAttendanceQueue(): AttendanceQueueStore {
     async wipe() {
       rows.clear();
       notices.clear();
+      memoryForgotSeen.clear();
     },
   };
 }
@@ -160,7 +259,7 @@ function readNotices(storage: MemoryStorage): AttendanceNotice[] {
   if (!raw) return [];
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isNotice).map((notice) => ({ ...notice }));
+  return parsed.filter(isNotice).map(copyNotice);
 }
 
 export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueStore {
@@ -181,7 +280,7 @@ export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueS
     },
     async putNotice(notice) {
       const next = readNotices(storage).filter((row) => row.id !== notice.id);
-      next.push({ ...notice });
+      next.push(copyNotice(notice));
       storage.setItem(ATTENDANCE_NOTICE_KEY, JSON.stringify(next));
     },
     async dismissNotice(id) {
@@ -193,6 +292,7 @@ export function storageAttendanceQueue(storage: MemoryStorage): AttendanceQueueS
       storage.removeItem(ATTENDANCE_QUEUE_KEY);
       storage.removeItem(ATTENDANCE_NOTICE_KEY);
       storage.removeItem(ATTENDANCE_OWNER_KEY);
+      clearForgotSeen(storage);
     },
   };
 }
@@ -228,6 +328,7 @@ export function writeAttendanceOwner(userId: string, storage: MemoryStorage | nu
 /** Sign-out, a rejected session, or a different login drops every queued tap. */
 export async function wipeAttendanceQueue(queue: AttendanceQueueStore = getAttendanceQueue()) {
   await queue.wipe();
+  clearForgotSeen(browserStorage());
   browserStorage()?.removeItem(ATTENDANCE_OWNER_KEY);
 }
 
@@ -250,6 +351,35 @@ export async function adoptAttendanceOwner(
   writeAttendanceOwner(userId, storage);
 }
 
+/** Taps for this login on this site. A missing owner or a different user is hidden. */
+export function pendingTapsForUser(
+  taps: QueuedTap[],
+  userId: string | null | undefined,
+  siteId: string
+): QueuedTap[] {
+  if (!userId) return [];
+  return taps.filter((item) => item.userId === userId && item.siteId === siteId);
+}
+
+/** Notices for this login on this site. A missing owner or a different user is hidden. */
+export function noticesForUser(
+  notices: AttendanceNotice[],
+  userId: string | null | undefined,
+  siteId: string
+): AttendanceNotice[] {
+  if (!userId) return [];
+  return notices.filter((item) => item.userId === userId && item.siteId === siteId);
+}
+
+export function lateSignOutNotice(item: QueuedTap, message: string): AttendanceNotice {
+  return {
+    id: `late:${item.localId}`,
+    userId: item.userId,
+    siteId: item.siteId,
+    message,
+  };
+}
+
 export function orderedTaps(items: QueuedTap[]): QueuedTap[] {
   return [...items].sort((a, b) => {
     if (a.deviceAt !== b.deviceAt) return a.deviceAt < b.deviceAt ? -1 : 1;
@@ -268,7 +398,8 @@ export async function rememberRefusedTap(
   queue: AttendanceQueueStore,
   item: QueuedTap,
   code: string,
-  detail?: string
+  detail?: string,
+  hint?: string
 ): Promise<AttendanceNotice> {
   const notice: AttendanceNotice = {
     id: `reject:${item.localId}`,
@@ -276,6 +407,10 @@ export async function rememberRefusedTap(
     siteId: item.siteId,
     message: refusedTapNotice(item.action, code, detail),
   };
+  if (code === 'already_signed_in' && hint) {
+    notice.openSiteId = hint;
+    if (detail) notice.openSiteName = detail;
+  }
   await queue.putNotice(notice);
   return notice;
 }
@@ -308,16 +443,11 @@ export async function flushAttendanceQueue(
     } catch (err) {
       const failure = failureOf(snagFailureFrom(err));
       if (!isRetryableAttendanceFailure(err)) {
-        created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail));
+        created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail, failure.hint));
         await queue.remove(item.localId);
         continue;
       }
-      const attempts = (item.attempts ?? 0) + 1;
-      await queue.put({
-        ...item,
-        attempts,
-        retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
-      });
+      await queue.put(queuedAgain(item, err));
       waiting.add(key);
     }
   }
@@ -341,16 +471,11 @@ export async function persistThenSendAttendance(
   } catch (err) {
     const failure = failureOf(snagFailureFrom(err));
     if (!isRetryableAttendanceFailure(err)) {
-      await rememberRefusedTap(queue, item, failure.code, failure.detail);
+      await rememberRefusedTap(queue, item, failure.code, failure.detail, failure.hint);
       await queue.remove(item.localId);
       return 'refused';
     }
-    const attempts = (item.attempts ?? 0) + 1;
-    await queue.put({
-      ...item,
-      attempts,
-      retryAt: new Date(Date.now() + ATTENDANCE_BACKOFF_MS * attempts).toISOString(),
-    });
+    await queue.put(queuedAgain(item, err));
     return 'queued';
   }
 }

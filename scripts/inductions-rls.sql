@@ -663,20 +663,14 @@ select pg_temp.ok(
   'the same talk file cannot be recorded twice, and its type and size are the object''s'
 );
 
-update public.people set display_name = 'Op' || chr(10) || 'F' where id = :'opf'::uuid;
-
 select pg_temp.ok(
   pg_temp.raises(
-    'select public.sign_site_talk('
-      || quote_literal((select v->>'talk_id' from probe where k = 'created')) || '::uuid, '
-      || quote_literal((select v->>'version_id' from probe where k = 'revised')) || '::uuid, '
-      || quote_literal(:'opf') || '::uuid, true, ' || quote_literal(:'png') || ', now(), ''session-owner-1'')',
-    'invalid_input'
-  ),
+    'update public.people set display_name = ''Op'' || chr(10) || ''F'' where id = ' || quote_literal(:'opf') || '::uuid',
+    'invalid_display_name'
+  )
+  and (select display_name from public.people where id = :'opf'::uuid) = 'Op F',
   'a signer name with a control character is rejected'
 );
-
-update public.people set display_name = 'Op F' where id = :'opf'::uuid;
 
 insert into probe (k, v)
 values (

@@ -40,3 +40,5 @@ done
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/attendance-rls.sql
 echo "attendance RLS ok"
+node scripts/attendance-races.mjs
+echo "attendance races ok"
