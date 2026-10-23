@@ -383,8 +383,8 @@ values (
   'corrected',
   public.correct_attendance(
     (select (v->>'entry_id')::uuid from probe where k = 'a-out'),
-    timezone('Europe/London', (private.london_day(pg_catalog.now()) - 2) + time '08:00'),
-    timezone('Europe/London', (private.london_day(pg_catalog.now()) - 2) + time '16:00'),
+    timezone('Europe/London', ((timezone('Europe/London', pg_catalog.now()))::date - 2) + time '08:00'),
+    timezone('Europe/London', ((timezone('Europe/London', pg_catalog.now()))::date - 2) + time '16:00'),
     'Left at four, not when the phone synced'
   )
 );
