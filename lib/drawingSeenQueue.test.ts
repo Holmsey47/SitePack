@@ -257,6 +257,13 @@ test('tapping the notice navigates to the current-rev sheet and the notice is go
   const ui = fs.readFileSync('components/ui.tsx', 'utf8');
   assert.match(ui, /export function SeenRejectNotice[\s\S]*accessibilityRole="button"/);
   assert.match(ui, />Open</);
+  const notice = ui.slice(ui.indexOf('export function SeenRejectNotice'), ui.indexOf('export function GlanceRow'));
+  const dismissTag = notice.indexOf('<Pressable accessibilityRole="button" accessibilityLabel="Dismiss"');
+  assert.ok(dismissTag > notice.indexOf('<View style={styles.seenReject}>'));
+  const beforeDismiss = notice.slice(0, dismissTag);
+  const opened = beforeDismiss.match(/<Pressable/g)?.length ?? 0;
+  const closed = beforeDismiss.match(/<\/Pressable>/g)?.length ?? 0;
+  assert.equal(opened, closed);
   const home = fs.readFileSync('app/(app)/sites/index.tsx', 'utf8');
   assert.match(home, /openReplacedNotice/);
   const drawing = fs.readFileSync('app/(app)/sites/[siteId]/drawing/[drawingId].tsx', 'utf8');

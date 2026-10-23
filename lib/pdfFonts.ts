@@ -1,5 +1,5 @@
+import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import { PDFDocument, StandardFonts, type PDFFont } from 'pdf-lib';
-import { dejavuBoldBase64, dejavuRegularBase64 } from '@/lib/dejavuLatin';
 
 /** Windows-1252 extras. Helvetica can draw these. Ł (U+0141) is not in this set. */
 const WINANSI_EXTRA = new Set([
@@ -24,16 +24,9 @@ export function anyNeedsUnicode(values: Array<string | null | undefined>): boole
   return values.some((value) => typeof value === 'string' && textNeedsUnicode(value));
 }
 
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 /**
  * Helvetica for ordinary reports, so existing page layout stays put.
- * A name such as Łukasz needs a real Unicode font. pdf-lib can embed that
+ * A name such as Łukasz needs the Noto subset. pdf-lib can embed that
  * only through @pdf-lib/fontkit, which is why that package is a dependency.
  */
 export async function embedBodyFonts(doc: PDFDocument, unicode: boolean): Promise<{ regular: PDFFont; bold: PDFFont }> {
@@ -46,7 +39,7 @@ export async function embedBodyFonts(doc: PDFDocument, unicode: boolean): Promis
   const fontkit = (await import('@pdf-lib/fontkit')).default;
   doc.registerFontkit(fontkit);
   return {
-    regular: await doc.embedFont(decodeBase64(dejavuRegularBase64), { subset: true }),
-    bold: await doc.embedFont(decodeBase64(dejavuBoldBase64), { subset: true }),
+    regular: await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true }),
+    bold: await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true }),
   };
 }

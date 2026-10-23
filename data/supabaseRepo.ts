@@ -1313,6 +1313,11 @@ export const supabaseRepo: SitePackRepo = {
     return { storagePath };
   },
 
+  async removeTalkPdf(storagePath) {
+    const { error } = await getSupabase().storage.from('drawings').remove([storagePath]);
+    if (error) throw new Error(error.message);
+  },
+
   async createSiteShareInvite(input): Promise<ShareInviteCreated> {
     return (await invokeShareFunction('issue-site-share', {
       site_id: input.siteId,

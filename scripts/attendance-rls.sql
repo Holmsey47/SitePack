@@ -375,16 +375,16 @@ select pg_temp.ok(
   'firm X cannot read firm Y and an empty site is an empty list'
 );
 
+-- Two days ago, 08:00–16:00 London. now() minus a few hours starts after
+-- yesterday 22:00 once the clock is past 06:00, and the late sign-out probe
+-- then sees a later shift.
 insert into probe (k, v)
 values (
   'corrected',
   public.correct_attendance(
     (select (v->>'entry_id')::uuid from probe where k = 'a-out'),
-    -- Before yesterday 22:00 London, so this closed shift is not a later shift
-    -- when the overnight sign-out attaches. now() minus 8 hours crosses that
-    -- line after 06:00 London.
-    now() - interval '30 hours',
-    now() - interval '26 hours',
+    timezone('Europe/London', ((timezone('Europe/London', pg_catalog.now()))::date - 2) + time '08:00'),
+    timezone('Europe/London', ((timezone('Europe/London', pg_catalog.now()))::date - 2) + time '16:00'),
     'Left at four, not when the phone synced'
   )
 );

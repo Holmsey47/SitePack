@@ -629,20 +629,24 @@ set search_path = ''
 as $fn$
 declare
   v_company text;
-  v_noun text;
+  v_sentence text;
 begin
   v_company := btrim(replace(coalesce(p_company, ''), '£', ''));
   if p_count is null or p_count < 1 or char_length(v_company) < 1 or char_length(v_company) > 120 then
     raise exception 'invalid_input';
   end if;
-  v_noun := case when p_count = 1 then 'snag' else 'snags' end;
-  if p_kind = 'contractor' then
-    return 'I confirm the ' || p_count::text || ' ' || v_noun || ' marked complete above have been put right to my satisfaction, on behalf of ' || v_company || '. Snags listed as outstanding are not signed off.';
+  if p_kind = 'contractor' and p_count = 1 then
+    v_sentence := 'I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of [Company]. Snags listed as outstanding are not signed off.';
+  elsif p_kind = 'contractor' then
+    v_sentence := 'I confirm the ' || p_count::text || ' snags marked complete above have been put right to my satisfaction, on behalf of [Company]. Snags listed as outstanding are not signed off.';
+  elsif p_kind = 'internal' and p_count = 1 then
+    v_sentence := 'I''ve checked the 1 snag marked complete above and I''m satisfied it''s been put right. This is an internal check for [Company], not sign-off by the main contractor.';
+  elsif p_kind = 'internal' then
+    v_sentence := 'I''ve checked the ' || p_count::text || ' snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for [Company], not sign-off by the main contractor.';
+  else
+    raise exception 'invalid_input';
   end if;
-  if p_kind = 'internal' then
-    return 'I''ve checked the ' || p_count::text || ' ' || v_noun || ' marked complete above and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
-  end if;
-  raise exception 'invalid_input';
+  return replace(v_sentence, '[Company]', v_company);
 end;
 $fn$;
 

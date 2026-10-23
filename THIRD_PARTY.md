@@ -1,9 +1,9 @@
 # Third-party notices
 
-## DejaVu Sans
+## Noto Sans
 
-DejaVu Sans Book and DejaVu Sans Bold, version 2.37. Source: https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
 
-A Latin-1 and Latin Extended-A subset is embedded in variation PDFs when a name needs a glyph Helvetica cannot draw. The bytes are in `lib/dejavuLatin.ts` and are embedded by `lib/pdfFonts.ts`.
+Noto Sans Regular and Noto Sans Bold are subset for Latin, Latin Extended-A, Latin Extended-B (including Romanian Ș ș Ț ț, U+0218–U+021B), and Cyrillic, then embedded in the snag sign-off PDF, the weekly hours PDF, the talk register PDF, and a variation PDF when a name needs a glyph Helvetica cannot draw. The font files are `assets/fonts/NotoSans-Regular.ttf` and `assets/fonts/NotoSans-Bold.ttf`. The same bytes are embedded from `lib/snagPdfFonts.ts` and, for variation PDFs, from `lib/pdfFonts.ts`.
 
-The licence is the upstream DejaVu LICENSE, word for word, at `assets/fonts/DejaVu-LICENSE.txt`.
+Licensed under the SIL Open Font License, Version 1.1. The license names no Reserved Font Name, so this subset keeps the name Noto Sans. The full license is `assets/fonts/OFL.txt`.

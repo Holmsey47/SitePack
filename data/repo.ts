@@ -202,6 +202,7 @@ export type SitePackRepo = {
   inductionSignInGaps(siteId: string): Promise<InductionGap[] | null>;
   myTalkBadges(): Promise<TalkBadge[]>;
   uploadTalkPdf(input: { companyId: string; siteId: string; bytes: Uint8Array }): Promise<{ storagePath: string }>;
+  removeTalkPdf(storagePath: string): Promise<void>;
   createSiteShareInvite(input: {
     siteId: string;
     guestCompanyName: string;

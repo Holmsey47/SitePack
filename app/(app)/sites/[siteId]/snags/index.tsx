@@ -14,7 +14,8 @@ import {
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
-import { flushSnagQueue, getSnagQueue, noticesForOwner, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
+import { flushSnagQueue, getSnagQueue, noticesForOwner, ownedSnagQueue, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
+import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayText } from '@/lib/snagWording';
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
@@ -62,7 +63,7 @@ export default function SnagsScreen() {
       const flushed = await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
       signInRequired = flushed.signInRequired;
     }
-    const pending = (await queue.list()).filter((item) => item.siteId === siteId && item.ownerId === ownerId);
+    const pending = ownedSnagQueue(await queue.list(), ownerId).filter((item) => item.siteId === siteId);
     setQueued(pending);
     setNotices(noticesForOwner(await queue.listNotices(), ownerId).filter((notice) => notice.siteId === siteId));
     try {
@@ -82,6 +83,7 @@ export default function SnagsScreen() {
 
   const rows = list ? filterSnags(list.rows, status, level) : [];
   const levels = list ? snagLevels(list.rows) : [];
+  const signOffsWaiting = queued.filter((item) => item.kind === 'sign').length;
 
   async function dismissNotice(id: string) {
     await getSnagQueue().removeNotice(id);
@@ -102,13 +104,15 @@ export default function SnagsScreen() {
   async function signAgain(notice: SnagNotice) {
     await getSnagQueue().removeNotice(notice.id);
     setNotices((current) => current.filter((row) => row.id !== notice.id));
-    const query = new URLSearchParams();
-    if (notice.signMode) query.set('signMode', notice.signMode);
-    if (notice.signerName) query.set('signerName', notice.signerName);
-    if (notice.signerRole) query.set('signerRole', notice.signerRole);
-    if (notice.signerCompany) query.set('signerCompany', notice.signerCompany);
-    const suffix = query.toString();
-    router.push(suffix ? `/sites/${siteId}/snags/sign?${suffix}` : `/sites/${siteId}/snags/sign`);
+    if (notice.signMode === 'internal' || notice.signMode === 'contractor') {
+      rememberSignAgain({
+        signMode: notice.signMode,
+        signerName: notice.signerName ?? '',
+        signerRole: notice.signerRole ?? '',
+        signerCompany: notice.signerCompany ?? '',
+      });
+    }
+    if (siteId) router.push(`/sites/${siteId}/snags/sign`);
   }
 
   async function saveNoticePhotos(notice: SnagNotice) {
@@ -243,7 +247,7 @@ export default function SnagsScreen() {
           {queued.map((item) => (
             <Card key={item.localId}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
-                {item.kind === 'create' ? item.note : item.kind === 'fix' ? 'After photo waiting to send' : 'Sign-off waiting to send'}
+                {item.kind === 'create' ? snagDisplayText(item.note) : item.kind === 'fix' ? 'After photo waiting to send' : SIGN_OFF_QUEUED}
               </Text>
               <Muted>{item.kind === 'create' ? formatUkDateTime(item.raisedAt) : item.kind === 'fix' ? formatUkDateTime(item.fixedAt) : formatUkDateTime(item.signedAt)}</Muted>
             </Card>
@@ -259,11 +263,15 @@ export default function SnagsScreen() {
           </Text>
           <Muted>
             {row.status}
-            {row.level_area ? ` · ${row.level_area}` : ''} · {row.note}
+            {row.level_area ? ` · ${snagDisplayText(row.level_area)}` : ''} · {snagDisplayText(row.note)}
           </Muted>
         </Card>
       ))}
-      {list && list.fixed_count > 0 ? (
+      {signOffsWaiting > 0 ? (
+        <Text nativeID="signoff-waiting" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+          {signOffWaitingLabel(signOffsWaiting)}
+        </Text>
+      ) : list && list.fixed_count > 0 ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
       <Button label="Share report" minHeight={56} loading={busy} onPress={() => void onShare()} />

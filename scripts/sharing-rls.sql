@@ -388,7 +388,7 @@ values
   );
 
 insert into public.site_talk_versions (
-  id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
+  id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_object_fingerprint, content_hash, is_current, created_by
 )
 values
   (

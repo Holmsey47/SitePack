@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import test from 'node:test';
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument } from 'pdf-lib';
 import { decodedPdfText } from './pdfDecode.ts';
 import { pngDataUrl, solidPng } from './signaturePng.ts';
-import { buildTalkPdf, packBlocks, pdfText, talkReportId, talkReportKey, type RegisterPdfInput } from './talkPdf.ts';
+import { pdfFontBytes, SNAG_PDF_SANS } from './snagPdfFonts.ts';
+import { buildTalkPdf, packBlocks, pdfText, TALK_PDF_CONTENT_W, talkFooter, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
 
 function footerLine(input: RegisterPdfInput, page: number, total: number): string {
-  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))} · Page ${page} of ${total}`;
+  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.talkId, input.versionNo)} · Page ${page} of ${total}`;
 }
 
 const meaning = "I was at the toolbox talk 'Fire exits' given by Jordan Hale at Oak yard on 22 Oct 2026, and I understood it.";
@@ -26,6 +28,7 @@ function register(): RegisterPdfInput {
     sharedDevice: index === 1,
   }));
   return {
+    talkId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     companyName: 'Ashfield Finishes',
     siteName: 'Oak yard',
     title: 'Fire exits',
@@ -282,17 +285,29 @@ test('José Müller and Łukasz Wójcik print in the register', async () => {
   assert.match(text, /Siobhán Ó Briain/);
   assert.equal(text.includes('ukasz Wjcik'), false);
   assert.match(text, new RegExp(`Page 1 of ${footers.length}`));
-  assert.match(text, new RegExp(talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))));
+  assert.match(text, new RegExp(talkReportId(input.talkId, input.versionNo)));
 });
 
-test('two talks on the same day get different report refs', () => {
-  const when = '2026-10-22T12:00:00.000Z';
-  const later = '2026-10-22T16:30:00.000Z';
-  const fire = talkReportId(1, when, 'Oak yard\nFire exits');
-  const edges = talkReportId(1, later, 'Oak yard\nLeading edge');
+test('two talks with the same title, site, and day get different report refs', async () => {
+  const left = register();
+  const right = register();
+  left.talkId = '11111111-1111-4111-8111-111111111111';
+  right.talkId = '22222222-2222-4222-8222-222222222222';
+  assert.equal(left.title, right.title);
+  assert.equal(left.siteName, right.siteName);
+  assert.equal(left.presentedAt, right.presentedAt);
+  assert.equal(left.versionNo, right.versionNo);
+  const fire = talkReportId(left.talkId, left.versionNo);
+  const edges = talkReportId(right.talkId, right.versionNo);
   assert.notEqual(fire, edges);
-  assert.match(fire, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
-  assert.match(edges, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
+  assert.equal(fire, 'TR-11111111-1111-4111-8111-111111111111-v2');
+  assert.equal(edges, 'TR-22222222-2222-4222-8222-222222222222-v2');
+  const printedLeft = decodedPdfText((await buildTalkPdf(left)).bytes);
+  const printedRight = decodedPdfText((await buildTalkPdf(right)).bytes);
+  assert.match(printedLeft, /TR-11111111-1111-4111-8111-111111111111-v2/);
+  assert.match(printedRight, /TR-22222222-2222-4222-8222-222222222222-v2/);
+  assert.equal(printedLeft.includes(right.talkId), false);
+  assert.equal(printedRight.includes(left.talkId), false);
 });
 
 test('the register and PDF keep the signed name, the person identifier, and a rename flag', async () => {
@@ -329,6 +344,58 @@ test('the register and PDF keep the signed name, the person identifier, and a re
 });
 
 test('pdf text drops line separators and bidi controls', () => {
-  assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead     role');
+  assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead role');
   assert.equal(pdfText('=HYPERLINK("x")\r'), '=HYPERLINK("x") ');
+  assert.equal(pdfText('O\u2019Brien \u201Cfire\u201D \u20AC \u2713 \u2013 \u2014'), 'O\'Brien "fire" EUR yes - -');
+});
+
+test('a name and a title with curly quotes print as straight quotes', async () => {
+  const input = register();
+  input.title = 'O\u2019Brien\u2019s \u201Cfire\u201D exits';
+  input.siteName = 'O\u2019Brien yard';
+  input.presenterName = 'Siobh\u00e1n O\u2019Brien';
+  input.signed = [
+    {
+      name: 'Sean O\u2019Brien',
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning: 'Noted and understood.',
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  const text = decodedPdfText((await buildTalkPdf(input)).bytes);
+  assert.match(text, /Sean O'Brien/);
+  assert.match(text, /Siobhán O'Brien/);
+  assert.match(text, /O'Brien's "fire" exits/);
+  assert.match(text, /O'Brien yard/);
+  assert.equal(text.includes('\u2019'), false);
+  assert.equal(text.includes('\u201c'), false);
+  assert.equal(text.includes('\u201d'), false);
+});
+
+test('a wide company and site keep the report ref and page number on the page', async () => {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const talkId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const ref = talkReportId(talkId, 99);
+  const footer = talkFooter('W'.repeat(60), 'W'.repeat(60), ref, 10, 10, font);
+  assert.ok(font.widthOfTextAtSize(footer, 9) <= TALK_PDF_CONTENT_W);
+  assert.ok(footer.includes(ref));
+  assert.ok(footer.includes('Page 10 of 10'));
+  const input = register();
+  input.siteName = 'W'.repeat(60);
+  input.companyName = 'W'.repeat(60);
+  input.talkId = talkId;
+  input.versionNo = 99;
+  const { footers } = await buildTalkPdf(input);
+  for (const line of footers) {
+    assert.ok(font.widthOfTextAtSize(line, 9) <= TALK_PDF_CONTENT_W);
+    assert.ok(line.includes(ref));
+    assert.match(line, /Page \d+ of \d+/);
+  }
 });

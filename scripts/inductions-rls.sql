@@ -386,6 +386,27 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
+  (
+    select bool_and(
+      pg_temp.raises(
+        'select public.create_site_talk('
+          || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Title'' || chr(' || code || '), ''Body'', null, ''all'', array[]::uuid[], '
+          || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+        'invalid_input'
+      )
+      and pg_temp.raises(
+        'select public.create_site_talk('
+          || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Fine'', ''Body'', null, ''all'', array[]::uuid[], '
+          || quote_literal(:'ownerx') || '::uuid, ''Lead'' || chr(' || code || '), now())',
+        'invalid_input'
+      )
+    )
+    from unnest(array[8203, 8204, 8205, 8288, 65279, 1564]) code
+  ),
+  'a title or presenter role rejects U+200B, U+200C, U+200D, U+2060, U+FEFF, and U+061C'
+);
+
+select pg_temp.ok(
   pg_temp.raises(
     'select public.create_site_talk('
       || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Unassigned'', ''Body'', null, ''all'', array[]::uuid[], '
@@ -423,15 +444,15 @@ select pg_temp.ok(
 reset role;
 
 select pg_temp.ok(
-  (select pdf_sha256 ~ '^[0-9a-f]{64}$'
+  (select pdf_object_fingerprint ~ '^[0-9a-f]{64}$'
       and content_hash ~ '^[0-9a-f]{64}$'
-      and content_hash is distinct from pdf_sha256
+      and content_hash is distinct from pdf_object_fingerprint
       and content_hash is distinct from encode(extensions.digest(convert_to(pdf_path, 'UTF8'), 'sha256'), 'hex')
       and content_hash = encode(
         extensions.digest(
           convert_to(
             'toolbox' || E'\n' || 'phone' || E'\n' || 'Stored file' || E'\n' || 'Read the file.'
-              || E'\n' || pdf_path || E'\n' || pdf_sha256,
+              || E'\n' || pdf_path || E'\n' || pdf_object_fingerprint,
             'UTF8'
           ),
           'sha256'
@@ -440,7 +461,7 @@ select pg_temp.ok(
       )
    from public.site_talk_versions
    where id = (select (v->>'version_id')::uuid from probe where k = 'pdf')),
-  'the version stores a digest of the object bytes and the content hash includes that digest'
+  'the version stores a fingerprint of the storage row, not a hash of the file bytes, and the content hash includes that fingerprint'
 );
 
 select pg_temp.jwt(:'ownerx'::uuid);
@@ -795,16 +816,16 @@ select pg_temp.ok(
   and (select pdf_path = :'firmx' || '/' || :'sitea' || '/talks/next.pdf'
        and pdf_content_type = 'application/pdf'
        and pdf_size_bytes = 3100
-       and pdf_sha256 is not null
+       and pdf_object_fingerprint is not null
        and is_current
        from public.site_talk_versions
        where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new'))
-  and (select a.pdf_sha256 is distinct from b.pdf_sha256
+  and (select a.pdf_object_fingerprint is distinct from b.pdf_object_fingerprint
        from public.site_talk_versions a
        join public.site_talk_versions b
          on b.id = (select (v->>'version_id')::uuid from probe where k = 'pdf')
        where a.id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new')),
-  'revising with a new uploaded PDF is accepted and stores a digest of that file'
+  'revising with a new uploaded PDF is accepted and stores a fingerprint of that storage row'
 );
 
 select pg_temp.ok(
@@ -833,6 +854,23 @@ select pg_temp.ok(
     'invalid_path'
   ),
   'revising with the same path, someone else''s file, or a path already used is invalid_path'
+);
+
+select pg_temp.ok(
+  private.talk_pdf_locked(:'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf')
+  and private.talk_pdf_locked(:'firmx' || '/' || :'sitea' || '/talks/next.pdf')
+  and not private.talk_pdf_locked(:'firmx' || '/' || :'sitea' || '/talks/loose.pdf'),
+  'the lock check is true only for a file this company has already recorded'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.talk_pdf_locked(:'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf')
+  and not private.talk_pdf_locked(:'firmx' || '/' || :'sitea' || '/talks/next.pdf'),
+  'another firm cannot use the lock check to learn whether a talk file exists'
 );
 
 reset role;
@@ -1184,6 +1222,23 @@ select pg_temp.ok(
   'a question with a line break, a leading spreadsheet mark, or a bidi override is rejected'
 );
 
+select pg_temp.ok(
+  (
+    select bool_and(
+      pg_temp.raises(
+        'select public.ask_site_talk('
+          || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid, '
+          || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
+          || quote_literal(:'opd') || '::uuid, '
+          || quote_literal('Where' || chr(code) || ' is it?') || ', now(), ''session-opa-2'')',
+        'invalid_input'
+      )
+    )
+    from unnest(array[8203, 8204, 8205, 8288, 65279, 1564]) code
+  ),
+  'a question rejects U+200B, U+200C, U+200D, U+2060, U+FEFF, and U+061C'
+);
+
 insert into probe (k, v)
 values (
   'mask-question',
@@ -1460,6 +1515,19 @@ select pg_temp.ok(
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
+
+select pg_temp.ok(
+  (
+    select bool_and(
+      pg_temp.raises(
+        'update public.people set display_name = ''Op'' || chr(' || code || ') || ''A'' where id = ' || quote_literal(:'opa') || '::uuid',
+        'invalid_display_name'
+      )
+    )
+    from unnest(array[8203, 8204, 8205, 8288, 65279, 1564]) code
+  ),
+  'a display name rejects U+200B, U+200C, U+200D, U+2060, U+FEFF, and U+061C'
+);
 
 select pg_temp.ok(
   pg_temp.raises(

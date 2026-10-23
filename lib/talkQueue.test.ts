@@ -366,7 +366,8 @@ test('a new version tells the person to read and sign again', async () => {
 test('sign-out, owner change, and a rejected session wipe the talk queue', () => {
   const auth = fs.readFileSync('context/AuthContext.tsx', 'utf8');
   const bind = auth.slice(auth.indexOf('async function bindCache'), auth.indexOf('function authTokenKey'));
-  assert.match(bind, /if \(userId\) \{[\s\S]*adoptTalkOwner\(userId\)/);
+  assert.match(bind, /if \(userId\) \{\s*try \{\s*await adoptTalkOwner\(userId\)/);
+  assert.doesNotMatch(bind, /adoptAttendanceOwner\(userId\);\s*await adoptTalkOwner/);
   assert.match(bind, /else \{[\s\S]*wipeAttendanceQueue\(\)/);
   assert.match(bind, /if \(!userId\) \{\s*try \{\s*await wipeTalkQueue\(\)/);
   assert.doesNotMatch(bind, /wipeAttendanceQueue\(\);\s*await wipeTalkQueue\(\)/);

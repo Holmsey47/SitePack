@@ -49,7 +49,6 @@ async function bindCache(userId: string | null) {
     if (userId) {
       await adoptCacheOwner(userId);
       await adoptAttendanceOwner(userId);
-      await adoptTalkOwner(userId);
     } else {
       writeRemembered(null);
       await deleteAllDrawingCaches();
@@ -57,6 +56,13 @@ async function bindCache(userId: string | null) {
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.
+  }
+  if (userId) {
+    try {
+      await adoptTalkOwner(userId);
+    } catch {
+      // Adopting the talk queue must not depend on the drawing or attendance wipe.
+    }
   }
   if (!userId) {
     try {

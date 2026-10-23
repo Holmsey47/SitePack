@@ -233,10 +233,11 @@ export function talkContentHash(parts: {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-const TALK_CONTROLS = /[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/;
+const TALK_CONTROLS =
+  /[\u0000-\u001f\u007f\u0085\u061c\u200b-\u200d\u200e\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 const TALK_FORMULA = /^[=+\-@]/;
 
-/** Rejects line breaks, bidi controls, and a leading spreadsheet mark. */
+/** Rejects line breaks, bidi controls, zero-width characters, an Arabic letter mark, and a leading spreadsheet mark. */
 export function talkPlain(value: string): string {
   if (TALK_CONTROLS.test(value) || TALK_FORMULA.test(value.trim())) throw new Error('invalid_input');
   return value;
