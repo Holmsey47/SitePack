@@ -254,6 +254,26 @@ async function signUrls(items: Array<ManifestItem & { storage_path?: string }>):
   });
 }
 
+function photoExtension(contentType: string): string {
+  if (contentType === 'image/png') return 'png';
+  if (contentType === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function snagStoragePath(params: {
+  companyId: string;
+  siteId: string;
+  contentType: string;
+  folder?: 'variations' | 'snags';
+  snagId?: string;
+}): string {
+  if (params.folder === 'snags') {
+    if (!params.snagId) throw new Error('invalid_input');
+    return `${params.companyId}/${params.siteId}/snags/${params.snagId}/${newId()}.${photoExtension(params.contentType)}`;
+  }
+  return `${params.companyId}/${params.siteId}/variations/${newId()}`;
+}
+
 export const supabaseRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     const supabase = getSupabase();
@@ -891,8 +911,7 @@ export const supabaseRepo: SitePackRepo = {
 
   async uploadSitePhoto(params) {
     const supabase = getSupabase();
-    const folder = params.folder === 'snags' ? 'snags' : 'variations';
-    const storagePath = `${params.companyId}/${params.siteId}/${folder}/${newId()}`;
+    const storagePath = snagStoragePath(params);
     const { error } = await supabase.storage.from('site-photos').upload(storagePath, params.bytes, {
       contentType: params.contentType,
       upsert: false,

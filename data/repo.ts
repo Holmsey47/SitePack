@@ -133,6 +133,7 @@ export type SitePackRepo = {
     bytes: Uint8Array;
     contentType: string;
     folder?: 'variations' | 'snags';
+    snagId?: string;
   }): Promise<{ storagePath: string; fileSizeBytes: number; contentType: string }>;
   listSnags(siteId: string): Promise<SnagList>;
   snagReport(siteId: string): Promise<SnagReport>;

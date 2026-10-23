@@ -1185,7 +1185,7 @@ export const fixtureRepo: SitePackRepo = {
   async uploadSitePhoto(params) {
     meOrThrow();
     if (params.folder === 'snags') {
-      return fixtureUploadSnagPhoto(store.snags, params.companyId, params.siteId, params.bytes, params.contentType);
+      return fixtureUploadSnagPhoto(store.snags, params.companyId, params.siteId, params.bytes, params.contentType, params.snagId);
     }
     return fixtureUploadPhoto(store.variations, params.companyId, params.siteId, params.bytes, params.contentType);
   },

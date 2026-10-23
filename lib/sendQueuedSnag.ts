@@ -3,7 +3,7 @@ import type { QueuedPhoto, QueuedSnag, QueuedSnagCreate, QueuedSnagFix, SnagQueu
 import { getSnagQueue } from '@/lib/snagQueue';
 
 export type SnagSender = {
-  upload(photo: QueuedPhoto, item: { companyId: string; siteId: string }): Promise<SnagPhotoInput>;
+  upload(photo: QueuedPhoto, item: { companyId: string; siteId: string; snagId: string }): Promise<SnagPhotoInput>;
   create(input: CreateSnagInput): Promise<{ snagId: string; alreadyExisted?: boolean; photoPaths?: string[] }>;
   fix(snagId: string, fixedAt: string, photos: SnagPhotoInput[], fixId?: string | null): Promise<void>;
   signInternal(input: {
@@ -35,6 +35,7 @@ async function defaultSender(): Promise<SnagSender> {
       const uploaded = await repo.uploadSitePhoto({
         companyId: item.companyId,
         siteId: item.siteId,
+        snagId: item.snagId,
         bytes: photo.bytes,
         contentType: photo.contentType,
         folder: 'snags',
@@ -64,7 +65,7 @@ async function defaultSender(): Promise<SnagSender> {
   };
 }
 
-async function uploadAll(sender: SnagSender, photos: QueuedPhoto[], item: { companyId: string; siteId: string }) {
+async function uploadAll(sender: SnagSender, photos: QueuedPhoto[], item: { companyId: string; siteId: string; snagId: string }) {
   const uploaded: SnagPhotoInput[] = [];
   for (const photo of photos) uploaded.push(await sender.upload(photo, item));
   return uploaded;
@@ -77,7 +78,8 @@ async function photosFor(
   queue: SnagQueueStore
 ): Promise<SnagPhotoInput[]> {
   if (item.uploadedPhotos && item.uploadedPhotos.length > 0) return item.uploadedPhotos;
-  const photos = await uploadAll(sender, item.photos, item);
+  const snagId = item.kind === 'fix' ? item.snagId : item.localId;
+  const photos = await uploadAll(sender, item.photos, { companyId: item.companyId, siteId: item.siteId, snagId });
   await queue.put({ ...item, uploadedPhotos: photos });
   return photos;
 }
