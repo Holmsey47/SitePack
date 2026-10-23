@@ -295,6 +295,38 @@ test('two talks on the same day get different report refs', () => {
   assert.match(edges, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
 });
 
+test('the register and PDF keep the signed name, the person identifier, and a rename flag', async () => {
+  const input = register();
+  input.signed = [
+    {
+      name: 'Op A',
+      personRef: 'a11111',
+      nameChanged: true,
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning,
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  input.presenterSignature = {
+    name: 'Op A',
+    personRef: 'a11111',
+    nameChanged: true,
+    receivedAt: '2026-10-22T13:20:00.000Z',
+    meaning: 'I gave this talk to the people listed.',
+    signaturePng: png,
+  };
+  const { bytes } = await buildTalkPdf(input);
+  const text = decodedPdfText(bytes);
+  assert.equal(text.split('Op A · a11111').length - 1, 2);
+  assert.equal(text.split('name changed since signing').length - 1, 2);
+  assert.equal(text.includes('Op B'), false);
+});
+
 test('pdf text drops line separators and bidi controls', () => {
   assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead     role');
   assert.equal(pdfText('=HYPERLINK("x")\r'), '=HYPERLINK("x") ');

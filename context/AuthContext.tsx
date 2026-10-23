@@ -54,10 +54,16 @@ async function bindCache(userId: string | null) {
       writeRemembered(null);
       await deleteAllDrawingCaches();
       await wipeAttendanceQueue();
-      await wipeTalkQueue();
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.
+  }
+  if (!userId) {
+    try {
+      await wipeTalkQueue();
+    } catch {
+      // An earlier wipe throwing must not skip the talk queue.
+    }
   }
 }
 

@@ -72,6 +72,7 @@ type SignatureRow = {
   company_id: string;
   person_id: string;
   person_name: string;
+  signer_name: string;
   captured_by: string;
   session_id: string;
   shared_device: boolean;
@@ -186,15 +187,29 @@ function meaningFor(talk: TalkRow, siteName: string, role: 'attendee' | 'present
   });
 }
 
-function sameName(left: string, right: string) {
-  return left.trim().toLowerCase() === right.trim().toLowerCase();
+function resolvePresenter(
+  actor: TalkActor,
+  presenterPersonId: string,
+  people: TalkPerson[],
+  assignments: TalkAssignment[],
+  siteId: string
+): { id: string; name: string } {
+  const person = people.find((row) => row.id === presenterPersonId && row.company_id === actor.company_id);
+  if (!person) fail('invalid_input');
+  const name = talkPlain((person.display_name ?? '').trim());
+  if (name.length < 1 || name.length > 120) fail('invalid_input');
+  const assigned = assignments.some((row) => row.site_id === siteId && row.person_id === person.id);
+  const selfManager = person.id === actor.id && manager(actor);
+  if (!assigned && !selfManager) fail('invalid_input');
+  return { id: person.id, name };
 }
 
-function resolvePresenterId(actor: TalkActor, presenterName: string, people: TalkPerson[]): string {
-  const matches = people.filter(
-    (person) => person.company_id === actor.company_id && sameName(person.display_name ?? '', presenterName)
-  );
-  return matches.find((person) => person.id === actor.id)?.id ?? matches[0]?.id ?? actor.id;
+function personRef(personId: string): string {
+  return personId.slice(0, 6);
+}
+
+function seesPrivate(actor: TalkActor, personId: string): boolean {
+  return manager(actor) || actor.id === personId;
 }
 
 function noteFor(bucket: FixtureTalkBucket, versionId: string, personId: string) {
@@ -279,9 +294,9 @@ export function fixtureCreateTalk(
   if (!manager(actor)) fail('not_authorized');
   const site = requireSite(actor, sites.find((row) => row.id === input.siteId), canAccess(input.siteId));
   const content = assertContent({ ...input, site });
-  const presenterName = talkPlain(input.presenterName.trim());
+  const presenter = resolvePresenter(actor, input.presenterPersonId, people, assignments, site.id);
   const presenterRole = talkPlain(input.presenterRole.trim());
-  if (presenterName.length < 1 || presenterName.length > 120 || presenterRole.length < 1 || presenterRole.length > 80) {
+  if (presenterRole.length < 1 || presenterRole.length > 80) {
     fail('invalid_input');
   }
   if (input.audience !== 'all' && input.audience !== 'chosen') fail('invalid_input');
@@ -312,8 +327,8 @@ export function fixtureCreateTalk(
     delivery: input.delivery,
     title: content.title,
     audience: input.audience,
-    presenter_person_id: resolvePresenterId(actor, presenterName, people),
-    presenter_name: presenterName,
+    presenter_person_id: presenter.id,
+    presenter_name: presenter.name,
     presenter_role: presenterRole,
     presented_at: presentedAt,
     created_by: actor.id,
@@ -355,6 +370,7 @@ export function fixtureReviseTalk(
     carried = talkStoragePath(site.company_id, site.id, requested);
     if (bucket.versions.some((row) => row.pdf_path === carried)) fail('invalid_path');
   }
+  if (current.pdf_path && !carried) fail('invalid_input');
   const content = assertContent({
     kind: talk.kind,
     delivery: talk.delivery,
@@ -417,6 +433,7 @@ function insertSignature(
     company_id: talk.company_id,
     person_id: personId,
     person_name: personName,
+    signer_name: personName,
     captured_by: actor.id,
     session_id: sessionId,
     shared_device: personId !== actor.id,
@@ -577,9 +594,8 @@ export function fixtureSignPresenter(
   if (!talk) fail('not_authorized');
   const site = requireSite(actor, sites.find((row) => row.id === talk.site_id), canAccess(talk.site_id));
   if (talk.delivery !== 'in_person') fail('invalid_input');
-  const named =
-    actor.id === talk.presenter_person_id && sameName(actor.display_name, talk.presenter_name);
-  const onBehalf = manager(actor) && !sameName(actor.display_name, talk.presenter_name);
+  const named = actor.id === talk.presenter_person_id;
+  const onBehalf = manager(actor) && actor.id !== talk.presenter_person_id;
   if (!named && !onBehalf) fail('not_authorized');
   const version = bucket.versions.find((row) => row.id === input.versionId && row.talk_id === talk.id);
   if (!version || !version.is_current) fail('version_locked');
@@ -638,20 +654,24 @@ function signedRow(bucket: FixtureTalkBucket, row: SignatureRow, people: TalkPer
   const note = noteFor(bucket, row.version_id, row.person_id);
   const question = questionFor(bucket, row.version_id, row.person_id);
   const person = people.find((item) => item.id === row.person_id);
+  const open = seesPrivate(actor, row.person_id);
+  const snapshot = row.signer_name || row.person_name;
   return {
     person_id: row.person_id,
-    person_name: row.signature_role === 'presenter' ? row.person_name : row.person_name || label(person?.display_name),
+    person_name: snapshot,
+    person_ref: personRef(row.person_id),
+    name_changed: label(person?.display_name) !== snapshot,
     has_question: Boolean(question),
-    question: question?.body ?? null,
+    question: open ? question?.body ?? null : null,
     explained_verbally: note?.explained_verbally ?? false,
     interpreter_used: note?.interpreter_used ?? false,
     received_at: row.received_at,
     device_at: row.device_at,
     meaning: row.meaning,
-    signature_png: manager(actor) || row.person_id === actor.id ? row.signature_png : null,
+    signature_png: open ? row.signature_png : null,
     shared_device: row.shared_device,
-    session_id: row.session_id,
-    captured_by: row.captured_by,
+    session_id: open ? row.session_id : null,
+    captured_by: open ? row.captured_by : null,
     content_hash: row.content_hash,
   };
 }
@@ -671,11 +691,14 @@ function registerFor(
       const person = people.find((row) => row.id === id);
       const note = noteFor(bucket, version.id, id);
       const question = questionFor(bucket, version.id, id);
+      const open = seesPrivate(actor, id);
       return {
         person_id: id,
         person_name: label(person?.display_name),
+        person_ref: personRef(id),
+        name_changed: false,
         has_question: Boolean(question),
-        question: question?.body ?? null,
+        question: open ? question?.body ?? null : null,
         explained_verbally: note?.explained_verbally ?? false,
         interpreter_used: note?.interpreter_used ?? false,
       };
@@ -687,7 +710,7 @@ function registerFor(
     .map((row) => signedRow(bucket, row, people, actor));
   const presenter = bucket.signatures.find((row) => row.version_id === version.id && row.signature_role === 'presenter');
   const questions: TalkQuestionRow[] = bucket.questions
-    .filter((row) => row.version_id === version.id)
+    .filter((row) => row.version_id === version.id && seesPrivate(actor, row.person_id))
     .map((row) => ({
       person_id: row.person_id,
       person_name: row.person_name,

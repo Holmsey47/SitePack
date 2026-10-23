@@ -92,7 +92,7 @@ test('three of five sign under their own names, and a question is not a signatur
       pdfPath: null,
       audience: 'all',
       personIds: [],
-      presenterName: 'Jordan Hale',
+      presenterPersonId: world.owner.id,
       presenterRole: 'Owner',
       presentedAt: new Date().toISOString(),
     },
@@ -226,7 +226,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
       pdfPath: null,
       audience: 'all',
       personIds: [],
-      presenterName: 'Sam Reed',
+      presenterPersonId: 'lad-1',
       presenterRole: 'Operative',
       presentedAt: '2026-10-22T12:00:00.000Z',
     },
@@ -256,7 +256,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
       pdfPath: null,
       audience: 'all',
       personIds: [],
-      presenterName: 'Lee Costa',
+      presenterPersonId: 'lad-2',
       presenterRole: 'Operative',
       presentedAt: new Date().toISOString(),
     },
@@ -337,7 +337,7 @@ test('an operative cannot sign as someone else, and the presenter can on that si
       pdfPath: null,
       audience: 'all',
       personIds: [],
-      presenterName: 'Sam Reed',
+      presenterPersonId: 'lad-1',
       presenterRole: 'Operative',
       presentedAt: '2026-10-22T12:00:00.000Z',
     },
@@ -405,7 +405,7 @@ test('a presenter sees only their own signature image', () => {
       pdfPath: null,
       audience: 'all',
       personIds: [],
-      presenterName: 'Sam Reed',
+      presenterPersonId: 'lad-1',
       presenterRole: 'Operative',
       presentedAt: new Date().toISOString(),
     },
@@ -430,6 +430,22 @@ test('a presenter sees only their own signature image', () => {
   );
   sign(world, actor(sam), lee.id, created.talk_id, created.version_id);
   sign(world, owner, nia.id, created.talk_id, created.version_id);
+  fixtureAskTalk(
+    world.bucket,
+    actor(sam),
+    {
+      talkId: created.talk_id,
+      versionId: created.version_id,
+      personId: lee.id,
+      body: 'Where is the muster point?',
+      deviceAt: new Date().toISOString(),
+      sessionId: session,
+    },
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access
+  );
   const detail = fixtureTalkDetail(
     world.bucket,
     actor(sam),
@@ -444,9 +460,14 @@ test('a presenter sees only their own signature image', () => {
   assert.equal(detail?.register?.presenter_signature?.signature_png, png);
   assert.equal(signed.find((row) => row.person_id === lee.id)?.person_name, 'Lee Costa');
   assert.equal(signed.find((row) => row.person_id === lee.id)?.signature_png, null);
+  assert.equal(signed.find((row) => row.person_id === lee.id)?.session_id, null);
+  assert.equal(signed.find((row) => row.person_id === lee.id)?.captured_by, null);
+  assert.equal(signed.find((row) => row.person_id === lee.id)?.question, null);
+  assert.equal(signed.find((row) => row.person_id === lee.id)?.has_question, true);
   assert.ok(signed.find((row) => row.person_id === lee.id)?.received_at);
   assert.equal(signed.find((row) => row.person_id === nia.id)?.signature_png, null);
   assert.equal(signed.filter((row) => row.signature_png).length, 0);
+  assert.equal(detail?.register?.questions.length, 0);
   const manager = fixtureTalkDetail(
     world.bucket,
     owner,
@@ -458,6 +479,8 @@ test('a presenter sees only their own signature image', () => {
     () => null
   );
   assert.equal(manager?.register?.signed.filter((row) => row.signature_png === png).length, 2);
+  assert.equal(manager?.register?.signed.find((row) => row.person_id === lee.id)?.question, 'Where is the muster point?');
+  assert.equal(manager?.register?.signed.find((row) => row.person_id === lee.id)?.session_id, session);
   assert.equal(manager?.register?.presenter_signature?.signature_png, png);
   const other = fixtureTalkDetail(
     world.bucket,
@@ -488,7 +511,7 @@ test('revising the words keeps the current PDF, and a used path is rejected', ()
       pdfPath: file,
       audience: 'all',
       personIds: [],
-      presenterName: 'Jordan Hale',
+      presenterPersonId: world.owner.id,
       presenterRole: 'Owner',
       presentedAt: new Date().toISOString(),
     },
@@ -507,6 +530,15 @@ test('revising the words keeps the current PDF, and a used path is rejected', ()
   );
   assert.equal(revised.version_no, 2);
   assert.equal(world.bucket.versions.find((row) => row.id === revised.version_id)?.pdf_path, file);
+  const kept = fixtureReviseTalk(
+    world.bucket,
+    owner,
+    created.talk_id,
+    { title: 'Fire exits', body: 'An empty path keeps the file.', pdfPath: '' },
+    world.sites,
+    world.access
+  );
+  assert.equal(world.bucket.versions.find((row) => row.id === kept.version_id)?.pdf_path, file);
   const next = `${world.company}/${world.site.id}/talks/next.pdf`;
   const replaced = fixtureReviseTalk(
     world.bucket,
@@ -553,6 +585,117 @@ test('a talk file path stays inside company/site/talks', () => {
   );
 });
 
+test('a presenter who is not assigned to the site is rejected', () => {
+  const world = gang();
+  const owner = actor(world.owner, 'auth-owner');
+  const visitor: TalkPerson = { id: 'visitor-1', role: 'operative', company_id: world.company, display_name: 'Pat Cole' };
+  assert.throws(
+    () =>
+      fixtureCreateTalk(
+        world.bucket,
+        owner,
+        {
+          siteId: world.site.id,
+          kind: 'toolbox',
+          delivery: 'phone',
+          title: 'Fire exits',
+          body: 'Walk to the gate.',
+          pdfPath: null,
+          audience: 'all',
+          personIds: [],
+          presenterPersonId: visitor.id,
+          presenterRole: 'Operative',
+          presentedAt: new Date().toISOString(),
+        },
+        world.sites,
+        [...world.people, visitor],
+        world.assignments,
+        world.access
+      ),
+    /invalid_input/
+  );
+});
+
+test('a signer who renames after signing keeps the signed name, identifier, and a rename flag', async () => {
+  const world = gang();
+  const owner = actor(world.owner, 'auth-owner');
+  const sam = world.lads[0];
+  const lee = world.lads[1];
+  if (!sam || !lee) throw new Error('missing gang');
+  const created = fixtureCreateTalk(
+    world.bucket,
+    owner,
+    {
+      siteId: world.site.id,
+      kind: 'toolbox',
+      delivery: 'in_person',
+      title: 'Fire exits',
+      body: 'Walk to the gate.',
+      pdfPath: null,
+      audience: 'all',
+      personIds: [],
+      presenterPersonId: sam.id,
+      presenterRole: 'Operative',
+      presentedAt: new Date().toISOString(),
+    },
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access
+  );
+  sign(world, actor(sam), sam.id, created.talk_id, created.version_id);
+  sam.display_name = lee.display_name;
+  const detail = fixtureTalkDetail(
+    world.bucket,
+    owner,
+    created.talk_id,
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access,
+    () => null
+  );
+  const row = detail?.register?.signed.find((item) => item.person_id === sam.id);
+  assert.equal(row?.person_name, 'Sam Reed');
+  assert.equal(row?.person_ref, sam.id.slice(0, 6));
+  assert.equal(row?.name_changed, true);
+  assert.notEqual(row?.person_id, lee.id);
+  const { buildTalkPdf } = await import('../lib/talkPdf.ts');
+  const { decodedPdfText } = await import('../lib/pdfDecode.ts');
+  const { bytes } = await buildTalkPdf({
+    companyName: 'Ashfield Finishes',
+    siteName: world.site.name,
+    title: 'Fire exits',
+    kind: 'toolbox',
+    delivery: 'in_person',
+    versionNo: 1,
+    presenterName: 'Sam Reed',
+    presenterRole: 'Operative',
+    presentedAt: created.content_hash ? new Date().toISOString() : new Date().toISOString(),
+    notSigned: [],
+    signed: [
+      {
+        name: row?.person_name ?? '',
+        personRef: row?.person_ref,
+        nameChanged: row?.name_changed,
+        hasQuestion: false,
+        question: null,
+        explained: false,
+        interpreter: false,
+        receivedAt: row?.received_at ?? new Date().toISOString(),
+        meaning: row?.meaning ?? '',
+        signaturePng: null,
+        sharedDevice: false,
+      },
+    ],
+    presenterSignature: null,
+  });
+  const text = decodedPdfText(bytes);
+  assert.match(text, /Sam Reed · lad-1/);
+  assert.match(text, /name changed since signing/);
+  assert.equal(text.includes('Lee Costa'), false);
+});
+
 test('a joiner sees the induction, sign-in is not blocked, and the manager sees the gap', async () => {
   resetFixtureStore();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
@@ -565,7 +708,7 @@ test('a joiner sees the induction, sign-in is not blocked, and the manager sees 
     pdfPath: null,
     audience: 'all',
     personIds: [],
-    presenterName: 'Jordan Hale',
+    presenterPersonId: IDS.owner,
     presenterRole: 'Owner',
     presentedAt: new Date().toISOString(),
   });

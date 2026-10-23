@@ -15,6 +15,8 @@ const CONTENT_H = TOP - BOTTOM;
 
 export type RegisterPdfPerson = {
   name: string;
+  personRef?: string;
+  nameChanged?: boolean;
   hasQuestion: boolean;
   question: string | null;
   explained: boolean;
@@ -42,6 +44,8 @@ export type RegisterPdfInput = {
   signed: RegisterPdfSigned[];
   presenterSignature: {
     name: string;
+    personRef?: string;
+    nameChanged?: boolean;
     receivedAt: string;
     meaning: string;
     signaturePng: string | null;
@@ -202,7 +206,9 @@ function textBlock(
 }
 
 function personLines(person: RegisterPdfPerson): Array<[string, number, boolean]> {
-  const rows: Array<[string, number, boolean]> = [[person.name, 13, true]];
+  const label = person.personRef ? `${person.name} · ${person.personRef}` : person.name;
+  const rows: Array<[string, number, boolean]> = [[label, 13, true]];
+  if (person.nameChanged) rows.push(['name changed since signing', 11, true]);
   if (person.hasQuestion) rows.push(['Has a question', 11, true]);
   if (person.question) rows.push([person.question, 11, false]);
   if (person.explained) rows.push(['Explained verbally', 11, false]);
@@ -261,8 +267,10 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
   if (input.presenterSignature) {
     const presenter = input.presenterSignature;
     blocks.push(textBlock('heading', [['Presenter', 14, true]], { signoff: true, withPrevious: true }));
+    const presenterLabel = presenter.personRef ? `${presenter.name} · ${presenter.personRef}` : presenter.name;
     const rows: Array<[string, number, boolean]> = [
-      [presenter.name, 13, true],
+      [presenterLabel, 13, true],
+      ...(presenter.nameChanged ? [['name changed since signing', 11, true] as [string, number, boolean]] : []),
       [formatUkDateTime(presenter.receivedAt), 11, false],
       [presenter.meaning, 11, false],
     ];

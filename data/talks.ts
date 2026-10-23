@@ -13,7 +13,7 @@ export type CreateTalkInput = {
   pdfPath: string | null;
   audience: TalkAudience;
   personIds: string[];
-  presenterName: string;
+  presenterPersonId: string;
   presenterRole: string;
   presentedAt: string;
 };
@@ -91,6 +91,10 @@ export type TalkListItem = {
 export type TalkPersonRow = {
   person_id: string;
   person_name: string;
+  /** First characters of the person id, stable if the display name changes. */
+  person_ref: string;
+  /** True when the live display name differs from the name stored at signing. */
+  name_changed: boolean;
   has_question: boolean;
   question: string | null;
   explained_verbally: boolean;
@@ -104,8 +108,10 @@ export type TalkSignedRow = TalkPersonRow & {
   /** Null unless the caller is the host owner, the host CM, or this row's signer. */
   signature_png: string | null;
   shared_device: boolean;
-  session_id: string;
-  captured_by: string;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  session_id: string | null;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  captured_by: string | null;
   content_hash: string;
 };
 

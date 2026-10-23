@@ -19,6 +19,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { saveSheet } from '@/lib/saveSheet';
 
+function registerLabel(row: { person_name: string; person_ref: string }) {
+  return row.person_ref ? `${row.person_name} · ${row.person_ref}` : row.person_name;
+}
+
 export default function TalkDetailScreen() {
   const { siteId, talkId } = useLocalSearchParams<{ siteId: string; talkId: string }>();
   const { person } = useAuth();
@@ -111,6 +115,8 @@ export default function TalkDetailScreen() {
         presentedAt: talk.presented_at,
         notSigned: talk.register.not_signed.map((row) => ({
           name: row.person_name,
+          personRef: row.person_ref,
+          nameChanged: row.name_changed,
           hasQuestion: row.has_question,
           question: row.question,
           explained: row.explained_verbally,
@@ -118,6 +124,8 @@ export default function TalkDetailScreen() {
         })),
         signed: talk.register.signed.map((row) => ({
           name: row.person_name,
+          personRef: row.person_ref,
+          nameChanged: row.name_changed,
           hasQuestion: row.has_question,
           question: row.question,
           explained: row.explained_verbally,
@@ -130,6 +138,8 @@ export default function TalkDetailScreen() {
         presenterSignature: talk.register.presenter_signature
           ? {
               name: talk.register.presenter_signature.person_name,
+              personRef: talk.register.presenter_signature.person_ref,
+              nameChanged: talk.register.presenter_signature.name_changed,
               receivedAt: talk.register.presenter_signature.received_at,
               meaning: talk.register.presenter_signature.meaning,
               signaturePng: talk.register.presenter_signature.signature_png,
@@ -159,9 +169,7 @@ export default function TalkDetailScreen() {
 
   const register = talk.register;
   const canRun = manage || person?.id === talk.presenter_person_id;
-  const namedPresenter =
-    person?.id === talk.presenter_person_id &&
-    (person.display_name ?? '').trim().toLowerCase() === talk.presenter_name.trim().toLowerCase();
+  const namedPresenter = person?.id === talk.presenter_person_id;
   const presenterLine = talkMeaning({
     kind: talk.kind,
     delivery: talk.delivery,
@@ -226,7 +234,7 @@ export default function TalkDetailScreen() {
           </Text>
           {register.not_signed.map((row) => (
             <Card key={row.person_id}>
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{row.person_name}</Text>
+              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registerLabel(row)}</Text>
               {row.has_question ? <Text style={{ color: theme.text, fontWeight: '800' }}>Has a question</Text> : null}
               {row.question ? <Muted>{row.question}</Muted> : null}
               {row.explained_verbally ? <Muted>Explained verbally</Muted> : null}
@@ -255,7 +263,8 @@ export default function TalkDetailScreen() {
           <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', minHeight: 48 }}>Signed</Text>
           {register.signed.map((row) => (
             <Card key={row.person_id}>
-              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{row.person_name}</Text>
+              <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registerLabel(row)}</Text>
+              {row.name_changed ? <Muted>name changed since signing</Muted> : null}
               <Muted>{formatUkDateTime(row.received_at)}</Muted>
               <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{row.meaning}</Text>
               {row.shared_device ? <Text style={{ color: theme.text, fontWeight: '800' }}>Signed on a shared device</Text> : null}
@@ -286,7 +295,8 @@ export default function TalkDetailScreen() {
           ) : null}
           {register.presenter_signature ? (
             <Card>
-              <Text style={{ color: theme.text, fontWeight: '800' }}>Presenter · {register.presenter_signature.person_name}</Text>
+              <Text style={{ color: theme.text, fontWeight: '800' }}>Presenter · {registerLabel(register.presenter_signature)}</Text>
+              {register.presenter_signature.name_changed ? <Muted>name changed since signing</Muted> : null}
               <Muted>{formatUkDateTime(register.presenter_signature.received_at)}</Muted>
               <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{register.presenter_signature.meaning}</Text>
             </Card>
