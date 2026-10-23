@@ -2,7 +2,7 @@
   "expo": {
     "name": "SitePack",
     "slug": "sitepack",
-    "version": "0.2.1",
+    "version": "0.2.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "sitepack",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "uk.sitepack.app",
-      "versionCode": 4,
+      "versionCode": 6,
       "permissions": ["android.permission.CAMERA"],
       "allowBackup": false,
       "blockedPermissions": [
