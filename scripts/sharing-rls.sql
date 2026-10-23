@@ -69,6 +69,13 @@ exception
 end;
 $$;
 
+create or replace function pg_temp.keys_of(p_row jsonb)
+returns text[]
+language sql
+as $$
+  select coalesce(array(select jsonb_object_keys(p_row) order by 1), array[]::text[]);
+$$;
+
 do $catalog$
 declare
   r record;
@@ -280,11 +287,21 @@ values
   ('e1111111-1111-4111-8111-111111111114', :'siteb', :'firmx' || '/' || :'siteb' || '/variations/other.jpg', 1, 'image/jpeg', 100);
 
 insert into public.snags (
-  id, site_id, company_id, snag_seq, note, trade_label, raised_by, raised_by_name, raised_at, status
+  id, site_id, company_id, snag_seq, note, trade_label,
+  raised_by, raised_by_name, raised_at, status,
+  fixed_by, fixed_by_name, fixed_at, fixed_received_at
 )
 values
-  ('bb111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1, 'Crack by the door', 'dryliner', :'opx', 'Łukasz Wójcik', now(), 'Open'),
-  ('bb111111-1111-4111-8111-111111111112', :'siteb', :'firmx', 1, 'OTHER-SITE-SNAG', 'dryliner', :'opx', 'Op Secret', now(), 'Open');
+  (
+    'bb111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1, 'Crack by the door', 'dryliner',
+    :'opx', 'Łukasz Wójcik', now(), 'Fixed',
+    :'opy', 'Op Y', now(), now()
+  ),
+  (
+    'bb111111-1111-4111-8111-111111111112', :'siteb', :'firmx', 1, 'OTHER-SITE-SNAG', 'dryliner',
+    :'opx', 'Op Secret', now(), 'Open',
+    null, null, null, null
+  );
 
 insert into public.site_attendance (
   id, site_id, company_id, person_id, person_name,
@@ -615,7 +632,6 @@ select pg_temp.ok(
   (select count(*) from public.snags where site_id = :'sitea'::uuid) = 0
   and (select count(*) from public.snags where note = 'OTHER-SITE-SNAG') = 0
   and jsonb_array_length(public.shared_snags(:'sitea'::uuid)) = 1
-  and (public.shared_snags(:'sitea'::uuid) -> 0 ->> 'raised_by_name') = 'Łukasz Wójcik'
   and (select count(*) from public.site_attendance) = 0
   and (select count(*) from public.site_talks) = 0
   and (select count(*) from public.site_talk_questions) = 0
@@ -635,6 +651,27 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
+  pg_temp.keys_of(public.shared_snags(:'sitea'::uuid) -> 0)
+    = array['fixed_by_company', 'id', 'level_area', 'note', 'raised_at', 'raised_by_company', 'snag_seq', 'status', 'trade_label']::text[]
+  and (public.shared_snags(:'sitea'::uuid) -> 0 ->> 'raised_by_company') = 'Firm X'
+  and (public.shared_snags(:'sitea'::uuid) -> 0 ->> 'fixed_by_company') = 'Firm Y'
+  and (public.shared_snags(:'sitea'::uuid) -> 0 ->> 'id') = 'bb111111-1111-4111-8111-111111111111'
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%Łukasz Wójcik%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%Op Secret%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%Op Y%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%raised_by_name%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%fixed_by_name%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%person_id%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%user_id%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%username%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%@%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%0700%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%' || :'opx' || '%')
+  and not ((public.shared_snags(:'sitea'::uuid)::text) like '%' || :'opy' || '%'),
+  'guest snags show the company and not the operative name'
+);
+
+select pg_temp.ok(
   (select count(*) from public.sites where id = :'sitea'::uuid) = 0
   and (select count(*) from public.sites where id = :'siteb'::uuid) = 0
   and (select count(*) from public.people where display_name in ('CM X', 'Op Secret', 'Owner X')) = 0
@@ -644,6 +681,31 @@ select pg_temp.ok(
   and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%op-secret%')
   and (select count(*) from public.site_share_audit) = 0,
   'host people emails and phones are not returned'
+);
+
+select pg_temp.ok(
+  (
+    select bool_and(
+      pg_temp.keys_of(elem) = array[
+        'description', 'id', 'level_area', 'quantity_text', 'signer_company', 'signer_name',
+        'status', 'title', 'version_id', 'vo_seq'
+      ]::text[]
+    )
+    from jsonb_array_elements(public.shared_variations(:'sitea'::uuid)) elem
+  )
+  and not ((public.shared_variations(:'sitea'::uuid)::text) like '%@%')
+  and not ((public.shared_variations(:'sitea'::uuid)::text) like '%person_id%')
+  and not ((public.shared_variations(:'sitea'::uuid)::text) like '%user_id%')
+  and not ((public.shared_variations(:'sitea'::uuid)::text) like '%username%')
+  and not ((public.shared_variations(:'sitea'::uuid)::text) like '%0700%')
+  and pg_temp.keys_of(public.shared_site_view(:'sitea'::uuid))
+    = array['address_line', 'cm_contact_name', 'host_company_name', 'sections', 'site_id', 'site_name']::text[]
+  and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%@%')
+  and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%person_id%')
+  and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%user_id%')
+  and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%username%')
+  and not ((public.shared_site_view(:'sitea'::uuid)::text) like '%0700%'),
+  'guest people fields are name and company only'
 );
 
 select pg_temp.ok(
@@ -663,20 +725,56 @@ select public.set_site_share_sections(
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
   (select count(*) from public.site_attendance) = 0
+  and jsonb_array_length(public.shared_sign_in_register(:'sitea'::uuid)) = 1
+  and pg_temp.keys_of(public.shared_sign_in_register(:'sitea'::uuid) -> 0)
+    = array['company_name', 'in_at', 'out_at', 'person_name']::text[]
   and (public.shared_sign_in_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
+  and (public.shared_sign_in_register(:'sitea'::uuid) -> 0 ->> 'company_name') = 'Firm X'
+  and (public.shared_sign_in_register(:'sitea'::uuid) -> 0 ->> 'in_at') is not null
+  and (public.shared_sign_in_register(:'sitea'::uuid) -> 0 ->> 'out_at') is not null
   and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%07000900900%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%07000900901%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%@%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%person_id%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%user_id%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%username%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%email%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%phone%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%Op Secret%')
+  and not ((public.shared_sign_in_register(:'sitea'::uuid)::text) like '%' || :'opx' || '%')
   and (select count(*) from public.site_talks where kind = 'induction') = 0
   and (select count(*) from public.site_talks where title = 'TOOLBOX-SECRET') = 0
   and (select count(*) from public.site_talk_questions) = 0
+  and jsonb_array_length(public.shared_induction_register(:'sitea'::uuid)) = 1
+  and pg_temp.keys_of(public.shared_induction_register(:'sitea'::uuid) -> 0)
+    = array['company_name', 'meaning', 'person_name', 'received_at', 'status', 'title']::text[]
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
-  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'id') is not null
+  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'company_name') = 'Firm X'
+  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'status') = 'Signed'
+  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'title') = 'Site induction'
+  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'received_at') is not null
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%SIGIMAGE-SECRET%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%signature_png%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%@%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%person_id%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%user_id%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%username%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%email%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%phone%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%0700%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%Op Secret%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%' || :'opx' || '%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%cc111111-1111-4111-8111-111111111111%')
   and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 0
   and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 0
-  and (select count(*) from public.site_talk_versions) = 0,
-  'turning a section on shows the register names and still hides the toolbox, questions, and old induction text'
+  and (select count(*) from public.site_talk_versions) = 0
+  and pg_temp.keys_of(public.my_shared_sites() -> 0)
+    = array['cm_contact_name', 'host_company_name', 'sections', 'share_id', 'site_id', 'site_name']::text[]
+  and not ((public.my_shared_sites()::text) like '%@%')
+  and not ((public.my_shared_sites()::text) like '%person_id%')
+  and not ((public.my_shared_sites()::text) like '%0700%'),
+  'guest registers return only name, company, times, and induction status'
 );
 
 -- Probe guest_direct_reads.

@@ -329,10 +329,10 @@ export function fixtureSharedSnags(siteId: string): SharedSnag[] {
       note: 'Crack by the door',
       level_area: 'GF',
       trade_label: 'dryliner',
-      status: 'Open',
-      raised_by_name: 'Łukasz Wójcik',
+      status: 'Fixed',
+      raised_by_company: 'Host Build Ltd',
       raised_at: '2026-10-22T08:00:00.000Z',
-      fixed_by_name: null,
+      fixed_by_company: 'Northbuild',
     },
   ];
 }
@@ -341,8 +341,8 @@ export function fixtureSharedSignIn(siteId: string): SharedSignInRow[] {
   if (siteId !== HARBOUR_SITE_ID) throw new Error('section_off');
   return [
     {
-      id: '99999999-9999-4999-8999-9999999999b2',
       person_name: 'Łukasz Wójcik',
+      company_name: 'Host Build Ltd',
       in_at: '2026-10-22T08:00:00.000Z',
       out_at: '2026-10-22T16:30:00.000Z',
     },
@@ -353,11 +353,11 @@ export function fixtureSharedInductions(siteId: string): SharedInductionRow[] {
   if (siteId !== HARBOUR_SITE_ID) throw new Error('section_off');
   return [
     {
-      id: '99999999-9999-4999-8999-9999999999b4',
-      talk_id: '99999999-9999-4999-8999-9999999999b3',
-      title: 'Site induction',
       person_name: 'Łukasz Wójcik',
+      company_name: 'Host Build Ltd',
+      title: 'Site induction',
       meaning: 'I have read the induction.',
+      status: 'Signed',
       received_at: '2026-10-22T08:05:00.000Z',
     },
   ];

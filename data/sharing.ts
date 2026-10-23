@@ -173,24 +173,24 @@ export type SharedSnag = {
   level_area: string | null;
   trade_label: string;
   status: string;
-  raised_by_name: string;
+  raised_by_company: string | null;
   raised_at: string;
-  fixed_by_name: string | null;
+  fixed_by_company: string | null;
 };
 
 export type SharedSignInRow = {
-  id: string;
   person_name: string;
+  company_name: string | null;
   in_at: string;
   out_at: string | null;
 };
 
 export type SharedInductionRow = {
-  id: string;
-  talk_id: string;
-  title: string;
   person_name: string;
+  company_name: string | null;
+  title: string;
   meaning: string;
+  status: string;
   received_at: string;
 };
 

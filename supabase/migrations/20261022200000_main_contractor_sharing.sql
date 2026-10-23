@@ -574,7 +574,7 @@ create policy site_talk_versions_select
 -- is its own grant. Guests have no policy on this table: can_access_site stays
 -- false for the other firm, and a direct select returns no rows and no image.
 -- The host owner, the contracts manager, and the signer still read the image.
--- A guest's names, times, and meaning come only from shared_induction_register.
+-- A guest's name, company, time, and induction status come only from shared_induction_register.
 revoke select on table public.site_talk_signatures from public, anon, authenticated;
 grant select (
   id,
@@ -1615,6 +1615,7 @@ begin
   end if;
   v_share_id := private.share_guard(p_site_id, 'snags');
 
+  -- Raised-by and fixed-by are the person's company. The operative's name stays off this payload.
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', s.id,
     'snag_seq', s.snag_seq,
@@ -1622,12 +1623,16 @@ begin
     'level_area', s.level_area,
     'trade_label', s.trade_label,
     'status', s.status,
-    'raised_by_name', s.raised_by_name,
+    'raised_by_company', rc.name,
     'raised_at', s.raised_at,
-    'fixed_by_name', s.fixed_by_name
+    'fixed_by_company', fc.name
   ) order by s.snag_seq), '[]'::jsonb)
   into v_rows
   from public.snags s
+  left join public.people rp on rp.id = s.raised_by
+  left join public.companies rc on rc.id = rp.company_id
+  left join public.people fp on fp.id = s.fixed_by
+  left join public.companies fc on fc.id = fp.company_id
   where s.site_id = p_site_id;
 
   return v_rows;
@@ -1655,14 +1660,17 @@ begin
   end if;
   v_share_id := private.share_guard(p_site_id, 'sign_in');
 
+  -- Name, company, and times only. No attendance id, person id, phone, or email.
   select coalesce(jsonb_agg(jsonb_build_object(
-    'id', a.id,
     'person_name', a.person_name,
+    'company_name', c.name,
     'in_at', a.in_at,
     'out_at', a.out_at
-  ) order by a.in_at), '[]'::jsonb)
+  ) order by a.in_at, a.person_name), '[]'::jsonb)
   into v_rows
   from public.site_attendance a
+  left join public.people p on p.id = a.person_id
+  left join public.companies c on c.id = p.company_id
   where a.site_id = p_site_id;
 
   return v_rows;
@@ -1690,17 +1698,20 @@ begin
   end if;
   v_share_id := private.share_guard(p_site_id, 'inductions');
 
+  -- Name, company, time, and Signed status. No signature id, talk id, or person id.
   select coalesce(jsonb_agg(jsonb_build_object(
-    'id', sig.id,
-    'talk_id', t.id,
-    'title', t.title,
     'person_name', sig.person_name,
+    'company_name', c.name,
+    'title', t.title,
     'meaning', sig.meaning,
+    'status', 'Signed',
     'received_at', sig.received_at
-  ) order by t.title, sig.person_name, sig.id), '[]'::jsonb)
+  ) order by t.title, sig.person_name, sig.received_at), '[]'::jsonb)
   into v_rows
   from public.site_talks t
   join public.site_talk_signatures sig on sig.talk_id = t.id
+  left join public.people p on p.id = sig.person_id
+  left join public.companies c on c.id = p.company_id
   where t.site_id = p_site_id
     and t.kind = 'induction'
     and sig.signature_role = 'attendee';

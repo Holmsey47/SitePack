@@ -28,6 +28,7 @@ import {
   fixtureSharedInductions,
   fixtureSharedSignIn,
   fixtureSharedSiteView,
+  fixtureSharedSnags,
   HARBOUR_SITE_ID,
   resetShareFixture,
   SECTION_ERROR_SITE_ID,
@@ -74,6 +75,17 @@ test('an unused code can be cancelled and a used one cannot', () => {
   assert.throws(() => fixtureRevokeSiteShareInvite(unused.id), /not_authorized/);
 });
 
+test('a guest snag list shows the company and not the operative name', () => {
+  const snags = fixtureSharedSnags(HARBOUR_SITE_ID);
+  assert.equal(snags[0]?.raised_by_company, 'Host Build Ltd');
+  assert.equal(snags[0]?.fixed_by_company, 'Northbuild');
+  const packed = JSON.stringify(snags);
+  assert.equal(packed.includes('Łukasz'), false);
+  assert.equal(packed.includes('raised_by_name'), false);
+  assert.equal(packed.includes('fixed_by_name'), false);
+  assert.equal(packed.includes('person_id'), false);
+});
+
 test('a guest view includes the sign-in and induction registers without contact details', () => {
   const view = fixtureSharedSiteView(HARBOUR_SITE_ID);
   assert.equal(view.sections.sign_in, true);
@@ -81,12 +93,19 @@ test('a guest view includes the sign-in and induction registers without contact 
   const signIn = fixtureSharedSignIn(HARBOUR_SITE_ID);
   const inductions = fixtureSharedInductions(HARBOUR_SITE_ID);
   assert.equal(signIn[0]?.person_name, 'Łukasz Wójcik');
-  assert.equal(inductions[0]?.id, '99999999-9999-4999-8999-9999999999b4');
+  assert.equal(signIn[0]?.company_name, 'Host Build Ltd');
+  assert.equal('id' in (signIn[0] ?? {}), false);
   assert.equal(inductions[0]?.person_name, 'Łukasz Wójcik');
+  assert.equal(inductions[0]?.company_name, 'Host Build Ltd');
+  assert.equal(inductions[0]?.status, 'Signed');
   assert.equal(inductions[0]?.title, 'Site induction');
+  assert.equal('id' in (inductions[0] ?? {}), false);
+  assert.equal('talk_id' in (inductions[0] ?? {}), false);
   const packed = JSON.stringify({ signIn, inductions, view });
   assert.equal(packed.includes('@'), false);
   assert.equal(packed.includes('0700'), false);
+  assert.equal(packed.includes('person_id'), false);
+  assert.equal(packed.includes('username'), false);
   assert.equal(fixtureSharedSiteView(SECTION_ERROR_SITE_ID).sections.drawings, true);
   assert.throws(() => fixtureSharedDrawings(SECTION_ERROR_SITE_ID), /Failed to fetch/);
 });
@@ -114,8 +133,13 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(openShare, /history\.replaceState/);
   assert.match(openShare, /publicCodePath/);
   assert.match(openShare, /router\.replace\('\/share'\)/);
-  assert.match(shared, /key=\{row\.id\}/);
+  assert.match(shared, /key=\{`\$\{row\.title\}\|\$\{row\.person_name\}\|\$\{row\.received_at\}`\}/);
+  assert.match(shared, /key=\{`\$\{row\.person_name\}\|\$\{row\.in_at\}`\}/);
   assert.equal(shared.includes('${row.talk_id}-${row.person_name}'), false);
+  assert.equal(shared.includes('raised_by_name'), false);
+  assert.equal(shared.includes('fixed_by_name'), false);
+  assert.match(shared, /Raised by \$\{row\.raised_by_company/);
+  assert.match(shared, /Fixed by \$\{row\.fixed_by_company\}/);
   assert.match(shared, /SIGN-IN/);
   assert.match(shared, /INDUCTIONS/);
   assert.match(shared, /label="Retry"/);

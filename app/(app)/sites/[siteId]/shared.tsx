@@ -188,7 +188,9 @@ export default function SharedSiteScreen() {
                 <Card key={row.version_id}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{`VO-${row.vo_seq} ${row.title}`}</Text>
                   <Muted>{row.status}</Muted>
-                  {row.signer_name ? <Muted>{row.signer_name}</Muted> : null}
+                  {row.signer_name ? (
+                    <Muted>{row.signer_company ? `${row.signer_name}, ${row.signer_company}` : row.signer_name}</Muted>
+                  ) : null}
                 </Card>
               ))}
             </View>
@@ -207,7 +209,11 @@ export default function SharedSiteScreen() {
               {snags.rows.map((row) => (
                 <Card key={row.id}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.note}</Text>
-                  <Muted>{`${row.status} · ${row.raised_by_name}`}</Muted>
+                  <Muted>
+                    {`${row.status} · Raised by ${row.raised_by_company ?? 'the company'}${
+                      row.fixed_by_company ? ` · Fixed by ${row.fixed_by_company}` : ''
+                    }`}
+                  </Muted>
                 </Card>
               ))}
             </View>
@@ -224,8 +230,9 @@ export default function SharedSiteScreen() {
               ) : null}
               {!signIns.failed && signIns.rows.length === 0 ? <Muted>No one has signed in.</Muted> : null}
               {signIns.rows.map((row) => (
-                <Card key={row.id}>
+                <Card key={`${row.person_name}|${row.in_at}`}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
+                  {row.company_name ? <Muted>{row.company_name}</Muted> : null}
                   <Muted>
                     {`In ${formatUkDateTime(row.in_at)}${row.out_at ? ` · Out ${formatUkDateTime(row.out_at)}` : ''}`}
                   </Muted>
@@ -245,9 +252,10 @@ export default function SharedSiteScreen() {
               ) : null}
               {!inductions.failed && inductions.rows.length === 0 ? <Muted>No induction signatures.</Muted> : null}
               {inductions.rows.map((row) => (
-                <Card key={row.id}>
+                <Card key={`${row.title}|${row.person_name}|${row.received_at}`}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
-                  <Muted>{row.title}</Muted>
+                  {row.company_name ? <Muted>{row.company_name}</Muted> : null}
+                  <Muted>{`${row.title} · ${row.status}`}</Muted>
                   <Muted>{row.meaning}</Muted>
                 </Card>
               ))}
