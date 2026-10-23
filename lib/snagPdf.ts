@@ -1,7 +1,9 @@
 import { snagNumber } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine } from '@/lib/snagWording';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -88,13 +90,20 @@ export function snagPhotoMissing(index: number, total: number, kind: 'before' | 
   return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
 }
 
+function pdfFontBytes(encoded: string): Uint8Array {
+  const binary = globalThis.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/** Keep letters, including accents. A pound sign is not part of a snag report. */
 function pdfText(value: string): string {
   return value
     .replace(/£/g, '')
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[^\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, '');
+    .replace(/[“”]/g, '"');
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
@@ -189,9 +198,10 @@ async function drawReport(
   options: { disclaimer: boolean; bottom: number; title: string; signoff?: SnagSignoffPdfInput }
 ): Promise<{ bytes: Uint8Array; trace: SnagPdfTrace[] }> {
   const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
   doc.setTitle(input.reportId);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
   const trace: SnagPdfTrace[] = [];
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = TOP;
