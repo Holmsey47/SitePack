@@ -3,7 +3,22 @@ import test from 'node:test';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { editSnagSignoffForTests, fixtureRepo, resetFixtureStore, snagSignoffCountForTests } from './fixtureRepo.ts';
 import { newId } from './newId.ts';
-import { filterSnags, snagLevels, snagNumber } from './snags.ts';
+import {
+  MARK_FIXED_ALREADY,
+  MARK_FIXED_NEEDS_PHOTO,
+  MARK_FIXED_NOT_ON_SITE,
+  MARK_FIXED_PHOTO_COUNT,
+  MARK_FIXED_ROLE,
+  MARK_FIXED_SAVING,
+  MARK_FIXED_SIGN_IN,
+  MARK_FIXED_SIGN_OFF_PENDING,
+  MARK_FIXED_SIGNED_OFF,
+  filterSnags,
+  markFixedDisabledReason,
+  snagError,
+  snagLevels,
+  snagNumber,
+} from './snags.ts';
 import { snagConfirmation } from '../lib/snagWording.ts';
 
 test('snag list filters by status and level', async () => {
@@ -280,4 +295,38 @@ test('a snag marked fixed after the list was shown is refused', async () => {
   });
   assert.equal(signed.covered.some((row) => row.snag_id === moving), true);
   assert.equal(signed.outstanding.some((row) => row.snag_id === moving), false);
+});
+
+test('mark fixed names every reason it is disabled', () => {
+  const ready = {
+    signedIn: true,
+    role: 'owner' as const,
+    assigned: true,
+    status: 'Open' as const,
+    afterPhotoCount: 1,
+    saving: false,
+    signOffPending: false,
+  };
+  assert.equal(markFixedDisabledReason(ready), null);
+  assert.equal(markFixedDisabledReason({ ...ready, role: 'cm' }), null);
+  assert.equal(markFixedDisabledReason({ ...ready, role: 'operative' }), null);
+  assert.equal(markFixedDisabledReason({ ...ready, afterPhotoCount: 10 }), null);
+  assert.equal(markFixedDisabledReason({ ...ready, role: 'operative', afterPhotoCount: 0 }), MARK_FIXED_NEEDS_PHOTO);
+  assert.equal(markFixedDisabledReason({ ...ready, afterPhotoCount: 0 }), MARK_FIXED_NEEDS_PHOTO);
+  assert.equal(markFixedDisabledReason({ ...ready, afterPhotoCount: 0 }), snagError('after_photo_required'));
+  assert.equal(markFixedDisabledReason({ ...ready, afterPhotoCount: 11 }), MARK_FIXED_PHOTO_COUNT);
+  assert.equal(markFixedDisabledReason({ ...ready, afterPhotoCount: 11 }), snagError('photo_count'));
+  assert.equal(markFixedDisabledReason({ ...ready, saving: true }), MARK_FIXED_SAVING);
+  assert.equal(markFixedDisabledReason({ ...ready, saving: true, afterPhotoCount: 0 }), MARK_FIXED_SAVING);
+  assert.equal(markFixedDisabledReason({ ...ready, signedIn: false, role: null }), MARK_FIXED_SIGN_IN);
+  assert.equal(markFixedDisabledReason({ ...ready, role: null }), MARK_FIXED_ROLE);
+  assert.equal(markFixedDisabledReason({ ...ready, assigned: false }), MARK_FIXED_NOT_ON_SITE);
+  assert.equal(markFixedDisabledReason({ ...ready, status: 'Signed off' }), MARK_FIXED_SIGNED_OFF);
+  assert.equal(markFixedDisabledReason({ ...ready, status: 'Signed off' }), snagError('snag_locked'));
+  assert.equal(markFixedDisabledReason({ ...ready, status: 'Fixed', signOffPending: true }), MARK_FIXED_SIGN_OFF_PENDING);
+  assert.equal(markFixedDisabledReason({ ...ready, status: 'Fixed' }), MARK_FIXED_ALREADY);
+  assert.equal(
+    markFixedDisabledReason({ ...ready, status: 'Open', signOffPending: true, afterPhotoCount: 0 }),
+    MARK_FIXED_NEEDS_PHOTO
+  );
 });

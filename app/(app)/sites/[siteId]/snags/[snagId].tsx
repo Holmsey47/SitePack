@@ -1,37 +1,28 @@
+import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
 import { Button, ErrorText, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
-import { snagError, snagNumber, type SnagDetail } from '@/data/snags';
+import { markFixedDisabledReason, snagError, snagNumber, type SnagDetail } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
-import { preparePhoto } from '@/lib/photoPrep';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag, type QueuedPhoto } from '@/lib/snagQueue';
+import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag } from '@/lib/snagQueue';
 import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Platform, Text, View } from 'react-native';
-
-type LocalPhoto = QueuedPhoto & { preview: string };
-
-function bytesToBlob(bytes: Uint8Array, type: string): Blob {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  return new Blob([copy], { type });
-}
+import { useCallback, useEffect, useState } from 'react';
+import { Image, Text, View } from 'react-native';
 
 export default function SnagDetailScreen() {
   const { snagId, siteId } = useLocalSearchParams<{ snagId: string; siteId: string }>();
   const router = useRouter();
   const { person } = useAuth();
-  const fileRef = useRef<{ click: () => void } | null>(null);
   const [detail, setDetail] = useState<SnagDetail | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [afterPhotos, setAfterPhotos] = useState<LocalPhoto[]>([]);
+  const [afterPhotos, setAfterPhotos] = useState<PickedPhoto[]>([]);
   const [signQueued, setSignQueued] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,37 +47,30 @@ export default function SnagDetailScreen() {
     }, [person?.auth_user_id, siteId, snagId])
   );
 
-  async function addBlob(blob: Blob) {
-    const prepared = await preparePhoto({ blob });
-    const preview = URL.createObjectURL(bytesToBlob(prepared.bytes, 'image/jpeg'));
-    setAfterPhotos((current) =>
-      current.length >= 10 ? current : [...current, { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview }]
-    );
-  }
-
-  async function addFromPicker() {
-    if (afterPhotos.length >= 10) return;
-    if (Platform.OS === 'web') {
-      fileRef.current?.click();
-      return;
-    }
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
-    if (result.canceled || !result.assets[0]) return;
-    const prepared = await preparePhoto({ uri: result.assets[0].uri });
-    setAfterPhotos((current) =>
-      current.length >= 10
-        ? current
-        : [...current, { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview: result.assets[0].uri }]
-    );
+  function addAfterPhotos(picked: PickedPhoto[]) {
+    setAfterPhotos((current) => {
+      const room = 10 - current.length;
+      if (room <= 0) return current;
+      return [...current, ...picked.slice(0, room)];
+    });
   }
 
   async function onFix() {
-    if (!detail || !person?.auth_user_id || !siteId) return;
-    if (afterPhotos.length < 1) {
-      setError('Add an after photo.');
+    if (!detail || !siteId) return;
+    const blocked = markFixedDisabledReason({
+      signedIn: Boolean(person?.auth_user_id),
+      role: person?.role ?? null,
+      assigned: true,
+      status: detail.status,
+      afterPhotoCount: afterPhotos.length,
+      saving: busy,
+      signOffPending: signQueued,
+    });
+    if (blocked) {
+      setError(blocked);
       return;
     }
+    if (!person?.auth_user_id) return;
     setBusy(true);
     setError('');
     const fixedAt = new Date().toISOString();
@@ -136,6 +120,18 @@ export default function SnagDetailScreen() {
 
   const before = detail.photos.filter((photo) => photo.kind === 'before');
   const after = detail.photos.filter((photo) => photo.kind === 'after');
+  const markFixedReason =
+    detail.status === 'Open'
+      ? markFixedDisabledReason({
+          signedIn: Boolean(person?.auth_user_id),
+          role: person?.role ?? null,
+          assigned: true,
+          status: detail.status,
+          afterPhotoCount: afterPhotos.length,
+          saving: busy,
+          signOffPending: signQueued,
+        })
+      : null;
 
   return (
     <Screen>
@@ -193,8 +189,19 @@ export default function SnagDetailScreen() {
           {afterPhotos.map((photo) => (
             <Image key={photo.id} source={{ uri: photo.preview }} style={{ width: '100%', height: 180, borderRadius: 8 }} accessibilityLabel="After photo" />
           ))}
-          <Button label="Add after photo" variant="secondary" minHeight={48} onPress={() => void addFromPicker().catch(() => setError('Could not read that photo.'))} />
-          <Button label="Mark fixed" minHeight={56} loading={busy} disabled={afterPhotos.length < 1} onPress={() => void onFix()} />
+          <PhotoPicker count={afterPhotos.length} title="Add after photo" onAdd={addAfterPhotos} onError={setError} />
+          {markFixedReason ? (
+            <Text nativeID="mark-fixed-reason" style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
+              {markFixedReason}
+            </Text>
+          ) : null}
+          <Button
+            label="Mark fixed"
+            minHeight={56}
+            loading={busy}
+            disabled={markFixedReason !== null}
+            onPress={() => void onFix()}
+          />
         </View>
       ) : null}
       {signQueued ? (
@@ -204,23 +211,6 @@ export default function SnagDetailScreen() {
       ) : showSignOffOnSnag(detail.status) ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
-      {Platform.OS === 'web'
-        ? createElement('input', {
-            ref: fileRef,
-            type: 'file',
-            accept: 'image/*',
-            style: { display: 'none' },
-            onChange: (event: { target: { files: FileList | null; value: string } }) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              void addBlob(file)
-                .catch(() => setError('Could not read that photo.'))
-                .finally(() => {
-                  event.target.value = '';
-                });
-            },
-          })
-        : null}
       <ErrorText>{error}</ErrorText>
     </Screen>
   );

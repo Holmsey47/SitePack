@@ -1,34 +1,25 @@
+import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
 import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { snagError } from '@/data/snags';
-import { preparePhoto } from '@/lib/photoPrep';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { theme } from '@/lib/theme';
-import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE, type QueuedPhoto } from '@/lib/snagQueue';
+import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { createElement, useEffect, useRef, useState } from 'react';
-import { Image, Platform, Pressable, Text, View } from 'react-native';
-
-type LocalPhoto = QueuedPhoto & { preview: string };
-
-function bytesToBlob(bytes: Uint8Array, type: string): Blob {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  return new Blob([copy], { type });
-}
+import { useEffect, useState } from 'react';
+import { Image, Pressable, Text, View } from 'react-native';
 
 export default function NewSnagScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const router = useRouter();
   const { person } = useAuth();
-  const fileRef = useRef<{ click: () => void } | null>(null);
   const [note, setNote] = useState('');
   const [levelArea, setLevelArea] = useState('');
   const [trade, setTrade] = useState('');
   const [labels, setLabels] = useState<string[]>([]);
-  const [photos, setPhotos] = useState<LocalPhoto[]>([]);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
@@ -41,36 +32,12 @@ export default function NewSnagScreen() {
       .catch(() => setLabels([]));
   }, [siteId]);
 
-  async function addBlob(blob: Blob) {
-    const prepared = await preparePhoto({ blob });
-    const preview = URL.createObjectURL(bytesToBlob(prepared.bytes, 'image/jpeg'));
-    setPhotos((current) =>
-      current.length >= 10 ? current : [...current, { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview }]
-    );
-  }
-
-  async function addFromPicker() {
-    if (photos.length >= 10) return;
-    if (Platform.OS === 'web') {
-      fileRef.current?.click();
-      return;
-    }
-    const ImagePicker = await import('expo-image-picker');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      selectionLimit: 10 - photos.length,
-      quality: 1,
+  function addPhotos(picked: PickedPhoto[]) {
+    setPhotos((current) => {
+      const room = 10 - current.length;
+      if (room <= 0) return current;
+      return [...current, ...picked.slice(0, room)];
     });
-    if (result.canceled) return;
-    for (const asset of result.assets) {
-      const prepared = await preparePhoto({ uri: asset.uri });
-      setPhotos((current) =>
-        current.length >= 10
-          ? current
-          : [...current, { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview: asset.uri }]
-      );
-    }
   }
 
   async function onSave() {
@@ -150,36 +117,8 @@ export default function NewSnagScreen() {
             </Pressable>
           </View>
         ))}
-        <Button
-          label={photos.length === 0 ? 'Add photo' : `Add photo (${photos.length} of 10)`}
-          variant="secondary"
-          minHeight={48}
-          disabled={photos.length >= 10}
-          onPress={() => void addFromPicker().catch(() => setError('Could not read that photo.'))}
-        />
+        <PhotoPicker count={photos.length} multiple onAdd={addPhotos} onError={setError} />
       </View>
-      {Platform.OS === 'web'
-        ? createElement('input', {
-            ref: fileRef,
-            type: 'file',
-            accept: 'image/*',
-            multiple: true,
-            style: { display: 'none' },
-            onChange: (event: { target: { files: FileList | null; value: string } }) => {
-              const files = event.target.files;
-              if (!files) return;
-              void (async () => {
-                try {
-                  for (const file of Array.from(files).slice(0, 10 - photos.length)) await addBlob(file);
-                } catch {
-                  setError('Could not read that photo.');
-                } finally {
-                  event.target.value = '';
-                }
-              })();
-            },
-          })
-        : null}
       <ErrorText>{error}</ErrorText>
       <Button label="Save snag" minHeight={56} loading={saving} onPress={() => void onSave()} />
     </Screen>

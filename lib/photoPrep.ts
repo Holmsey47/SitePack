@@ -1,5 +1,9 @@
 import { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE, fittedSize, stripJpegExif } from '@/lib/photoBytes';
-import { Platform } from 'react-native';
+
+function isReactNative(): boolean {
+  const nav = (globalThis as { navigator?: { product?: string } }).navigator;
+  return nav?.product === 'ReactNative';
+}
 
 export { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE, fittedSize, stripJpegExif };
 
@@ -130,7 +134,7 @@ export async function preparePhoto(input: { uri?: string; blob?: Blob }): Promis
     const bytes = await prepareOnWeb(input.blob);
     return { bytes, contentType: 'image/jpeg' };
   }
-  if (input.uri && Platform.OS !== 'web') {
+  if (input.uri && isReactNative()) {
     const bytes = await prepareOnNative(input.uri);
     return { bytes, contentType: 'image/jpeg' };
   }

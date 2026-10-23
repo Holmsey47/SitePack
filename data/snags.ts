@@ -170,14 +170,25 @@ export function filterSnagDetails(rows: SnagDetail[], status: SnagStatusFilter, 
   });
 }
 
+/** Shown beside a disabled Mark fixed button, and when the server rejects a fix with no after photo. */
+export const MARK_FIXED_NEEDS_PHOTO = 'Add a photo of the fix first.';
+export const MARK_FIXED_PHOTO_COUNT = 'Add between 1 and 10 photos.';
+export const MARK_FIXED_SIGN_IN = 'Sign in again before marking this fixed.';
+export const MARK_FIXED_NOT_ON_SITE = 'You are not on this site.';
+export const MARK_FIXED_ROLE = 'Your role cannot mark a snag fixed.';
+export const MARK_FIXED_SIGN_OFF_PENDING = 'A sign-off is already waiting to send.';
+export const MARK_FIXED_SIGNED_OFF = 'This snag is already signed off.';
+export const MARK_FIXED_ALREADY = 'This snag is already marked fixed.';
+export const MARK_FIXED_SAVING = 'Saving the fix…';
+
 export function snagError(code: string): string {
   switch (code) {
     case 'snag_locked':
-      return 'This snag is already signed off.';
+      return MARK_FIXED_SIGNED_OFF;
     case 'after_photo_required':
-      return 'Add an after photo before marking it fixed.';
+      return MARK_FIXED_NEEDS_PHOTO;
     case 'photo_count':
-      return 'Add between 1 and 10 photos.';
+      return MARK_FIXED_PHOTO_COUNT;
     case 'photo_too_large':
       return 'Each photo must be 1.5MB or smaller.';
     case 'invalid_path':
@@ -199,4 +210,30 @@ export function snagError(code: string): string {
     default:
       return code === 'unknown' ? 'Could not save the snag.' : code;
   }
+}
+
+/**
+ * Why Mark fixed is disabled, or null when it can be pressed.
+ * The server still requires 1–10 after photos. Role is not a block for owner, contracts manager, or operative.
+ */
+export function markFixedDisabledReason(input: {
+  signedIn: boolean;
+  role: Role | null;
+  /** False when this person cannot open the site. A loaded snag has already passed that check. */
+  assigned: boolean;
+  status: SnagStatus;
+  afterPhotoCount: number;
+  saving: boolean;
+  signOffPending: boolean;
+}): string | null {
+  if (!input.signedIn) return MARK_FIXED_SIGN_IN;
+  if (!input.assigned) return MARK_FIXED_NOT_ON_SITE;
+  if (input.role !== 'owner' && input.role !== 'cm' && input.role !== 'operative') return MARK_FIXED_ROLE;
+  if (input.status === 'Signed off') return MARK_FIXED_SIGNED_OFF;
+  if (input.status === 'Fixed' && input.signOffPending) return MARK_FIXED_SIGN_OFF_PENDING;
+  if (input.status === 'Fixed') return MARK_FIXED_ALREADY;
+  if (input.saving) return MARK_FIXED_SAVING;
+  if (input.afterPhotoCount < 1) return MARK_FIXED_NEEDS_PHOTO;
+  if (input.afterPhotoCount > 10) return MARK_FIXED_PHOTO_COUNT;
+  return null;
 }
