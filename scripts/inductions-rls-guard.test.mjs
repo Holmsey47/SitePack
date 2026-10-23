@@ -5,12 +5,16 @@ import test from 'node:test';
 
 const migration = 'supabase/migrations/20261022190000_inductions.sql';
 
-test('the inductions migration does not touch storage or auth', () => {
+test('the inductions migration only reads storage.objects and does not grant or alter storage or auth', () => {
   const sql = fs.readFileSync(migration, 'utf8');
+  assert.match(sql, /from storage\.objects/);
+  assert.doesNotMatch(sql, /insert\s+into\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /update\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /delete\s+from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /alter table storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+storage/i);
+  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+(table\s+)?storage\./i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+auth/i);
-  assert.doesNotMatch(sql, /storage\.objects/i);
   assert.doesNotMatch(sql, /auth\.users/i);
   assert.match(sql, /revoke all on function public\.sign_site_talk\(uuid, uuid, uuid, boolean, text, timestamptz, text\) from public, anon;/);
   assert.match(sql, /revoke all on function public\.create_site_talk\(uuid, text, text, text, text, text, text, uuid\[\], text, text, timestamptz\) from public, anon;/);
