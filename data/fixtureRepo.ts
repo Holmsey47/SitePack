@@ -96,6 +96,33 @@ import {
   fixtureWeekly,
   type FixtureAttendanceBucket,
 } from '@/data/fixtureAttendance';
+import { fixtureForceOffline } from '@/lib/fixtureOffline';
+import {
+  TALK_URL_SECONDS,
+  talkStoragePath,
+  type AskTalkInput,
+  type CreateTalkInput,
+  type PresenterSignInput,
+  type ReviseTalkInput,
+  type SignTalkInput,
+} from '@/data/talks';
+import {
+  emptyTalks,
+  fixtureAskTalk,
+  fixtureCreateTalk,
+  fixtureInductionGaps,
+  fixtureListTalks,
+  fixtureMeaningLine,
+  fixtureOutstanding,
+  fixtureReviseTalk,
+  fixtureSetTalkNote,
+  fixtureSignPresenter,
+  fixtureSignTalk,
+  fixtureTalkBadges,
+  fixtureTalkDetail,
+  type FixtureTalkBucket,
+  type TalkActor,
+} from '@/data/fixtureTalks';
 
 type GroupRecord = {
   id: string;
@@ -170,6 +197,7 @@ type Store = {
   variations: FixtureVariationBucket;
   snags: FixtureSnagBucket;
   attendance: FixtureAttendanceBucket;
+  talks: FixtureTalkBucket;
   drawingOpens: ProofOpen[];
   drawingSeen: ProofSeen[];
 };
@@ -472,6 +500,7 @@ function seed(): Store {
       cmId: IDS.cm,
     }),
     attendance: emptyAttendance(),
+    talks: emptyTalks(),
   };
 }
 
@@ -551,6 +580,27 @@ function snagActor(person: Person) {
     company_id: person.company_id,
     display_name: person.display_name ?? '',
   };
+}
+
+function talkActor(person: Person): TalkActor {
+  return { ...snagActor(person), auth_user_id: person.auth_user_id };
+}
+
+function talkSites() {
+  return store.sites.map((site) => ({ id: site.id, company_id: site.company_id, name: site.name }));
+}
+
+function talkPeople() {
+  return store.people.map((person) => ({
+    id: person.id,
+    role: person.role,
+    company_id: person.company_id,
+    display_name: person.display_name,
+  }));
+}
+
+function talkAssignments() {
+  return store.assignments.map((row) => ({ site_id: row.site_id, person_id: row.person_id }));
 }
 
 function canAccessSite(person: Person, siteId: string): boolean {
@@ -1320,6 +1370,177 @@ export const fixtureRepo: SitePackRepo = {
     return fixtureCorrect(store.attendance, snagActor(person), entryId, inAt, outAt, reason, (id) => canAccessSite(person, id));
   },
 
+  async createTalk(input: CreateTalkInput) {
+    const person = meOrThrow();
+    return fixtureCreateTalk(
+      store.talks,
+      talkActor(person),
+      input,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async reviseTalk(talkId: string, input: ReviseTalkInput) {
+    const person = meOrThrow();
+    return fixtureReviseTalk(store.talks, talkActor(person), talkId, input, talkSites(), (id) => canAccessSite(person, id));
+  },
+
+  async signTalk(input: SignTalkInput) {
+    const person = meOrThrow();
+    return fixtureSignTalk(
+      store.talks,
+      talkActor(person),
+      input,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async askTalk(input: AskTalkInput) {
+    const person = meOrThrow();
+    return fixtureAskTalk(
+      store.talks,
+      talkActor(person),
+      input,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async setTalkNote(talkId: string, personId: string, explained: boolean, interpreter: boolean) {
+    const person = meOrThrow();
+    fixtureSetTalkNote(
+      store.talks,
+      talkActor(person),
+      talkId,
+      personId,
+      explained,
+      interpreter,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async signTalkPresenter(input: PresenterSignInput) {
+    const person = meOrThrow();
+    return fixtureSignPresenter(
+      store.talks,
+      talkActor(person),
+      input,
+      talkSites(),
+      talkPeople(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async myOutstandingTalks() {
+    const person = meOrThrow();
+    return fixtureOutstanding(
+      store.talks,
+      talkActor(person),
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async listTalks(siteId: string) {
+    const person = meOrThrow();
+    return fixtureListTalks(
+      store.talks,
+      talkActor(person),
+      siteId,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async getTalk(talkId: string) {
+    const person = meOrThrow();
+    return fixtureTalkDetail(
+      store.talks,
+      talkActor(person),
+      talkId,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id),
+      (path) => ({
+        url: path,
+        expiresAt: new Date(Date.now() + TALK_URL_SECONDS * 1000).toISOString(),
+      })
+    );
+  },
+
+  async talkMeaningLine(talkId: string, personId: string) {
+    const person = meOrThrow();
+    return fixtureMeaningLine(
+      store.talks,
+      talkActor(person),
+      talkId,
+      personId,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async inductionSignInGaps(siteId: string) {
+    const person = meOrThrow();
+    const open = store.attendance.rows
+      .filter((row) => row.site_id === siteId && row.out_at == null)
+      .map((row) => row.person_id);
+    return fixtureInductionGaps(
+      store.talks,
+      talkActor(person),
+      siteId,
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      open,
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async myTalkBadges() {
+    const person = meOrThrow();
+    return fixtureTalkBadges(
+      store.talks,
+      talkActor(person),
+      talkSites(),
+      talkPeople(),
+      talkAssignments(),
+      (id) => canAccessSite(person, id)
+    );
+  },
+
+  async uploadTalkPdf(input: { companyId: string; siteId: string; bytes: Uint8Array }) {
+    const person = meOrThrow();
+    if (person.role === 'operative') throw new Error('not_authorized');
+    if (input.bytes.byteLength < 1) throw new Error('invalid_input');
+    const storagePath = talkStoragePath(input.companyId, input.siteId, `${input.companyId}/${input.siteId}/talks/${newId()}.pdf`);
+    return { storagePath };
+  },
+
+  async removeTalkPdf(storagePath: string) {
+    const person = meOrThrow();
+    if (person.role === 'operative') throw new Error('not_authorized');
+    if (!storagePath.includes('/talks/')) throw new Error('invalid_path');
+  },
+
   async createJoinCode(input): Promise<JoinCodeCreated> {
     const actor = requireManager();
     const site = store.sites.find((row) => row.id === input.siteId && row.company_id === actor.company_id);
@@ -1843,4 +2064,8 @@ function assertGroupNameFree(companyId: string, name: string, exceptId?: string)
 export function resetFixtureStore() {
   store = seed();
   store.sessionPersonId = loadSessionId();
+}
+
+if (typeof globalThis !== 'undefined') {
+  (globalThis as { fixtureForceOffline?: typeof fixtureForceOffline }).fixtureForceOffline = fixtureForceOffline;
 }

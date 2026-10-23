@@ -1,6 +1,6 @@
 import { preparedLine, weekRangeLabel, type WeekRow } from '@/lib/attendanceHours';
-import { pdfText } from '@/lib/snagPdf';
-import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
+import { pdfText } from '@/lib/pdfText';
+import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
@@ -20,13 +20,6 @@ export type AttendancePdfInput = {
 };
 
 type Face = PDFFont;
-
-function pdfFontBytes(encoded: string): Uint8Array {
-  const binary = globalThis.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
   const words = pdfText(text).split(/\s+/).filter(Boolean);

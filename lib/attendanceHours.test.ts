@@ -234,6 +234,18 @@ test('CSV totals match the sheet totals', () => {
     '2026-10-19'
   );
   assert.match(embedded, /"Ann\rBob ""C"""/);
+  const separated = weekCsv(
+    buildWeekSheet(
+      [span({ personId: 'nel', personName: 'Ann\u0085\u2028\u202eBob', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z' })],
+      '2026-10-19',
+      '2026-10-22T12:00:00.000Z'
+    ),
+    'Oak',
+    '2026-10-19'
+  );
+  assert.match(separated, /Ann   Bob/);
+  assert.equal(separated.includes('\u0085'), false);
+  assert.equal(separated.includes('\u202e'), false);
   const newline = weekCsv(
     buildWeekSheet(
       [span({ personId: 'ann', personName: 'Ann\nBob', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z' })],

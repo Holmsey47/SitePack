@@ -34,6 +34,19 @@ import type {
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 import type { CreateSnagInput, CreateSnagResult, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
 import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
+import type {
+  AskTalkInput,
+  CreateTalkInput,
+  InductionGap,
+  PresenterSignInput,
+  ReviseTalkInput,
+  SignTalkInput,
+  SignTalkResult,
+  TalkBadge,
+  TalkDetail,
+  TalkListItem,
+  TalkVersionRef,
+} from '@/data/talks';
 
 export type SignInResult = {
   person: Person;
@@ -161,6 +174,20 @@ export type SitePackRepo = {
   weeklyAttendance(siteId: string, weekStart: string): Promise<WeeklyAttendance | null>;
   attendanceEntry(entryId: string): Promise<AttendanceEntry | null>;
   correctAttendance(entryId: string, inAt: string, outAt: string, reason: string): Promise<AttendanceEntry>;
+  createTalk(input: CreateTalkInput): Promise<TalkVersionRef>;
+  reviseTalk(talkId: string, input: ReviseTalkInput): Promise<TalkVersionRef>;
+  signTalk(input: SignTalkInput): Promise<SignTalkResult>;
+  askTalk(input: AskTalkInput): Promise<{ question_id: string; received_at: string }>;
+  setTalkNote(talkId: string, personId: string, explained: boolean, interpreter: boolean): Promise<void>;
+  signTalkPresenter(input: PresenterSignInput): Promise<SignTalkResult>;
+  myOutstandingTalks(): Promise<TalkListItem[]>;
+  listTalks(siteId: string): Promise<TalkListItem[]>;
+  getTalk(talkId: string): Promise<TalkDetail | null>;
+  talkMeaningLine(talkId: string, personId: string): Promise<string>;
+  inductionSignInGaps(siteId: string): Promise<InductionGap[] | null>;
+  myTalkBadges(): Promise<TalkBadge[]>;
+  uploadTalkPdf(input: { companyId: string; siteId: string; bytes: Uint8Array }): Promise<{ storagePath: string }>;
+  removeTalkPdf(storagePath: string): Promise<void>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -232,6 +259,9 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'after_photo_required',
     'already_signed_in',
     'not_signed_in',
+    'already_signed',
+    'not_required',
+    'version_locked',
     'correction_overlaps',
     'shift_too_long',
     'invalid_display_name',

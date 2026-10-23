@@ -1,10 +1,12 @@
 import { AppTabs } from '@/components/app-tabs';
 import { FixtureOfflineSwitch } from '@/components/fixture-offline';
+import { TalkNoticeList, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import type { TalkBadge } from '@/data/talks';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
@@ -12,6 +14,8 @@ import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
+import { refreshTalks } from '@/lib/talkSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -34,6 +38,8 @@ export default function SitesScreen() {
   const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
   const [notices, setNotices] = useState<SeenNotice[]>([]);
+  const [talkBadges, setTalkBadges] = useState<TalkBadge[]>([]);
+  const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,6 +99,49 @@ export default function SitesScreen() {
       };
     }, [manager, person])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person?.auth_user_id) return;
+      let active = true;
+      refreshTalks(person.auth_user_id)
+        .then((next) => {
+          if (!active) return;
+          setTalkBadges(next.badges);
+          setTalkNotices(next.notices);
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, [person?.auth_user_id])
+  );
+
+  async function dismissTalk(notice: TalkNotice) {
+    await dismissTalkNotice(getTalkQueue(), notice);
+    setTalkNotices((current) => current.filter((row) => row.id !== notice.id));
+  }
+
+  async function retryTalk(notice: TalkNotice) {
+    if (!notice.retryLocalId || !person?.auth_user_id) return;
+    await retryQueuedTalk(getTalkQueue(), notice.retryLocalId);
+    const next = await refreshTalks(person.auth_user_id);
+    setTalkBadges(next.badges);
+    setTalkNotices(next.notices);
+  }
+
+  function talkNotes(siteId: string) {
+    const badge = talkBadges.find((row) => row.site_id === siteId);
+    const siteNotices = talkNotices.filter((row) => row.siteId === siteId);
+    if (!badge && siteNotices.length === 0) return null;
+    return (
+      <View>
+        <TalkNoticeList notices={siteNotices} onDismiss={(notice) => void dismissTalk(notice)} onRetry={(notice) => void retryTalk(notice)} />
+        <TalkReadRow count={badge?.outstanding ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+        <TalkQuestionRow count={badge?.questions ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+      </View>
+    );
+  }
 
   function seenNotes(siteId: string) {
     const badges = unseen.filter(
@@ -183,6 +232,7 @@ export default function SitesScreen() {
                 onNew={() => router.push(`/sites/${site.id}/new`)}
                 onNotice={(notice) => void followNotice(router, notice)}
               />
+              {talkNotes(site.id)}
             </Card>
           ))
         )}
@@ -265,6 +315,7 @@ export default function SitesScreen() {
               onNew={() => router.push(`/sites/${row.site_id}/new`)}
               onNotice={(notice) => void followNotice(router, notice)}
             />
+            {talkNotes(row.site_id)}
           </Card>
         ))
       )}
