@@ -8,6 +8,7 @@ import {
   JOIN_ALPHABET,
   JOIN_WEB_ORIGIN,
   formatJoinCode,
+  hasDisplayNameControl,
   hmacSha256Hex,
   isJoinCodeShape,
   joinFailureMessage,
@@ -326,4 +327,31 @@ test('owner reset lets the username sign in with the new password only once', as
   await fixtureRepo.signOut();
   await assert.rejects(() => fixtureRepo.signInWithUsername('bentorres', SEED_PASSWORD), /sign_in_failed/);
   await assert.rejects(() => fixtureRepo.redeemPasswordReset(issued.code, 'newer456'), /reset_rejected/);
+});
+
+test('a display name with a control character is invalid_display_name', async () => {
+  assert.equal(hasDisplayNameControl('Amy\nKeane'), true);
+  assert.equal(hasDisplayNameControl('Amy\rKeane'), true);
+  assert.equal(hasDisplayNameControl('Amy\u007f'), true);
+  assert.equal(hasDisplayNameControl('\u0001Amy'), true);
+  assert.equal(hasDisplayNameControl('Amy Keane'), false);
+  assert.equal(hasDisplayNameControl('Amy\u0080'), false);
+  assert.equal(joinFailureMessage('invalid_display_name'), 'Name can’t include a line break or other control character.');
+  const edge = fs.readFileSync('supabase/functions/join-with-code/index.ts', 'utf8');
+  const checkAt = edge.indexOf('hasDisplayNameControl(displayName)');
+  const createAt = edge.indexOf('createUser');
+  assert.ok(checkAt > 0 && createAt > checkAt);
+  assert.match(edge, /error: 'invalid_display_name'/);
+  resetFixtureStore();
+  await assert.rejects(
+    () =>
+      fixtureRepo.joinWithCode({
+        code: 'K7QM4XPR',
+        displayName: 'Amy\nKeane',
+        trade: 'dryliner',
+        username: 'amyjoin',
+        password: 'letters1',
+      }),
+    /invalid_display_name/
+  );
 });

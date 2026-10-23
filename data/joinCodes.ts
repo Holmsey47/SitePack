@@ -20,6 +20,7 @@ export {
   expiryChoiceHours,
   formatJoinCode,
   generateJoinCode,
+  hasDisplayNameControl,
   hmacSha256Hex,
   ipRateSubject,
   loadSecretKey,

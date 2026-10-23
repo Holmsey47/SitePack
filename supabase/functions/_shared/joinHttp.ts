@@ -104,6 +104,7 @@ const KNOWN = [
   'not_allowed',
   'too_many_attempts',
   'username_taken',
+  'invalid_display_name',
   'invalid_input',
   'weak_password',
   'not_authorized',

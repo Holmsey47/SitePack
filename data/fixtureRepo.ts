@@ -53,6 +53,7 @@ import {
   JOIN_USERNAME_FAILURE_LIMIT,
   JOIN_REJECTED,
   RESET_CODE_MINUTES,
+  hasDisplayNameControl,
   isJoinCodeShape,
   isUsernameShape,
   normalizeJoinCode,
@@ -1645,6 +1646,7 @@ export const fixtureRepo: SitePackRepo = {
   async joinWithCode(input: JoinWithCodeInput) {
     if (!passwordHasLettersAndDigits(input.password)) throw new Error('weak_password');
     const displayName = input.displayName.trim();
+    if (hasDisplayNameControl(displayName)) throw new Error('invalid_display_name');
     const username = normalizeUsername(input.username);
     const trade = input.trade.trim();
     if (!displayName || displayName.length > 80 || trade.length > 80 || !isUsernameShape(username)) {

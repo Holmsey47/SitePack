@@ -1,10 +1,11 @@
 import { rpcErrorCode } from '@/data/repo';
 import { isRetryableSnagFailure, snagFailureFrom } from '@/data/snagFailure';
+import { MAX_SNAG_RETRY_DELAY_MS } from '@/lib/snagQueue';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 export const SESSION_ENDED = 'Your session has ended. Sign in again.';
 export const SIGN_IN_AGAIN = 'Sign in again to send what is saved on this phone';
-export const TALK_BACKOFF_MAX_MS = 5 * 60 * 1000;
+export const TALK_BACKOFF_MAX_MS = MAX_SNAG_RETRY_DELAY_MS;
 
 export const TALK_QUEUE_KEY = 'sitepack.talks.queue';
 export const TALK_NOTICE_KEY = 'sitepack.talks.notices';

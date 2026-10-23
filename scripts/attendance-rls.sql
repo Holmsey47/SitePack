@@ -156,6 +156,7 @@ select pg_temp.ok(
   and not has_function_privilege('anon', 'private.attendance_overnight(timestamptz,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_audit_json(uuid)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.reject_control_display_name()', 'execute')
   and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
   and not has_table_privilege('anon', 'public.site_attendance', 'select')
   and not has_table_privilege('anon', 'public.site_attendance_audit', 'select')
@@ -253,6 +254,7 @@ do $open_site$
 declare
   v_message text;
   v_detail text;
+  v_hint text;
 begin
   begin
     perform public.sign_in_site('51111111-1111-4111-8111-111111111111'::uuid, pg_catalog.now());
@@ -262,9 +264,9 @@ begin
       if sqlerrm = 'FAIL: second sign-in succeeded' then
         raise;
       end if;
-      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
-      if v_message <> 'already_signed_in' or v_detail <> 'Site A' then
-        raise exception 'FAIL: already_signed_in named % / %', v_message, v_detail;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail, v_hint = pg_exception_hint;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site A' or v_hint <> '51111111-1111-4111-8111-111111111111' then
+        raise exception 'FAIL: already_signed_in named % / % / %', v_message, v_detail, v_hint;
       end if;
   end;
 end
@@ -711,6 +713,7 @@ do $held$
 declare
   v_message text;
   v_detail text;
+  v_hint text;
 begin
   begin
     perform public.sign_in_site(
@@ -723,9 +726,9 @@ begin
       if sqlerrm = 'FAIL: evening shift was not held' then
         raise;
       end if;
-      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
-      if v_message <> 'already_signed_in' or v_detail <> 'Site B' then
-        raise exception 'FAIL: held shift named % / %', v_message, v_detail;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail, v_hint = pg_exception_hint;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site B' or v_hint <> '51111111-1111-4111-8111-111111111112' then
+        raise exception 'FAIL: held shift named % / % / %', v_message, v_detail, v_hint;
       end if;
   end;
 end
@@ -741,6 +744,314 @@ select pg_temp.ok(
   ),
   'a 22:00 shift is still open at 05:30'
 );
+
+reset role;
+
+insert into probe (k, v)
+values
+  ('dup-night', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '22:00'))),
+  ('dup-six', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '06:00'))),
+  ('dup-seven', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '07:00'))),
+  ('dup-eight', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '08:00'))),
+  ('dup-tap', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '08:05')));
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-six'), true);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111208',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opc'::uuid,
+  'Op C',
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+  false
+);
+
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+select public.close_forgotten_attendance();
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-seven'), true);
+
+insert into probe (k, v)
+values (
+  'dup-day',
+  public.sign_in_site(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::timestamptz from probe where k = 'dup-seven')
+  )
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-eight'), true);
+
+select public.sign_out_site(
+  :'sitea'::uuid,
+  (select (v #>> '{}')::timestamptz from probe where k = 'dup-eight')
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'dup-tap'), true);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site('
+      || quote_literal(:'sitea')
+      || '::uuid, '
+      || quote_literal((select v #>> '{}' from probe where k = 'dup-tap'))
+      || '::timestamptz)',
+    'not_signed_in'
+  ),
+  'a duplicate sign-out after a later shift is refused'
+);
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select forgot_sign_out and late_out_at is null
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111208'
+  )
+  and (
+    select out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'dup-eight')
+      and late_out_at is null
+      and not forgot_sign_out
+    from public.site_attendance
+    where id = (select (v->>'entry_id')::uuid from probe where k = 'dup-day')
+  ),
+  'a duplicate tap at 08:05 does not become the night shift late sign-out'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+do $overlap$
+declare
+  v_message text;
+  v_detail text;
+  v_expected text;
+  v_day uuid;
+begin
+  select (v->>'entry_id')::uuid into v_day from probe where k = 'dup-day';
+  select to_char(timezone('Europe/London', in_at), 'YYYY-MM-DD HH24:MI')
+    || ' – '
+    || to_char(timezone('Europe/London', out_at), 'YYYY-MM-DD HH24:MI')
+  into v_expected
+  from public.site_attendance
+  where id = '61111111-1111-4111-8111-111111111208';
+  begin
+    perform public.correct_attendance(
+      v_day,
+      (select (v #>> '{}')::timestamptz from probe where k = 'dup-night'),
+      (select (v #>> '{}')::timestamptz from probe where k = 'dup-eight'),
+      'Stretched over the night shift'
+    );
+    raise exception 'FAIL: overlap was saved';
+  exception
+    when others then
+      if sqlerrm = 'FAIL: overlap was saved' then
+        raise;
+      end if;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
+      if v_message <> 'correction_overlaps' or v_detail is distinct from v_expected then
+        raise exception 'FAIL: overlap % / % expected %', v_message, v_detail, v_expected;
+      end if;
+  end;
+end
+$overlap$;
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'dup-eight')
+    from public.site_attendance
+    where id = (select (v->>'entry_id')::uuid from probe where k = 'dup-day')
+  ),
+  'an overlapping correction is refused and the shift is unchanged'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'update public.people set display_name = ''Bad'' || chr(10) || ''Name'' where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
+    'update public.people set display_name = ''Bad'' || chr(127) where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
+    'update public.people set display_name = chr(1) || ''Bad'' where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  ),
+  'a display name with a control character is invalid_display_name'
+);
+
+update public.people
+set display_name = 'Op ' || chr(128)
+where id = 'a1111111-1111-4111-8111-111111111115';
+
+select pg_temp.ok(
+  (select display_name = 'Op ' || chr(128) from public.people where id = 'a1111111-1111-4111-8111-111111111115'),
+  'a display name may include a character above U+007F'
+);
+
+update public.people
+set display_name = 'Op C'
+where id = 'a1111111-1111-4111-8111-111111111115';
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap,
+  out_device_at, out_received_at, out_at, out_gap, forgot_sign_out
+) values (
+  '61111111-1111-4111-8111-111111111209',
+  '51111111-1111-4111-8111-111111111112',
+  'c1111111-1111-4111-8111-111111111111',
+  'a1111111-1111-4111-8111-111111111114',
+  'Op B',
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-19 08:00:00+00',
+  false,
+  timestamptz '2026-10-19 09:00:00+00',
+  timestamptz '2026-10-19 09:00:00+00',
+  timestamptz '2026-10-19 09:00:00+00',
+  false,
+  false
+);
+
+select set_config('sitepack.attendance_now', '2026-10-19 18:00:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111111'::uuid);
+set local role authenticated;
+
+select public.correct_attendance(
+  '61111111-1111-4111-8111-111111111209'::uuid,
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-20 08:00:00+00',
+  'Exactly one day'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-20 08:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111209'
+  ),
+  'a shift of exactly 24 hours is kept'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance(''61111111-1111-4111-8111-111111111209''::uuid, timestamptz ''2026-10-19 08:00:00+00'', timestamptz ''2026-10-20 08:01:00+00'', ''One minute over'')',
+    'shift_too_long'
+  ),
+  'a correction longer than 24 hours is shift_too_long'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-20 08:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111209'
+  ),
+  'a too-long correction leaves the shift unchanged'
+);
+
+select public.correct_attendance(
+  '61111111-1111-4111-8111-111111111209'::uuid,
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-20 08:00:00+00',
+  'Left' || chr(10) || 'at four'
+);
+
+select pg_temp.ok(
+  (
+    select exists (
+      select 1
+      from public.site_attendance_audit
+      where entry_id = '61111111-1111-4111-8111-111111111209'
+        and reason = 'Leftat four'
+    )
+    and not exists (
+      select 1
+      from public.site_attendance_audit
+      where entry_id = '61111111-1111-4111-8111-111111111209'
+        and position(chr(10) in reason) > 0
+    )
+  ),
+  'a correction reason drops control characters'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance(''61111111-1111-4111-8111-111111111209''::uuid, timestamptz ''2026-10-19 08:00:00+00'', timestamptz ''2026-10-20 08:00:00+00'', chr(10))',
+    'invalid_input'
+  ),
+  'a reason of only a control character is invalid_input'
+);
+
+reset role;
+
+-- Same London day on the 25-hour clock change, so the forgotten-close does not
+-- take the row first. 00:00 BST to 23:59 GMT is longer than 24 hours.
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111210',
+  '51111111-1111-4111-8111-111111111112',
+  'c1111111-1111-4111-8111-111111111111',
+  'a1111111-1111-4111-8111-111111111114',
+  'Op B',
+  timestamptz '2026-10-24 23:00:00+00',
+  timestamptz '2026-10-24 23:00:00+00',
+  timestamptz '2026-10-24 23:00:00+00',
+  false
+);
+
+select set_config('sitepack.attendance_now', '2026-10-25 23:59:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111114'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site(''51111111-1111-4111-8111-111111111112''::uuid, timestamptz ''2026-10-25 23:59:00+00'')',
+    'shift_too_long'
+  ),
+  'a sign-out longer than 24 hours is shift_too_long'
+);
+
+select pg_temp.ok(
+  (select out_at is null from public.site_attendance where id = '61111111-1111-4111-8111-111111111210'),
+  'a too-long sign-out leaves the shift open'
+);
+
+reset role;
+select set_config('sitepack.attendance_now', '2026-10-25 23:00:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111114'::uuid);
+set local role authenticated;
+
+select public.sign_out_site(
+  '51111111-1111-4111-8111-111111111112'::uuid,
+  timestamptz '2026-10-25 23:00:00+00'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-25 23:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111210'
+  ),
+  'a sign-out of exactly 24 hours is kept'
+);
+
+reset role;
 
 select set_config('sitepack.attendance_now', '', true);
 set local role anon;
@@ -770,10 +1081,11 @@ declare
     'private.close_forgotten_attendance()',
     'private.attendance_overnight(now(), now())',
     'private.attendance_audit_json(''51111111-1111-4111-8111-111111111111''::uuid)',
-    'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)'
+    'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'private.reject_control_display_name()'
   ];
 begin
-  if array_length(calls, 1) <> 22 then
+  if array_length(calls, 1) <> 23 then
     raise exception 'FAIL: anon probe list drifted';
   end if;
   foreach call in array calls loop
@@ -785,7 +1097,7 @@ begin
         null;
     end;
   end loop;
-  raise notice 'ok: anon cannot call the 9 public and 13 private attendance functions';
+  raise notice 'ok: anon cannot call the 9 public and 14 private attendance functions';
 end
 $anon$;
 

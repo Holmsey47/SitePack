@@ -35,6 +35,15 @@ export function isJoinCodeShape(input: string): boolean {
   return CODE_SHAPE.test(normalizeJoinCode(input));
 }
 
+/** U+0000–001F and U+007F. A trimmed name of only spaces is handled separately. */
+export function hasDisplayNameControl(name: string): boolean {
+  for (let index = 0; index < name.length; index += 1) {
+    const code = name.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
 /** Where to leave the address bar after reading a code from the path. */
 export function publicCodePath(pathname: string): '/join' | '/reset' | '/share' | null {
   if (pathname.startsWith('/join/')) return '/join';
@@ -217,6 +226,7 @@ export function ipRateSubject(ip: string | null | undefined): string {
 }
 
 export function joinFailureMessage(code: string): string {
+  if (code === 'invalid_display_name') return 'Name can’t include a line break or other control character.';
   if (code === 'username_taken') return 'That username is taken. Try another.';
   if (code === 'weak_password' || code === 'invalid_input') {
     return 'Use at least 8 characters, with letters and digits. Name and username are required.';

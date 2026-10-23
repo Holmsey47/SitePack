@@ -12,10 +12,12 @@ test('the inductions migration only reads storage.objects and does not grant or 
   assert.doesNotMatch(sql, /update\s+storage\.objects/i);
   assert.doesNotMatch(sql, /delete\s+from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /alter table storage/i);
+  assert.doesNotMatch(sql, /create policy[\s\S]{0,80}on storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+(table\s+)?storage\./i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+auth/i);
   assert.doesNotMatch(sql, /auth\.users/i);
+  assert.match(sql, /from storage\.objects objects/);
   assert.match(sql, /revoke all on function public\.sign_site_talk\(uuid, uuid, uuid, boolean, text, timestamptz, text\) from public, anon;/);
   assert.match(sql, /revoke all on function public\.create_site_talk\(uuid, text, text, text, text, text, text, uuid\[\], text, text, timestamptz\) from public, anon;/);
   assert.match(sql, /revoke all on function private\.talk_actor\(\) from public, anon, authenticated;/);
