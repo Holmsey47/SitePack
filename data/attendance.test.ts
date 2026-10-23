@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { ApiError } from './apiError.ts';
+import { SnagRequestError } from './snagFailure.ts';
 import { attendanceError, hourSpans } from './attendance.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
@@ -164,9 +164,10 @@ test('already signed in names the site he is still on', async () => {
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   await fixtureRepo.signInSite(IDS.oak, new Date().toISOString());
   await assert.rejects(() => fixtureRepo.signInSite(IDS.riverside, new Date().toISOString()), (err: unknown) => {
-    assert.ok(err instanceof ApiError);
-    assert.equal(err.code, 'already_signed_in');
-    assert.equal(err.detail, 'Plot 12 – Oak Estate');
+    assert.ok(err instanceof SnagRequestError);
+    assert.equal(err.failure.kind, 'business');
+    assert.equal(err.failure.kind === 'business' ? err.failure.code : '', 'already_signed_in');
+    assert.equal(err.failure.kind === 'business' ? err.failure.detail : '', 'Plot 12 – Oak Estate');
     assert.equal(attendanceError(err), 'You are still signed in at Plot 12 – Oak Estate.');
     return true;
   });

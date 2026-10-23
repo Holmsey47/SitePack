@@ -276,7 +276,10 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
-  pg_temp.fails('select public.record_drawing_open(''' || :'drawy' || ''')'),
+  pg_temp.raises(
+    'select public.record_drawing_open(''' || :'drawy' || ''')',
+    'drawing_not_found'
+  ),
   'operative of site A cannot open firm Y'
 );
 
@@ -309,6 +312,14 @@ select pg_temp.ok(
 
 select pg_temp.ok(
   pg_temp.raises(
+    'select public.record_drawing_open(''' || :'drawb' || ''')',
+    'drawing_not_found'
+  )
+  and pg_temp.raises(
+    'select public.record_drawing_open(''00000000-0000-4000-8000-000000000099'')',
+    'drawing_not_found'
+  )
+  and pg_temp.raises(
     'select public.confirm_drawing_seen(''' || :'drawb' || ''')',
     'drawing_not_found'
   )

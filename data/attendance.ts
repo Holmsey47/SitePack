@@ -1,4 +1,4 @@
-import { ApiError } from '@/data/apiError';
+import { SnagRequestError } from '@/data/snagFailure';
 import type { Role } from '@/data/types';
 import { clockGap, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
 
@@ -74,8 +74,9 @@ export function hourSpans(entries: AttendanceEntry[]): HourSpan[] {
 }
 
 export function attendanceError(err: unknown): string {
-  const detail = err instanceof ApiError ? err.detail : undefined;
-  const code = err instanceof ApiError ? (err.code ?? err.message) : typeof err === 'string' ? err : err instanceof Error ? err.message : 'unknown';
+  const failure = err instanceof SnagRequestError ? err.failure : null;
+  const detail = failure?.kind === 'business' ? failure.detail : undefined;
+  const code = failure?.kind === 'business' ? failure.code : typeof err === 'string' ? err : err instanceof Error ? err.message : 'unknown';
   switch (code) {
     case 'already_signed_in':
       return detail ? `You are still signed in at ${detail}.` : 'You are already signed in.';

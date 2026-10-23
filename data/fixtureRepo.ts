@@ -1225,9 +1225,13 @@ export const fixtureRepo: SitePackRepo = {
     return fixtureCreateSnag(store.snags, snagActor(person), input, site?.company_id, canAccessSite(person, input.siteId));
   },
 
-  async fixSnag(snagId, fixedAt, photos) {
+  async fixSnag(snagId, fixedAt, photos, fixId) {
     const person = meOrThrow();
-    fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id));
+    return fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id), fixId);
+  },
+
+  async removeSitePhotos() {
+    return;
   },
 
   async signOffSnagsInternal(input: SignOffSnagsInput) {
@@ -1770,8 +1774,7 @@ export const fixtureRepo: SitePackRepo = {
   async recordDrawingOpen(drawingId) {
     const person = meOrThrow();
     const drawing = store.drawings.find((row) => row.id === drawingId);
-    if (!drawing) throw new Error('drawing_not_found');
-    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    if (!drawing || !canAccessSite(person, drawing.site_id)) throw new Error('drawing_not_found');
     if (!drawing.is_current) throw new Error('not_current');
     recordOpen(store.drawingOpens, {
       drawing_id: drawing.id,

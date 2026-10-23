@@ -40,6 +40,7 @@ type SnagRow = {
   fixed_by_name: string | null;
   fixed_at: string | null;
   fixed_received_at: string | null;
+  fixed_client_id?: string | null;
 };
 
 type PhotoRow = {
@@ -468,13 +469,18 @@ export function fixtureCreateSnag(
   input: CreateSnagInput,
   siteCompanyId: string | undefined,
   canAccess: boolean
-): { snagId: string; snagSeq: number } {
+): { snagId: string; snagSeq: number; alreadyExisted: boolean; photoPaths: string[] } {
   requireSite(actor, siteCompanyId, canAccess);
   if (!input.snagId) throw new Error('invalid_input');
   const existing = bucket.snags.find((snag) => snag.id === input.snagId);
   if (existing) {
     if (existing.site_id === input.siteId && existing.company_id === actor.company_id) {
-      return { snagId: existing.id, snagSeq: existing.snag_seq };
+      return {
+        snagId: existing.id,
+        snagSeq: existing.snag_seq,
+        alreadyExisted: true,
+        photoPaths: bucket.photos.filter((photo) => photo.snag_id === existing.id).map((photo) => photo.storage_path),
+      };
     }
     throw new Error('not_authorized');
   }
@@ -508,7 +514,12 @@ export function fixtureCreateSnag(
     fixed_received_at: null,
   });
   takePhotos(bucket, id, input.siteId, 'before', input.photos);
-  return { snagId: id, snagSeq };
+  return {
+    snagId: id,
+    snagSeq,
+    alreadyExisted: false,
+    photoPaths: input.photos.map((photo) => photo.storagePath),
+  };
 }
 
 export function fixtureFixSnag(
@@ -517,10 +528,20 @@ export function fixtureFixSnag(
   snagId: string,
   fixedAtIso: string,
   photos: SnagPhotoInput[],
-  canAccessSite: (siteId: string) => boolean
-) {
+  canAccessSite: (siteId: string) => boolean,
+  fixId?: string | null
+): { alreadyFixed: boolean } {
   const row = rowOrThrow(bucket, snagId);
   if (row.company_id !== actor.company_id || !canAccessSite(row.site_id)) throw new Error('not_authorized');
+  if (row.status === 'Fixed' || row.status === 'Signed off') {
+    const stored = bucket.photos
+      .filter((photo) => photo.snag_id === row.id && photo.kind === 'after')
+      .map((photo) => photo.storage_path);
+    const given = photos.map((photo) => photo.storagePath);
+    const samePaths = stored.length === given.length && stored.every((path, index) => path === given[index]);
+    if ((fixId && row.fixed_client_id === fixId) || samePaths) return { alreadyFixed: true };
+    throw new Error('snag_locked');
+  }
   if (row.status !== 'Open') throw new Error('snag_locked');
   assertPhotos(photos);
   assertPaths(photos, actor.company_id, row.site_id);
@@ -531,6 +552,8 @@ export function fixtureFixSnag(
   row.fixed_by_name = actor.display_name.trim() || 'Someone on site';
   row.fixed_at = fixedAt;
   row.fixed_received_at = new Date().toISOString();
+  row.fixed_client_id = fixId ?? null;
+  return { alreadyFixed: false };
 }
 
 function snapshot(bucket: FixtureSnagBucket, row: SnagRow, status: SnagStatus): SnagSnapshot {
@@ -592,8 +615,15 @@ export function fixtureSignOffSnags(
     png = input.signaturePng;
   }
   const fixed = bucket.snags.filter((row) => row.site_id === input.siteId && row.company_id === actor.company_id && row.status === 'Fixed');
-  if (fixed.length < 1) throw new Error('closed');
   const open = bucket.snags.filter((row) => row.site_id === input.siteId && row.company_id === actor.company_id && row.status === 'Open');
+  const sameSet = (rows: { id: string }[], ids: string[]) => {
+    const left = rows.map((row) => row.id).sort();
+    const right = [...ids].sort();
+    return left.length === right.length && left.every((id, index) => id === right[index]);
+  };
+  if (!Array.isArray(input.coveredIds) || !Array.isArray(input.outstandingIds)) throw new Error('invalid_input');
+  if (!sameSet(fixed, input.coveredIds) || !sameSet(open, input.outstandingIds)) throw new Error('snag_list_changed');
+  if (fixed.length < 1) throw new Error('closed');
   const signedAt = deviceTime(input.signedAt);
   const received = new Date().toISOString();
   const confirmation = snagConfirmation(company, kind);

@@ -13,11 +13,16 @@ export const SNAG_SIGN_OFF_DISCLAIMER =
 
 export type SnagSignoffKind = 'internal' | 'contractor';
 
-/** The sentence shown above the pad. The server stores the same sentence. */
+/** The sentence shown above the pad. A blank company is display-only; the server stores the typed name. */
 export function snagConfirmation(company: string, kind: SnagSignoffKind): string {
-  const shown = company.trim() || '[company]';
+  const shown = company.trim() || 'your company';
   const sentence = kind === 'contractor' ? SNAG_CONTRACTOR_CONFIRMATION : SNAG_INTERNAL_CONFIRMATION;
   return sentence.replace('[Company]', shown);
+}
+
+/** The contractor pad stays off until its own company field has text. */
+export function contractorPadEnabled(contractorCompany: string): boolean {
+  return contractorCompany.trim().length > 0;
 }
 
 export function outstandingHeading(count: number): string {

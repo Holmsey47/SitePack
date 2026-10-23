@@ -1,5 +1,5 @@
-import { ApiError } from '@/data/apiError';
 import { newId } from '@/data/newId';
+import { SnagRequestError } from '@/data/snagFailure';
 import type { Role } from '@/data/types';
 import type { AttendanceAudit, AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 import {
@@ -162,12 +162,8 @@ export function fixtureSignIn(
   closeForgotten(bucket, actor.company_id, receivedAt);
   const open = bucket.rows.find((row) => row.person_id === actor.id && !row.out_at);
   if (open) {
-    throw new ApiError({
-      kind: 'business',
-      code: 'already_signed_in',
-      message: 'already_signed_in',
-      detail: siteNameOf(open.site_id),
-    });
+    const detail = siteNameOf(open.site_id);
+    throw new SnagRequestError(detail ? { kind: 'business', code: 'already_signed_in', detail } : { kind: 'business', code: 'already_signed_in' });
   }
   const row: Row = {
     id: newId(),

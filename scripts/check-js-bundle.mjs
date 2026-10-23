@@ -12,6 +12,7 @@ const forbidden = [
   'ben@sitepack.test',
   'chris@sitepack.test',
   'SitePack123!',
+  'sitepack.dev.forceOffline',
 ];
 
 const maxBytes = 50_000_000;

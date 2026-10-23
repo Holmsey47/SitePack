@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { ApiError, apiErrorFromTransport } from '../data/apiError.ts';
+import { createClient } from '@supabase/supabase-js';
+import { rpcCall } from '../data/rpcCall.ts';
+import { SnagRequestError } from '../data/snagFailure.ts';
 import {
   adoptAttendanceOwner,
   ATTENDANCE_NOTICE_KEY,
@@ -160,21 +162,10 @@ test('a sign-out is not sent while an earlier tap for that shift is still queued
   assert.deepEqual(sent, []);
 });
 
-test('network, timeout, 408, 429, and 5xx retry; business codes and other 4xx do not', async () => {
-  const retryable = [
-    new TypeError('Failed to fetch'),
-    new TypeError('Network request failed'),
-    new Error('timeout'),
-    new ApiError({ kind: 'http', status: 408, message: '408' }),
-    new ApiError({ kind: 'http', status: 429, message: '429' }),
-    new ApiError({ kind: 'http', status: 503, message: '503' }),
-    new ApiError({ kind: 'http', status: 500, message: '500' }),
-    apiErrorFromTransport({ message: 'TypeError: Failed to fetch' }, 0),
-    apiErrorFromTransport({ message: 'TypeError: Network request failed' }, 0),
-    apiErrorFromTransport({ message: 'upstream connect error' }, 503),
-  ];
+test('network and timeout retry; a known business code does not', async () => {
+  const retryable = [new TypeError('Failed to fetch'), new TypeError('Network request failed'), new Error('timeout')];
   for (const err of retryable) {
-    assert.equal(isRetryableAttendanceFailure(err), true, err instanceof Error ? err.message : 'retry');
+    assert.equal(isRetryableAttendanceFailure(err), true, err.message);
     const queue = memoryAttendanceQueue();
     const result = await persistThenSendAttendance({ ...tap('user-a'), localId: `retry-${retryable.indexOf(err)}` }, true, async () => {
       throw err;
@@ -183,26 +174,9 @@ test('network, timeout, 408, 429, and 5xx retry; business codes and other 4xx do
     assert.equal((await queue.list()).length, 1);
   }
 
-  const permanent = [
-    new ApiError({ kind: 'business', code: 'already_signed_in', message: 'already_signed_in', detail: 'Plot 12 – Oak Estate' }),
-    new ApiError({ kind: 'http', status: 401, message: '401' }),
-    new ApiError({ kind: 'http', status: 422, message: '422' }),
-    new Error('not_signed_in'),
-    apiErrorFromTransport({ message: 'JWT expired' }, 401),
-    apiErrorFromTransport({ message: 'already_signed_in', details: 'Plot 12 – Oak Estate' }, 400),
-  ];
-  for (const err of permanent) {
-    assert.equal(isRetryableAttendanceFailure(err), false, err instanceof Error ? err.message : 'permanent');
-  }
-  const fetchError = apiErrorFromTransport({ message: 'TypeError: Failed to fetch' }, 0);
-  assert.equal(fetchError.kind, 'network');
-  const down = apiErrorFromTransport({ message: 'upstream connect error' }, 503);
-  assert.equal(down.kind, 'http');
-  assert.equal(down.status, 503);
-  const named = apiErrorFromTransport({ message: 'already_signed_in', details: 'Plot 12 – Oak Estate' }, 400);
-  assert.equal(named.kind, 'business');
-  assert.equal(named.code, 'already_signed_in');
-  assert.equal(named.detail, 'Plot 12 – Oak Estate');
+  const named = new SnagRequestError({ kind: 'business', code: 'already_signed_in', detail: 'Plot 12 – Oak Estate' });
+  assert.equal(isRetryableAttendanceFailure(named), false);
+  assert.equal(isRetryableAttendanceFailure(new Error('not_signed_in')), false);
   const queue = memoryAttendanceQueue();
   const refused = await persistThenSendAttendance(tap('user-a'), true, async () => {
     throw named;
@@ -210,6 +184,92 @@ test('network, timeout, 408, 429, and 5xx retry; business codes and other 4xx do
   assert.equal(refused, 'refused');
   assert.equal((await queue.list()).length, 0);
   assert.match((await queue.listNotices())[0]?.message ?? '', /Plot 12 – Oak Estate/);
+});
+
+test('a real supabase client keeps response status: 503 and 502 stay queued, 400 and 401 are a notice', async () => {
+  const siteId = '51111111-1111-4111-8111-111111111111';
+  const deviceAt = '2026-10-20T06:00:00.000Z';
+  const cases = [
+    {
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'PGRST002',
+        details: null,
+        hint: null,
+        message: 'Could not query the database for the schema cache. Retrying.',
+      }),
+      queued: true,
+    },
+    { status: 503, contentType: 'text/plain', body: 'no available server', queued: true },
+    {
+      status: 502,
+      contentType: 'text/html',
+      body: '<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center></body></html>',
+      queued: true,
+    },
+    { status: 408, contentType: 'text/plain', body: 'retry later', queued: true },
+    {
+      status: 429,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'PGRST000', details: null, hint: null, message: 'Too many requests' }),
+      queued: true,
+    },
+    {
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'PGRST102', details: null, hint: null, message: 'Empty or invalid json' }),
+      queued: false,
+    },
+    {
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }),
+      queued: false,
+    },
+  ];
+
+  for (const item of cases) {
+    const client = createClient('http://127.0.0.1:54321', 'test-anon-key', {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: {
+        fetch: async () => new Response(item.body, { status: item.status, headers: { 'content-type': item.contentType } }),
+      },
+    });
+    const args = { p_site_id: siteId, p_device_at: deviceAt };
+    let thrown: unknown;
+    try {
+      await rpcCall(client, 'sign_in_site', args);
+      assert.fail(`${item.status} ${item.contentType} should fail`);
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof SnagRequestError, `${item.status} ${item.contentType}`);
+    assert.equal(thrown.failure.kind, 'http', `${item.status} ${item.contentType}`);
+    assert.equal(thrown.failure.kind === 'http' ? thrown.failure.status : 0, item.status);
+    const raw = await client.rpc('sign_in_site', args);
+    assert.equal(raw.status, item.status);
+    assert.equal(raw.error == null || !('status' in raw.error), true);
+
+    const queue = memoryAttendanceQueue();
+    const result = await persistThenSendAttendance(
+      { ...tap('user-a'), localId: `http-${item.status}-${item.contentType}` },
+      true,
+      async () => {
+        await rpcCall(client, 'sign_in_site', args);
+      },
+      queue
+    );
+    if (item.queued) {
+      assert.equal(result, 'queued', `${item.status} ${item.contentType}`);
+      assert.equal((await queue.list()).length, 1);
+      assert.equal((await queue.listNotices()).length, 0);
+    } else {
+      assert.equal(result, 'refused', `${item.status} ${item.contentType}`);
+      assert.equal((await queue.list()).length, 0);
+      assert.equal((await queue.listNotices()).length, 1);
+    }
+  }
 });
 
 test('a notice can be dismissed', async () => {

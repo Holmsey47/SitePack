@@ -1,4 +1,5 @@
-import { ApiError, isNetworkMessage } from '@/data/apiError';
+import { rpcErrorCode } from '@/data/repo';
+import { snagFailureFrom, type SnagFailure } from '@/data/snagFailure';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
@@ -64,30 +65,24 @@ export function refusedTapNotice(action: QueuedTap['action'], code: string, deta
  * Known business codes and other 4xx (auth, validation) are permanent.
  * An unexpected error still retries.
  */
-export function isRetryableAttendanceFailure(err: unknown): boolean {
-  if (err instanceof TypeError) return true;
-  const message = err instanceof Error ? err.message : '';
-  if (isNetworkMessage(message)) return true;
-  if (err instanceof ApiError) {
-    if (err.kind === 'network') return true;
-    if (err.kind === 'business') return false;
-    const status = err.status;
-    if (status === 408 || status === 429) return true;
-    if (typeof status === 'number' && status >= 500 && status <= 599) return true;
-    if (typeof status === 'number' && status >= 400 && status <= 499) return false;
-    return true;
-  }
-  if (/^5\d\d$/.test(message)) return true;
-  if (/^4\d\d$/.test(message)) return message === '408' || message === '429';
-  if (isDroppedAttendanceCode(message)) return false;
-  return true;
+function knownBusiness(code: string): boolean {
+  return rpcErrorCode(code) === code;
 }
 
-function failureOf(err: unknown): { code: string; detail?: string } {
-  if (err instanceof ApiError) {
-    return { code: err.code ?? (typeof err.status === 'number' ? String(err.status) : err.message), detail: err.detail };
+/** Network, timeout, 408, 429, and 5xx retry. Known business codes and other 4xx do not. */
+export function isRetryableAttendanceFailure(err: unknown): boolean {
+  const failure = snagFailureFrom(err);
+  if (failure.kind === 'network') return true;
+  if (failure.kind === 'http') {
+    return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
   }
-  return { code: err instanceof Error ? err.message : '' };
+  return !knownBusiness(failure.code);
+}
+
+function failureOf(failure: SnagFailure): { code: string; detail?: string } {
+  if (failure.kind === 'business') return { code: failure.code, detail: failure.detail };
+  if (failure.kind === 'http') return { code: String(failure.status) };
+  return { code: failure.message };
 }
 
 function shiftKey(item: QueuedTap): string {
@@ -311,7 +306,7 @@ export async function flushAttendanceQueue(
       await send(item);
       await queue.remove(item.localId);
     } catch (err) {
-      const failure = failureOf(err);
+      const failure = failureOf(snagFailureFrom(err));
       if (!isRetryableAttendanceFailure(err)) {
         created.push(await rememberRefusedTap(queue, item, failure.code, failure.detail));
         await queue.remove(item.localId);
@@ -344,7 +339,7 @@ export async function persistThenSendAttendance(
     await queue.remove(item.localId);
     return 'sent';
   } catch (err) {
-    const failure = failureOf(err);
+    const failure = failureOf(snagFailureFrom(err));
     if (!isRetryableAttendanceFailure(err)) {
       await rememberRefusedTap(queue, item, failure.code, failure.detail);
       await queue.remove(item.localId);

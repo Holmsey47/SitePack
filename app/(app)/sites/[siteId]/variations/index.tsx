@@ -1,7 +1,8 @@
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { canSeeVariationValue, filterVariations, formatPounds, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { canSeeVariationValue, filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { variationListAmount } from '@/lib/variationWording';
 import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { theme } from '@/lib/theme';
@@ -74,17 +75,20 @@ export default function VariationsScreen() {
       {list && rows.length === 0 && queued.length === 0 ? (
         <EmptyState title="No variations yet" />
       ) : (
-        rows.map((row) => (
+        rows.map((row) => {
+          const pounds = variationListAmount(row, seeValue);
+          return (
           <Card key={row.variation_id} onPress={() => router.push(`/sites/${siteId}/variations/${row.variation_id}`)}>
             <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
               {variationNumber(row.vo_seq)} · {row.title}
             </Text>
             <Muted>
               {row.status} · {row.photo_count} photo{row.photo_count === 1 ? '' : 's'}
-              {seeValue && row.value_pence != null ? ` · ${formatPounds(row.value_pence)}` : ''}
+              {pounds ? ` · ${pounds}` : ''}
             </Muted>
           </Card>
-        ))
+          );
+        })
       )}
       <Button
         label="New variation"

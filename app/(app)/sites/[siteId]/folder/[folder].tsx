@@ -6,7 +6,7 @@ import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing } from '@/data/types';
 import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
-import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -97,7 +97,15 @@ export default function FolderScreen() {
     <Screen>
       <Title>{folderName}</Title>
       {seenNotices.map((notice) => (
-        <SeenRejectNotice key={notice.id} message={notice.message} />
+        <SeenRejectNotice
+          key={notice.id}
+          message={notice.message}
+          onPress={() => {
+            void openReplacedNotice(notice).then((path) => {
+              if (path) router.push(path);
+            });
+          }}
+        />
       ))}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {filters ? (

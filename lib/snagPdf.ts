@@ -79,8 +79,9 @@ export function snagPhotoCaption(index: number, total: number, kind: 'before' | 
   return `${label} · Photo ${index + 1} of ${total}`;
 }
 
-export function snagPhotoMissing(index: number): string {
-  return `Photo ${index + 1} could not be loaded`;
+export function snagPhotoMissing(index: number, total: number, kind: 'before' | 'after'): string {
+  const label = kind === 'before' ? 'Before' : 'After';
+  return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
 }
 
 function pdfText(value: string): string {
@@ -273,7 +274,7 @@ async function drawReport(
     const prepared: Array<{ image: PDFImage | null; caption: string; missing: string }> = [];
     for (const photo of snag.photos) {
       const caption = snagPhotoCaption(index, total, photo.kind);
-      prepared.push({ image: await embed(photo), caption, missing: snagPhotoMissing(index) });
+      prepared.push({ image: await embed(photo), caption, missing: snagPhotoMissing(index, total, photo.kind) });
       index += 1;
     }
     let cursor = 0;
@@ -308,12 +309,17 @@ async function drawReport(
     return visuals;
   }
 
-  function firstVisualHeight(visual: Visual | undefined): number {
+  function firstVisualHeight(visual: Visual | undefined, available: number): number {
     if (!visual) return 0;
     if (visual.type === 'missing') return 15;
     const pair = visual.items.length === 2;
-    const width = pair ? (CONTENT_W - GAP) / 2 : CONTENT_W;
-    return rowHeight(visual.items, width) + 18;
+    const gap = pair ? GAP : 0;
+    const width = pair ? (CONTENT_W - gap) / 2 : CONTENT_W;
+    let height = rowHeight(visual.items, width);
+    const captionH = 14;
+    const limit = Math.max(80, available - captionH - 4);
+    if (height > limit) height = limit;
+    return height + captionH + 4;
   }
 
   drawWrapped(options.title, 20, 'bold', 'header');
@@ -334,15 +340,28 @@ async function drawReport(
       signoffImage = null;
     }
   }
-  const signoffExtra = linesHeight(outstandingLines) + (signoffImage ? 72 : 0);
+  function signatureImageHeight(image: PDFImage | null): number {
+    if (!image) return 0;
+    const scale = Math.min(220 / image.width, 64 / image.height, 1);
+    return image.height * scale + 8;
+  }
+
+  /** Height of the signer and outstanding block, matching the draw below. */
+  function signoffBlockHeight(): number {
+    return linesHeight(signerLines) + signatureImageHeight(signoffImage) + linesHeight(outstandingLines);
+  }
 
   for (const snag of input.snags) {
     const detail = expanded(detailLines(snag), font, bold);
     const visuals = await visualsFor(snag);
     const reserve = snag.signature ? 6 * 16 + (snag.signature.signaturePng ? 80 : 0) + 16 : 0;
-    const tail = snag === input.snags[input.snags.length - 1] ? linesHeight(signerLines) + signoffExtra : 0;
-    const opening = linesHeight(detail) + firstVisualHeight(visuals[0]) + (visuals.length <= 1 ? reserve + tail : 0) + 8;
-    if (y - opening < bottom) newPage();
+    const tail = snag === input.snags[input.snags.length - 1] && options.signoff ? 10 + signoffBlockHeight() : 0;
+    const detailH = linesHeight(detail);
+    const hold = visuals.length <= 1 ? reserve + tail : 0;
+    const available = y - detailH - 8 - bottom - hold;
+    const opening = detailH + firstVisualHeight(visuals[0], Math.max(available, 0)) + hold + 8;
+    const keepWithHeader = pageNo === 1 && snag === input.snags[0];
+    if (!keepWithHeader && y - opening < bottom) newPage();
     paint(detail, snag.snagSeq);
     y -= 4;
 
@@ -358,6 +377,8 @@ async function drawReport(
     visuals.forEach((visual, rowIndex) => {
       const last = rowIndex === visuals.length - 1;
       const hold = last ? reserve + tail : 0;
+      const minVisual = visual.type === 'missing' ? 15 : 80 + 14 + 4;
+      if (last && tail > 0 && y - (minVisual + tail) < bottom) newPage();
       if (visual.type === 'missing') {
         if (rowIndex > 0 && y - (15 + hold) < bottom) newPage();
         drawMissing(visual.text, snag.snagSeq);
@@ -395,13 +416,22 @@ async function drawReport(
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
 
   if (options.signoff) {
-    const imageH = signoffImage ? 72 : 0;
-    if (y - (linesHeight(signerLines) + imageH + linesHeight(outstandingLines)) < bottom) newPage();
+    const body = signoffBlockHeight();
+    const lastSnag = input.snags[input.snags.length - 1];
+    const keptWithPhoto = lastSnag
+      ? trace.some(
+          (item) =>
+            item.page === pageNo &&
+            item.snagSeq === lastSnag.snagSeq &&
+            (item.kind === 'photo' || item.kind === 'missing')
+        )
+      : false;
+    if (!keptWithPhoto && y - body < bottom) newPage();
     paint(signerLines);
     if (signoffImage) {
-      const scale = Math.min(220 / signoffImage.width, 64 / signoffImage.height, 1);
+      const h = signatureImageHeight(signoffImage) - 8;
+      const scale = h / signoffImage.height;
       const w = signoffImage.width * scale;
-      const h = signoffImage.height * scale;
       page.drawImage(signoffImage, { x: MARGIN, y: y - h, width: w, height: h });
       y -= h + 8;
       mark('signature');

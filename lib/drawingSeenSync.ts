@@ -1,6 +1,14 @@
-import { repo } from '@/data/index';
-import type { SiteSeenGap, SiteSeenSummary, UnseenDrawing } from '@/data/drawingSeen';
 import {
+  currentSheetId,
+  replacedNoticePath,
+  type SheetLink,
+  type SiteSeenGap,
+  type SiteSeenSummary,
+  type UnseenDrawing,
+} from '@/data/drawingSeen';
+import { repo } from '@/data/index';
+import {
+  dismissNoticesForOpenedSheet,
   flushDrawingSeenQueue,
   getDrawingSeenQueue,
   noticesForOwner,
@@ -33,6 +41,33 @@ export function drawingSeenIo() {
     confirm: (drawingId: string, seenAt: string) => repo.confirmDrawingSeen(drawingId, seenAt),
     currentRevision: (item: QueuedSeen) => currentRevisionAfter(item),
   };
+}
+
+export async function openReplacedNotice(notice: { siteId: string; drawingId: string }): Promise<ReturnType<typeof replacedNoticePath> | null> {
+  try {
+    const drawings = await repo.listDrawings(notice.siteId);
+    const sheetId = currentSheetId(drawings, notice.drawingId);
+    if (!sheetId) return null;
+    return replacedNoticePath(notice.siteId, sheetId);
+  } catch {
+    return null;
+  }
+}
+
+export async function clearNoticesAfterOpen(ownerId: string, openedDrawingId: string): Promise<void> {
+  const queue = getDrawingSeenQueue();
+  const mine = noticesForOwner(await queue.listNotices(), ownerId);
+  if (mine.length === 0) return;
+  const siteIds = [...new Set(mine.map((notice) => notice.siteId))];
+  const drawings: SheetLink[] = [];
+  for (const siteId of siteIds) {
+    try {
+      drawings.push(...(await repo.listDrawings(siteId)));
+    } catch {
+      // A site that will not load does not keep the others from clearing.
+    }
+  }
+  await dismissNoticesForOpenedSheet(queue, ownerId, openedDrawingId, drawings);
 }
 
 export async function flushQueuedDrawingSeen(ownerId: string): Promise<SeenNotice[]> {
