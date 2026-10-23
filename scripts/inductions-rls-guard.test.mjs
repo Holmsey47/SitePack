@@ -5,21 +5,27 @@ import test from 'node:test';
 
 const migration = 'supabase/migrations/20261022190000_inductions.sql';
 
-test('the inductions migration only reads storage.objects and does not grant or alter storage or auth', () => {
+test('the inductions migration does not alter storage tables or auth', () => {
   const sql = fs.readFileSync(migration, 'utf8');
   assert.match(sql, /from storage\.objects/);
   assert.doesNotMatch(sql, /insert\s+into\s+storage\.objects/i);
   assert.doesNotMatch(sql, /update\s+storage\.objects/i);
   assert.doesNotMatch(sql, /delete\s+from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /alter table storage/i);
-  assert.doesNotMatch(sql, /create policy[\s\S]{0,80}on storage/i);
-  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+storage/i);
-  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+(table\s+)?storage\./i);
-  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+auth/i);
+  assert.doesNotMatch(sql, /^grant\s+.*\bon\s+schema\s+storage/im);
+  assert.doesNotMatch(sql, /^grant\s+.*\bon\s+(table\s+)?storage\.objects/im);
+  assert.doesNotMatch(sql, /^grant\s+.*\bon\s+schema\s+auth/im);
   assert.doesNotMatch(sql, /auth\.users/i);
+  assert.doesNotMatch(sql, /create policy drawings_storage_select/i);
+  assert.doesNotMatch(sql, /create policy drawings_storage_insert/i);
+  assert.match(sql, /drop policy if exists drawings_storage_update on storage\.objects/);
+  assert.match(sql, /drop policy if exists drawings_storage_delete on storage\.objects/);
+  assert.match(sql, /create policy drawings_storage_update[\s\S]*on storage\.objects for update/);
+  assert.match(sql, /create policy drawings_storage_delete[\s\S]*on storage\.objects for delete/);
+  assert.match(sql, /private\.talk_pdf_locked\(name\)/);
   assert.match(sql, /from storage\.objects objects/);
   assert.match(sql, /revoke all on function public\.sign_site_talk\(uuid, uuid, uuid, boolean, text, timestamptz, text\) from public, anon;/);
-  assert.match(sql, /revoke all on function public\.create_site_talk\(uuid, text, text, text, text, text, text, uuid\[\], text, text, timestamptz\) from public, anon;/);
+  assert.match(sql, /revoke all on function public\.create_site_talk\(uuid, text, text, text, text, text, text, uuid\[\], uuid, text, timestamptz\) from public, anon;/);
   assert.match(sql, /revoke all on function private\.talk_actor\(\) from public, anon, authenticated;/);
   assert.match(sql, /revoke all on function private\.talk_meaning\(text, text, text, text, text, text, timestamptz\) from public, anon, authenticated;/);
 });

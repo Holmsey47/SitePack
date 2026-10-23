@@ -1206,7 +1206,7 @@ export const supabaseRepo: SitePackRepo = {
       p_pdf_path: input.pdfPath,
       p_audience: input.audience,
       p_person_ids: input.personIds,
-      p_presenter_name: input.presenterName,
+      p_presenter_person_id: input.presenterPersonId,
       p_presenter_role: input.presenterRole,
       p_presented_at: input.presentedAt,
     })) as TalkVersionRef;

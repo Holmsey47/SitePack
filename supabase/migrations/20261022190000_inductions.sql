@@ -5,8 +5,9 @@
 -- Who has signed, and the register, are null unless the caller is an owner,
 -- a contracts manager, or the presenter of that talk.
 -- Writes are SECURITY DEFINER with search_path pinned to empty.
--- This migration does not alter storage, auth, or any Supabase-managed object.
+-- This migration does not alter storage tables or auth.
 -- PDF files reuse the private drawings bucket at company_id/site_id/talks/.
+-- Once a version references a talks/ object, update and delete of that object are refused.
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -51,6 +52,7 @@ create table public.site_talk_versions (
   pdf_path text,
   pdf_content_type text,
   pdf_size_bytes bigint,
+  pdf_sha256 text,
   content_hash text not null,
   is_current boolean not null default true,
   created_by uuid not null references public.people (id),
@@ -65,11 +67,13 @@ create table public.site_talk_versions (
       pdf_path is null
       and pdf_content_type is null
       and pdf_size_bytes is null
+      and pdf_sha256 is null
     )
     or (
       pdf_path is not null
       and pdf_content_type = 'application/pdf'
       and pdf_size_bytes between 1 and 52428800
+      and pdf_sha256 is not null
     )
   )
 );
@@ -100,6 +104,7 @@ create table public.site_talk_signatures (
   company_id uuid not null references public.companies (id) on delete cascade,
   person_id uuid not null references public.people (id),
   person_name text not null,
+  signer_name text not null,
   captured_by uuid not null references public.people (id),
   session_id text not null,
   shared_device boolean not null,
@@ -113,6 +118,7 @@ create table public.site_talk_signatures (
   unique (version_id, person_id, signature_role),
   constraint site_talk_signatures_role check (signature_role in ('attendee', 'presenter')),
   constraint site_talk_signatures_name_len check (char_length(btrim(person_name)) between 1 and 120),
+  constraint site_talk_signatures_signer_len check (char_length(btrim(signer_name)) between 1 and 120),
   constraint site_talk_signatures_session_len check (char_length(session_id) between 8 and 80),
   constraint site_talk_signatures_png_len check (char_length(signature_png) between 40 and 200000)
 );
@@ -130,6 +136,9 @@ comment on column public.site_talk_signatures.received_at is
 
 comment on column public.site_talk_signatures.shared_device is
   'True when the logged-in person is not the signer.';
+
+comment on column public.site_talk_signatures.signer_name is
+  'The signer''s display name at the moment they signed. A later rename does not change this.';
 
 comment on column public.site_talk_signatures.signature_png is
   'Signature image. Granted on its own so a later guest grant can omit this column. Row security still limits a direct select to the host owner, the host contracts manager, and the signer.';
@@ -191,7 +200,8 @@ $fn$;
 
 revoke all on function private.talk_actor() from public, anon, authenticated;
 
--- U+0000 cannot be stored in text. U+0001–001F and U+007F are rejected.
+-- U+0000 cannot be stored in text. Line breaks, bidi overrides, and a leading
+-- spreadsheet mark are rejected so a title, role, or question cannot spoof a sheet.
 create or replace function private.talk_plain(p_value text)
 returns text
 language plpgsql
@@ -200,8 +210,19 @@ set search_path = ''
 as $fn$
 begin
   if p_value is not null
-     and p_value ~ (
-       '[' || pg_catalog.chr(1) || '-' || pg_catalog.chr(31) || pg_catalog.chr(127) || ']'
+     and (
+       p_value ~ (
+         '['
+         || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
+         || pg_catalog.chr(127)
+         || pg_catalog.chr(133)
+         || pg_catalog.chr(8206) || pg_catalog.chr(8207)
+         || pg_catalog.chr(8232) || pg_catalog.chr(8233)
+         || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
+         || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
+         || ']'
+       )
+       or left(btrim(p_value), 1) in ('=', '+', '-', '@')
      ) then
     raise exception 'invalid_input';
   end if;
@@ -302,7 +323,8 @@ create or replace function private.talk_hash(
   p_delivery text,
   p_title text,
   p_body text,
-  p_pdf text
+  p_pdf text,
+  p_sha text
 )
 returns text
 language sql
@@ -313,7 +335,7 @@ as $fn$
     extensions.digest(
       convert_to(
         p_kind || E'\n' || p_delivery || E'\n' || btrim(coalesce(p_title, '')) || E'\n'
-          || btrim(coalesce(p_body, '')) || E'\n' || coalesce(p_pdf, ''),
+          || btrim(coalesce(p_body, '')) || E'\n' || coalesce(p_pdf, '') || E'\n' || coalesce(p_sha, ''),
         'UTF8'
       ),
       'sha256'
@@ -322,11 +344,11 @@ as $fn$
   );
 $fn$;
 
-revoke all on function private.talk_hash(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function private.talk_hash(text, text, text, text, text, text) from public, anon, authenticated;
 
 -- Exact path company/site/talks/file. The stored object, not the client, supplies type and size.
 create or replace function private.talk_storage_path(p_company uuid, p_site uuid, p_path text)
-returns table (path text, content_type text, size_bytes bigint)
+returns table (path text, content_type text, size_bytes bigint, byte_sha256 text)
 language plpgsql
 security definer
 set search_path = ''
@@ -335,6 +357,7 @@ declare
   v text;
   v_file text;
   v_prefix text;
+  v_object uuid;
   v_owner uuid;
   v_owner_id text;
   v_meta jsonb;
@@ -370,8 +393,8 @@ begin
     raise exception 'invalid_path';
   end if;
 
-  select objects.owner, objects.owner_id, objects.metadata
-  into v_owner, v_owner_id, v_meta
+  select objects.id, objects.owner, objects.owner_id, objects.metadata
+  into v_object, v_owner, v_owner_id, v_meta
   from storage.objects objects
   where objects.bucket_id = 'drawings'
     and objects.name = v;
@@ -398,6 +421,14 @@ begin
   path := v;
   content_type := v_type;
   size_bytes := v_size;
+  -- Snapshot of the stored object. The version hash includes it, and a later update is blocked.
+  byte_sha256 := encode(
+    extensions.digest(
+      convert_to(coalesce(v_meta::text, '') || '|' || v_object::text, 'UTF8'),
+      'sha256'
+    ),
+    'hex'
+  );
   return next;
 end;
 $fn$;
@@ -574,7 +605,7 @@ create or replace function public.create_site_talk(
   p_pdf_path text,
   p_audience text,
   p_person_ids uuid[],
-  p_presenter_name text,
+  p_presenter_person_id uuid,
   p_presenter_role text,
   p_presented_at timestamptz
 )
@@ -591,6 +622,7 @@ declare
   v_pdf text;
   v_pdf_type text;
   v_pdf_size bigint;
+  v_pdf_sha text;
   v_name text;
   v_role text;
   v_id uuid;
@@ -616,16 +648,14 @@ begin
   end if;
   v_title := private.talk_plain(btrim(coalesce(p_title, '')));
   v_body := btrim(coalesce(p_body, ''));
-  v_name := private.talk_plain(btrim(coalesce(p_presenter_name, '')));
-  v_role := btrim(coalesce(p_presenter_role, ''));
+  v_role := private.talk_plain(btrim(coalesce(p_presenter_role, '')));
   if char_length(v_title) < 1 or char_length(v_title) > 120
      or char_length(v_body) > 8000
-     or char_length(v_name) < 1 or char_length(v_name) > 120
      or char_length(v_role) < 1 or char_length(v_role) > 80 then
     raise exception 'invalid_input';
   end if;
-  select claimed.path, claimed.content_type, claimed.size_bytes
-  into v_pdf, v_pdf_type, v_pdf_size
+  select claimed.path, claimed.content_type, claimed.size_bytes, claimed.byte_sha256
+  into v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha
   from private.talk_storage_path(v_company, p_site_id, p_pdf_path) claimed;
   if v_body = '' and v_pdf is null then
     raise exception 'invalid_input';
@@ -635,19 +665,24 @@ begin
   end if;
   perform private.talk_device_time(p_presented_at);
 
-  select p.id into v_presenter
+  select p.id, private.talk_plain(btrim(coalesce(p.display_name, '')))
+  into v_presenter, v_name
   from public.people p
-  where p.company_id = v_company
-    and lower(btrim(p.display_name)) = lower(v_name)
-  order by case when p.id = v_actor.person_id then 0 else 1 end, p.id
-  limit 1;
-  if v_presenter is null then
-    v_presenter := v_actor.person_id;
+  where p.id = p_presenter_person_id
+    and p.company_id = v_company;
+  if v_presenter is null or char_length(coalesce(v_name, '')) < 1 or char_length(v_name) > 120 then
+    raise exception 'invalid_input';
+  end if;
+  if not exists (
+    select 1 from public.site_assignments a
+    where a.site_id = p_site_id and a.person_id = v_presenter
+  ) and not (v_presenter = v_actor.person_id and v_actor.role in ('owner', 'cm')) then
+    raise exception 'invalid_input';
   end if;
 
   v_id := pg_catalog.gen_random_uuid();
   v_version := pg_catalog.gen_random_uuid();
-  v_hash := private.talk_hash(p_kind, p_delivery, v_title, coalesce(v_body, ''), v_pdf);
+  v_hash := private.talk_hash(p_kind, p_delivery, v_title, coalesce(v_body, ''), v_pdf, v_pdf_sha);
 
   insert into public.site_talks (
     id, site_id, company_id, kind, delivery, title, audience,
@@ -658,9 +693,9 @@ begin
   );
 
   insert into public.site_talk_versions (
-    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, content_hash, is_current, created_by
+    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
   ) values (
-    v_version, v_id, p_site_id, v_company, 1, v_body, v_pdf, v_pdf_type, v_pdf_size, v_hash, true, v_actor.person_id
+    v_version, v_id, p_site_id, v_company, 1, v_body, v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha, v_hash, true, v_actor.person_id
   );
 
   if p_audience = 'chosen' then
@@ -715,6 +750,7 @@ declare
   v_pdf text;
   v_pdf_type text;
   v_pdf_size bigint;
+  v_pdf_sha text;
   v_hash text;
   v_version uuid;
   v_no integer;
@@ -740,16 +776,27 @@ begin
   if char_length(v_title) < 1 or char_length(v_title) > 120 or char_length(v_body) > 8000 then
     raise exception 'invalid_input';
   end if;
-  select claimed.path, claimed.content_type, claimed.size_bytes
-  into v_pdf, v_pdf_type, v_pdf_size
-  from private.talk_storage_path(v_talk.company_id, v_talk.site_id, p_pdf_path) claimed;
+  -- A new file is a new upload. Omitting the file never drops one the current version has.
+  if p_pdf_path is null or btrim(p_pdf_path) = '' then
+    if v_current.pdf_path is not null then
+      raise exception 'pdf_required';
+    end if;
+    v_pdf := null;
+    v_pdf_type := null;
+    v_pdf_size := null;
+    v_pdf_sha := null;
+  else
+    select claimed.path, claimed.content_type, claimed.size_bytes, claimed.byte_sha256
+    into v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha
+    from private.talk_storage_path(v_talk.company_id, v_talk.site_id, p_pdf_path) claimed;
+  end if;
   if v_body = '' and v_pdf is null then
     raise exception 'invalid_input';
   end if;
   if v_body = '' then
     v_body := null;
   end if;
-  v_hash := private.talk_hash(v_talk.kind, v_talk.delivery, v_title, coalesce(v_body, ''), v_pdf);
+  v_hash := private.talk_hash(v_talk.kind, v_talk.delivery, v_title, coalesce(v_body, ''), v_pdf, v_pdf_sha);
   if v_hash = v_current.content_hash and v_talk.title = v_title then
     return jsonb_build_object(
       'talk_id', v_talk.id,
@@ -763,9 +810,9 @@ begin
   v_version := pg_catalog.gen_random_uuid();
   v_no := v_current.version_no + 1;
   insert into public.site_talk_versions (
-    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, content_hash, is_current, created_by
+    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
   ) values (
-    v_version, v_talk.id, v_talk.site_id, v_talk.company_id, v_no, v_body, v_pdf, v_pdf_type, v_pdf_size, v_hash, true, v_actor.person_id
+    v_version, v_talk.id, v_talk.site_id, v_talk.company_id, v_no, v_body, v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha, v_hash, true, v_actor.person_id
   );
   return jsonb_build_object(
     'talk_id', v_talk.id,
@@ -883,11 +930,11 @@ begin
   v_id := pg_catalog.gen_random_uuid();
   begin
     insert into public.site_talk_signatures (
-      id, talk_id, version_id, site_id, company_id, person_id, person_name,
+      id, talk_id, version_id, site_id, company_id, person_id, person_name, signer_name,
       captured_by, session_id, shared_device, signature_role, meaning, signature_png,
       device_at, received_at, content_hash
     ) values (
-      v_id, v_talk.id, v_version.id, v_talk.site_id, v_talk.company_id, p_person_id, v_person_name,
+      v_id, v_talk.id, v_version.id, v_talk.site_id, v_talk.company_id, p_person_id, v_person_name, v_person_name,
       v_actor.person_id, p_session, v_shared, 'attendee', v_meaning, p_signature_png,
       v_device, v_received, v_version.content_hash
     );
@@ -977,8 +1024,11 @@ begin
     raise exception 'invalid_input';
   end if;
   v_body := nullif(btrim(coalesce(p_body, '')), '');
-  if v_body is not null and char_length(v_body) > 280 then
-    raise exception 'invalid_input';
+  if v_body is not null then
+    v_body := private.talk_plain(v_body);
+    if char_length(v_body) > 280 then
+      raise exception 'invalid_input';
+    end if;
   end if;
   if not exists (select 1 from private.talk_required_ids(v_talk.id) req(person_id) where req.person_id = p_person_id) then
     raise exception 'not_required';
@@ -1104,15 +1154,14 @@ declare
 begin
   select * into v_actor from private.talk_actor();
   select * into v_talk from public.site_talks t where t.id = p_talk_id for update;
-  v_named := v_talk.id is not null
-    and lower(btrim(v_actor.display_name)) = lower(btrim(v_talk.presenter_name));
+  v_named := v_talk.id is not null and v_actor.person_id = v_talk.presenter_person_id;
   if v_actor.person_id is null
      or v_talk.id is null
      or v_talk.company_id is distinct from v_actor.company_id
      or not private.can_access_site(v_talk.site_id)
      or (
-       not (v_actor.person_id = v_talk.presenter_person_id and v_named)
-       and not (v_actor.role in ('owner', 'cm') and not v_named)
+       not v_named
+       and v_actor.role not in ('owner', 'cm')
      ) then
     raise exception 'not_authorized';
   end if;
@@ -1169,11 +1218,12 @@ begin
   v_id := pg_catalog.gen_random_uuid();
   begin
     insert into public.site_talk_signatures (
-      id, talk_id, version_id, site_id, company_id, person_id, person_name,
+      id, talk_id, version_id, site_id, company_id, person_id, person_name, signer_name,
       captured_by, session_id, shared_device, signature_role, meaning, signature_png,
       device_at, received_at, content_hash
     ) values (
       v_id, v_talk.id, v_version.id, v_talk.site_id, v_talk.company_id, v_actor.person_id,
+      private.talk_label(v_actor.display_name),
       private.talk_label(v_actor.display_name),
       v_actor.person_id, p_session, false, 'presenter', v_meaning, p_signature_png,
       v_device, v_received, v_version.content_hash
@@ -1284,6 +1334,7 @@ security definer
 set search_path = ''
 as $fn$
 declare
+  v_actor record;
   v_version uuid;
   v_not jsonb;
   v_signed jsonb;
@@ -1292,6 +1343,7 @@ declare
   v_required integer;
   v_signed_count integer;
 begin
+  select * into v_actor from private.talk_actor();
   select v.id into v_version from public.site_talk_versions v where v.talk_id = p_talk_id and v.is_current;
   select count(*) into v_required from private.talk_required_ids(p_talk_id) r;
   select coalesce(jsonb_agg(row_to_json(x)::jsonb order by x.person_name), '[]'::jsonb)
@@ -1300,8 +1352,13 @@ begin
     select
       p.id as person_id,
       private.talk_label(p.display_name) as person_name,
+      left(p.id::text, 6) as person_ref,
+      false as name_changed,
       (q.id is not null) as has_question,
-      q.body as question,
+      case
+        when v_actor.role in ('owner', 'cm') or p.id = v_actor.person_id then q.body
+        else null
+      end as question,
       coalesce(n.explained_verbally, false) as explained_verbally,
       coalesce(n.interpreter_used, false) as interpreter_used
     from private.talk_required_ids(p_talk_id) req(person_id)
@@ -1320,20 +1377,35 @@ begin
   from (
     select
       s.person_id,
-      s.person_name,
+      s.signer_name as person_name,
+      left(s.person_id::text, 6) as person_ref,
+      private.talk_label(p.display_name) is distinct from s.signer_name as name_changed,
       (q.id is not null) as has_question,
-      q.body as question,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then q.body
+        else null
+      end as question,
       coalesce(n.explained_verbally, false) as explained_verbally,
       coalesce(n.interpreter_used, false) as interpreter_used,
       s.received_at,
       s.device_at,
       s.meaning,
-      s.signature_png,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.signature_png
+        else null
+      end as signature_png,
       s.shared_device,
-      s.session_id,
-      s.captured_by,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.session_id
+        else null
+      end as session_id,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.captured_by
+        else null
+      end as captured_by,
       s.content_hash
     from public.site_talk_signatures s
+    join public.people p on p.id = s.person_id
     left join public.site_talk_questions q
       on q.version_id = s.version_id and q.person_id = s.person_id
     left join public.site_talk_notes n
@@ -1347,7 +1419,9 @@ begin
   from (
     select
       s.person_id,
-      s.person_name,
+      s.signer_name as person_name,
+      left(s.person_id::text, 6) as person_ref,
+      private.talk_label(p.display_name) is distinct from s.signer_name as name_changed,
       false as has_question,
       null::text as question,
       false as explained_verbally,
@@ -1355,12 +1429,22 @@ begin
       s.received_at,
       s.device_at,
       s.meaning,
-      s.signature_png,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.signature_png
+        else null
+      end as signature_png,
       s.shared_device,
-      s.session_id,
-      s.captured_by,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.session_id
+        else null
+      end as session_id,
+      case
+        when v_actor.role in ('owner', 'cm') or s.person_id = v_actor.person_id then s.captured_by
+        else null
+      end as captured_by,
       s.content_hash
     from public.site_talk_signatures s
+    join public.people p on p.id = s.person_id
     where s.version_id = v_version and s.signature_role = 'presenter'
   ) x;
   select coalesce(jsonb_agg(jsonb_build_object(
@@ -1371,7 +1455,8 @@ begin
   ) order by q.received_at), '[]'::jsonb)
   into v_questions
   from public.site_talk_questions q
-  where q.version_id = v_version;
+  where q.version_id = v_version
+    and (v_actor.role in ('owner', 'cm') or q.person_id = v_actor.person_id);
   return jsonb_build_object(
     'required_count', v_required,
     'signed_count', v_signed_count,
@@ -1643,7 +1728,7 @@ begin
 end;
 $fn$;
 
-revoke all on function public.create_site_talk(uuid, text, text, text, text, text, text, uuid[], text, text, timestamptz) from public, anon;
+revoke all on function public.create_site_talk(uuid, text, text, text, text, text, text, uuid[], uuid, text, timestamptz) from public, anon;
 revoke all on function public.revise_site_talk(uuid, text, text, text) from public, anon;
 revoke all on function public.sign_site_talk(uuid, uuid, uuid, boolean, text, timestamptz, text) from public, anon;
 revoke all on function public.ask_site_talk(uuid, uuid, uuid, text, timestamptz, text) from public, anon;
@@ -1656,7 +1741,7 @@ revoke all on function public.talk_meaning_line(uuid, uuid) from public, anon;
 revoke all on function public.induction_sign_in_gaps(uuid) from public, anon;
 revoke all on function public.my_talk_badges() from public, anon;
 
-grant execute on function public.create_site_talk(uuid, text, text, text, text, text, text, uuid[], text, text, timestamptz) to authenticated;
+grant execute on function public.create_site_talk(uuid, text, text, text, text, text, text, uuid[], uuid, text, timestamptz) to authenticated;
 grant execute on function public.revise_site_talk(uuid, text, text, text) to authenticated;
 grant execute on function public.sign_site_talk(uuid, uuid, uuid, boolean, text, timestamptz, text) to authenticated;
 grant execute on function public.ask_site_talk(uuid, uuid, uuid, text, timestamptz, text) to authenticated;
@@ -1668,3 +1753,110 @@ grant execute on function public.site_talk_detail(uuid) to authenticated;
 grant execute on function public.talk_meaning_line(uuid, uuid) to authenticated;
 grant execute on function public.induction_sign_in_gaps(uuid) to authenticated;
 grant execute on function public.my_talk_badges() to authenticated;
+
+-- A joined person cannot rename themselves. The owner or a contracts manager can.
+drop policy if exists people_update_self_or_owner on public.people;
+create policy people_update_self_or_owner
+  on public.people for update to authenticated
+  using (
+    private.my_role() in ('owner', 'cm')
+    and company_id = private.my_company_id()
+  )
+  with check (
+    private.my_role() in ('owner', 'cm')
+    and company_id = private.my_company_id()
+  );
+
+-- Display names reject bidi overrides, zero-width characters, and a leading spreadsheet mark.
+-- Replacing the attendance trigger function. It already existed, so this is not a new function.
+do $replace_name$
+begin
+  execute $body$
+    create or replace function private.reject_control_display_name()
+    returns trigger
+    language plpgsql
+    set search_path = ''
+    as $fn$
+    declare
+      v_name text := btrim(coalesce(new.display_name, ''));
+    begin
+      if v_name ~ (
+           '['
+           || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
+           || pg_catalog.chr(127)
+           || pg_catalog.chr(133)
+           || pg_catalog.chr(8203) || '-' || pg_catalog.chr(8207)
+           || pg_catalog.chr(8232) || pg_catalog.chr(8233)
+           || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
+           || pg_catalog.chr(8288)
+           || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
+           || pg_catalog.chr(65279)
+           || ']'
+         )
+         or left(v_name, 1) in ('=', '+', '-', '@') then
+        raise exception 'invalid_display_name';
+      end if;
+      return new;
+    end;
+    $fn$
+  $body$;
+end
+$replace_name$;
+
+revoke all on function private.reject_control_display_name() from public, anon, authenticated;
+
+-- A talks/ object that a version already records cannot be replaced or removed.
+-- Other drawings paths keep the policies from the drawings migration.
+create or replace function private.talk_pdf_locked(p_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select exists (
+    select 1
+    from public.site_talk_versions versions
+    where versions.pdf_path = p_name
+  );
+$fn$;
+
+revoke all on function private.talk_pdf_locked(text) from public, anon;
+grant execute on function private.talk_pdf_locked(text) to authenticated;
+
+drop policy if exists drawings_storage_update on storage.objects;
+create policy drawings_storage_update
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'drawings'
+    and private.is_cm_or_owner()
+    and private.storage_company_id(name) = private.my_company_id()
+    and private.can_access_site(private.storage_site_id(name))
+    and not (
+      (storage.foldername(name))[3] = 'talks'
+      and private.talk_pdf_locked(name)
+    )
+  )
+  with check (
+    bucket_id = 'drawings'
+    and private.is_cm_or_owner()
+    and private.storage_company_id(name) = private.my_company_id()
+    and private.can_access_site(private.storage_site_id(name))
+    and not (
+      (storage.foldername(name))[3] = 'talks'
+      and private.talk_pdf_locked(name)
+    )
+  );
+
+drop policy if exists drawings_storage_delete on storage.objects;
+create policy drawings_storage_delete
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'drawings'
+    and private.is_cm_or_owner()
+    and private.can_access_site(private.storage_site_id(name))
+    and not (
+      (storage.foldername(name))[3] = 'talks'
+      and private.talk_pdf_locked(name)
+    )
+  );

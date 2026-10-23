@@ -4,10 +4,10 @@ import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 import { decodedPdfText } from './pdfDecode.ts';
 import { pngDataUrl, solidPng } from './signaturePng.ts';
-import { buildTalkPdf, packBlocks, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
+import { buildTalkPdf, packBlocks, pdfText, talkReportId, talkReportKey, type RegisterPdfInput } from './talkPdf.ts';
 
 function footerLine(input: RegisterPdfInput, page: number, total: number): string {
-  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.versionNo, input.presentedAt)} · Page ${page} of ${total}`;
+  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))} · Page ${page} of ${total}`;
 }
 
 const meaning = "I was at the toolbox talk 'Fire exits' given by Jordan Hale at Oak yard on 22 Oct 2026, and I understood it.";
@@ -201,6 +201,8 @@ test('every signer is printed once and no row crosses the footer', async () => {
       assert.equal(text.split(name).length - 1, 1, name);
     }
     assert.ok(footers.length > 1, `gang ${size} continues onto another page`);
+    assert.equal(pages[0]?.some((line) => line.includes('(continued)')), false);
+    assert.ok(pages.slice(1).every((page) => page[0] === 'Register (continued)'));
     assert.equal(footers.length, pages.length);
     footers.forEach((footer, index) => {
       assert.equal(footer, footerLine(input, index + 1, footers.length));
@@ -280,5 +282,52 @@ test('José Müller and Łukasz Wójcik print in the register', async () => {
   assert.match(text, /Siobhán Ó Briain/);
   assert.equal(text.includes('ukasz Wjcik'), false);
   assert.match(text, new RegExp(`Page 1 of ${footers.length}`));
-  assert.match(text, new RegExp(talkReportId(input.versionNo, input.presentedAt)));
+  assert.match(text, new RegExp(talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))));
+});
+
+test('two talks on the same day get different report refs', () => {
+  const when = '2026-10-22T12:00:00.000Z';
+  const later = '2026-10-22T16:30:00.000Z';
+  const fire = talkReportId(1, when, 'Oak yard\nFire exits');
+  const edges = talkReportId(1, later, 'Oak yard\nLeading edge');
+  assert.notEqual(fire, edges);
+  assert.match(fire, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
+  assert.match(edges, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
+});
+
+test('the register and PDF keep the signed name, the person identifier, and a rename flag', async () => {
+  const input = register();
+  input.signed = [
+    {
+      name: 'Op A',
+      personRef: 'a11111',
+      nameChanged: true,
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning,
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  input.presenterSignature = {
+    name: 'Op A',
+    personRef: 'a11111',
+    nameChanged: true,
+    receivedAt: '2026-10-22T13:20:00.000Z',
+    meaning: 'I gave this talk to the people listed.',
+    signaturePng: png,
+  };
+  const { bytes } = await buildTalkPdf(input);
+  const text = decodedPdfText(bytes);
+  assert.equal(text.split('Op A · a11111').length - 1, 2);
+  assert.equal(text.split('name changed since signing').length - 1, 2);
+  assert.equal(text.includes('Op B'), false);
+});
+
+test('pdf text drops line separators and bidi controls', () => {
+  assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead     role');
+  assert.equal(pdfText('=HYPERLINK("x")\r'), '=HYPERLINK("x") ');
 });

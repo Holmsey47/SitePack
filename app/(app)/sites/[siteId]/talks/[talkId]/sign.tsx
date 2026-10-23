@@ -32,9 +32,7 @@ export default function SignTalkScreen() {
   const [saving, setSaving] = useState(false);
   const presenter = params.presenter === '1';
   const signerId = presenter ? person?.id ?? '' : params.personId || person?.id || '';
-  const onBehalf =
-    presenter &&
-    Boolean(person && talk && (person.display_name ?? '').trim().toLowerCase() !== talk.presenter_name.trim().toLowerCase());
+  const onBehalf = presenter && Boolean(person && talk && person.id !== talk.presenter_person_id);
 
   useEffect(() => {
     navigation.setOptions({ title: presenter ? 'Presenter sign-off' : 'Sign' });
@@ -48,8 +46,7 @@ export default function SignTalkScreen() {
       .then((next) => {
         if (!active || !next) return;
         setTalk(next);
-        const behalf =
-          presenter && person && (person.display_name ?? '').trim().toLowerCase() !== next.presenter_name.trim().toLowerCase();
+        const behalf = presenter && person && person.id !== next.presenter_person_id;
         const local = talkMeaning({
           kind: next.kind,
           delivery: next.delivery,

@@ -52,7 +52,7 @@ select public.create_site_talk(
   null,
   'all',
   array[]::uuid[],
-  'Race Owner',
+  '${owner_id}'::uuid,
   'Owner',
   now()
 );

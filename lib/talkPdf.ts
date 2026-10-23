@@ -15,6 +15,8 @@ const CONTENT_H = TOP - BOTTOM;
 
 export type RegisterPdfPerson = {
   name: string;
+  personRef?: string;
+  nameChanged?: boolean;
   hasQuestion: boolean;
   question: string | null;
   explained: boolean;
@@ -42,6 +44,8 @@ export type RegisterPdfInput = {
   signed: RegisterPdfSigned[];
   presenterSignature: {
     name: string;
+    personRef?: string;
+    nameChanged?: boolean;
     receivedAt: string;
     meaning: string;
     signaturePng: string | null;
@@ -67,10 +71,25 @@ export function talkPdfFilename(siteName: string, title: string): string {
   return `Register ${site} ${name}.pdf`;
 }
 
-export function talkReportId(versionNo: number, presentedAt: string): string {
+export function talkReportKey(input: Pick<RegisterPdfInput, 'siteName' | 'title'>): string {
+  return `${input.siteName}\n${input.title}`;
+}
+
+function shortRef(value: string): string {
+  if (!value) return '';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(4, '0').slice(-4);
+}
+
+export function talkReportId(versionNo: number, presentedAt: string, talkKey = ''): string {
   const formatted = formatUkDateTime(presentedAt);
   const date = formatted.split(',')[0]?.replace(/\s+/g, '') ?? 'undated';
-  return `TR-v${versionNo}-${date}`;
+  const suffix = shortRef(talkKey);
+  return suffix ? `TR-v${versionNo}-${date}-${suffix}` : `TR-v${versionNo}-${date}`;
 }
 
 export function talkFooter(
@@ -91,7 +110,10 @@ export function talkFooter(
 
 /** Keep letters, including Ł and ü. A dash the name font does not draw becomes a hyphen. */
 export function pdfText(value: string): string {
-  return value.normalize('NFC').replace(/[–—]/g, '-').replace(/[\u0000-\u001f\u007f]/g, ' ');
+  return value
+    .normalize('NFC')
+    .replace(/[–—]/g, '-')
+    .replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/g, ' ');
 }
 
 function wrap(text: string, face: PDFFont, size: number, max: number): string[] {
@@ -184,7 +206,9 @@ function textBlock(
 }
 
 function personLines(person: RegisterPdfPerson): Array<[string, number, boolean]> {
-  const rows: Array<[string, number, boolean]> = [[person.name, 13, true]];
+  const label = person.personRef ? `${person.name} · ${person.personRef}` : person.name;
+  const rows: Array<[string, number, boolean]> = [[label, 13, true]];
+  if (person.nameChanged) rows.push(['name changed since signing', 11, true]);
   if (person.hasQuestion) rows.push(['Has a question', 11, true]);
   if (person.question) rows.push([person.question, 11, false]);
   if (person.explained) rows.push(['Explained verbally', 11, false]);
@@ -243,8 +267,10 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
   if (input.presenterSignature) {
     const presenter = input.presenterSignature;
     blocks.push(textBlock('heading', [['Presenter', 14, true]], { signoff: true, withPrevious: true }));
+    const presenterLabel = presenter.personRef ? `${presenter.name} · ${presenter.personRef}` : presenter.name;
     const rows: Array<[string, number, boolean]> = [
-      [presenter.name, 13, true],
+      [presenterLabel, 13, true],
+      ...(presenter.nameChanged ? [['name changed since signing', 11, true] as [string, number, boolean]] : []),
       [formatUkDateTime(presenter.receivedAt), 11, false],
       [presenter.meaning, 11, false],
     ];
@@ -263,7 +289,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
 export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Uint8Array; footers: string[]; pages: string[][] }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const reportId = talkReportId(input.versionNo, input.presentedAt);
+  const reportId = talkReportId(input.versionNo, input.presentedAt, talkReportKey(input));
   doc.setTitle(`Register ${reportId}`);
   const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
   const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
@@ -284,6 +310,10 @@ export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Ui
     sheet = doc.addPage([PAGE_W, PAGE_H]);
     drawn.push(sheet);
     y = TOP;
+    const continued = pdfText('Register (continued)');
+    sheet.drawText(continued, { x: MARGIN, y: y - 14, size: 14, font: bold, color: rgb(0.1, 0.1, 0.1) });
+    lines.push(continued);
+    y -= 18;
     return sheet;
   }
 

@@ -13,7 +13,7 @@ export type CreateTalkInput = {
   pdfPath: string | null;
   audience: TalkAudience;
   personIds: string[];
-  presenterName: string;
+  presenterPersonId: string;
   presenterRole: string;
   presentedAt: string;
 };
@@ -91,6 +91,10 @@ export type TalkListItem = {
 export type TalkPersonRow = {
   person_id: string;
   person_name: string;
+  /** First characters of the person id, stable if the display name changes. */
+  person_ref: string;
+  /** True when the live display name differs from the name stored at signing. */
+  name_changed: boolean;
   has_question: boolean;
   question: string | null;
   explained_verbally: boolean;
@@ -101,10 +105,13 @@ export type TalkSignedRow = TalkPersonRow & {
   received_at: string;
   device_at: string;
   meaning: string;
-  signature_png: string;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  signature_png: string | null;
   shared_device: boolean;
-  session_id: string;
-  captured_by: string;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  session_id: string | null;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  captured_by: string | null;
   content_hash: string;
 };
 
@@ -180,6 +187,8 @@ export function talkError(code: string): string {
       return 'Check the talk and try again.';
     case 'invalid_path':
       return 'That file cannot be attached. Choose the file again.';
+    case 'pdf_required':
+      return 'This talk has a PDF. Attach it again.';
     case 'invalid_time':
       return 'The time on this phone is not valid. Check the clock and try again.';
     case 'already_signed':
@@ -208,6 +217,15 @@ export function talkContentHash(parts: {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+const TALK_CONTROLS = /[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/;
+const TALK_FORMULA = /^[=+\-@]/;
+
+/** Rejects line breaks, bidi controls, and a leading spreadsheet mark. */
+export function talkPlain(value: string): string {
+  if (TALK_CONTROLS.test(value) || TALK_FORMULA.test(value.trim())) throw new Error('invalid_input');
+  return value;
 }
 
 const TALK_FILE = /^[A-Za-z0-9._-]+$/;

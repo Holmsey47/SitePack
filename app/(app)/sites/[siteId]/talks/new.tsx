@@ -20,7 +20,8 @@ export default function NewTalkScreen() {
   const [audience, setAudience] = useState<'all' | 'chosen'>('all');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [presenterName, setPresenterName] = useState(person?.display_name ?? '');
+  const [presenterId, setPresenterId] = useState(person?.id ?? '');
+  const [presenters, setPresenters] = useState<{ id: string; name: string }[]>([]);
   const [presenterRole, setPresenterRole] = useState(person?.role === 'owner' ? 'Owner' : 'Contracts manager');
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
@@ -35,14 +36,24 @@ export default function NewTalkScreen() {
     repo
       .listAssignments(siteId)
       .then((rows) => {
-        setPeople(
-          rows
-            .filter((row) => row.person?.role === 'operative')
-            .map((row) => ({ id: row.person_id, name: row.person?.display_name || 'Someone on site' }))
-        );
+        const assigned = rows.map((row) => ({
+          id: row.person_id,
+          name: row.person?.display_name || 'Someone on site',
+          role: row.person?.role,
+        }));
+        const options = [...assigned];
+        if (person && !options.some((row) => row.id === person.id)) {
+          options.unshift({ id: person.id, name: person.display_name || 'You', role: person.role });
+        }
+        setPresenters(options.map((row) => ({ id: row.id, name: row.name })));
+        setPeople(assigned.filter((row) => row.role === 'operative').map((row) => ({ id: row.id, name: row.name })));
+        setPresenterId((current) => current || person?.id || options[0]?.id || '');
       })
-      .catch(() => setPeople([]));
-  }, [siteId]);
+      .catch(() => {
+        setPeople([]);
+        setPresenters(person ? [{ id: person.id, name: person.display_name || 'You' }] : []);
+      });
+  }, [person, siteId]);
 
   if (person && !canManageSite(person.role)) return <Redirect href={`/sites/${siteId}/talks`} />;
 
@@ -80,7 +91,7 @@ export default function NewTalkScreen() {
         pdfPath,
         audience,
         personIds: audience === 'chosen' ? chosen : [],
-        presenterName,
+        presenterPersonId: presenterId,
         presenterRole,
         presentedAt: new Date().toISOString(),
       });
@@ -108,7 +119,21 @@ export default function NewTalkScreen() {
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="sentences" />
       <Field label="What it says" value={body} onChangeText={setBody} multiline autoCapitalize="sentences" />
       <Button label={pdfName ? `PDF attached · ${pdfName}` : 'Attach a PDF'} variant="secondary" minHeight={56} onPress={() => void pickPdf()} />
-      <Field label="Presenter name" value={presenterName} onChangeText={setPresenterName} autoCapitalize="words" />
+      <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>Presenter</Text>
+      {presenters.map((row) => {
+        const on = presenterId === row.id;
+        return (
+          <Pressable
+            key={row.id}
+            accessibilityRole="button"
+            onPress={() => setPresenterId(row.id)}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={{ color: on ? theme.current : theme.text, fontSize: 17, fontWeight: '800' }}>
+              {on ? `Presenter · ${row.name}` : row.name}
+            </Text>
+          </Pressable>
+        );
+      })}
       <Field label="Presenter role" value={presenterRole} onChangeText={setPresenterRole} autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         <ChoiceChip label="All on site" selected={audience === 'all'} onPress={() => setAudience('all')} />

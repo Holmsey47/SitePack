@@ -232,6 +232,8 @@ test('a phone network error, a 503, and an unknown storage error each take their
   assert.equal(notices.find((row) => row.id === 'retry:unauth')?.message, SIGN_IN_AGAIN);
   assert.equal(notices.find((row) => row.id === 'retry:jwt')?.message, SIGN_IN_AGAIN);
   assert.equal((await queue.list()).find((row) => row.localId === 'jwt')?.needsSignIn, true);
+  assert.equal(notices.find((row) => row.id === 'reject:bad')?.message, refusedTalkNotice('sign', '400'));
+  assert.equal(refusedTalkNotice('sign', '400').includes('Try again'), false);
   assert.match(notices.find((row) => row.id === 'reject:bad')?.message ?? '', /not saved/);
   assert.equal(notices.filter((row) => row.retryLocalId).length, 8);
 });
@@ -365,7 +367,9 @@ test('sign-out, owner change, and a rejected session wipe the talk queue', () =>
   const auth = fs.readFileSync('context/AuthContext.tsx', 'utf8');
   const bind = auth.slice(auth.indexOf('async function bindCache'), auth.indexOf('function authTokenKey'));
   assert.match(bind, /if \(userId\) \{[\s\S]*adoptTalkOwner\(userId\)/);
-  assert.match(bind, /else \{[\s\S]*wipeTalkQueue\(\)/);
+  assert.match(bind, /else \{[\s\S]*wipeAttendanceQueue\(\)/);
+  assert.match(bind, /if \(!userId\) \{\s*try \{\s*await wipeTalkQueue\(\)/);
+  assert.doesNotMatch(bind, /wipeAttendanceQueue\(\);\s*await wipeTalkQueue\(\)/);
   assert.match(auth, /signOut: async \(\) => \{[\s\S]*bindCache\(null\)/);
   assert.match(auth, /if \(decision\.wipe \|\| !decision\.userId\) \{[\s\S]*bindCache\(null\)/);
   const sync = fs.readFileSync('lib/talkSync.ts', 'utf8');
