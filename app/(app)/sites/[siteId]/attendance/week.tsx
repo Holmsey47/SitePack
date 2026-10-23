@@ -1,44 +1,29 @@
 import { Button, Card, EmptyState, Muted, Screen, Title } from '@/components/ui';
-import { attendanceError, forgotLine, gapLine, type AttendanceEntry, type WeeklyAttendance } from '@/data/attendance';
+import { attendanceError, forgotLine, gapLine, hourSpans, type AttendanceEntry } from '@/data/attendance';
 import { repo } from '@/data/index';
 import { formatUkDateTime } from '@/lib/format';
 import {
   buildWeekSheet,
-  clockGap,
+  clientNowIso,
+  FLAG_CORRECTED,
+  FLAG_LATE,
+  LATE_SIGN_OUT_REASON,
   londonWeekStart,
   preparedLine,
   shiftWeek,
   weekCsv,
   weekRangeLabel,
   WEEK_DAYS,
-  type HourSpan,
   type WeekRow,
 } from '@/lib/attendanceHours';
 import { attendancePdfFilename, buildAttendancePdf } from '@/lib/attendancePdf';
 import { saveSheet } from '@/lib/saveSheet';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-
-function spansFrom(sheet: WeeklyAttendance | null): HourSpan[] {
-  if (!sheet) return [];
-  return sheet.entries.map((entry) => ({
-    personId: entry.person_id,
-    personName: entry.person_name,
-    inAt: entry.in_at,
-    outAt: entry.out_at,
-    forgot: entry.forgot_sign_out,
-    gap: Boolean(
-      entry.in_gap ||
-        entry.out_gap ||
-        (entry.late_out_device_at && entry.late_out_received_at && clockGap(entry.late_out_device_at, entry.late_out_received_at))
-    ),
-    corrected: (entry.audit?.length ?? 0) > 0,
-  }));
-}
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
   const copy = new ArrayBuffer(bytes.byteLength);
@@ -58,27 +43,33 @@ export default function WeeklyHoursScreen() {
   const thisWeek = londonWeekStart(new Date().toISOString());
 
   const load = useCallback(async () => {
-    if (!siteId) return;
+    if (!siteId) return null;
     try {
       const sheet = await repo.weeklyAttendance(siteId, weekStart);
       if (sheet == null) {
         setHidden(true);
         setRows(null);
         setEntries([]);
-      } else {
-        setHidden(false);
-        setEntries(sheet.entries);
-        setRows(buildWeekSheet(spansFrom(sheet), weekStart, new Date().toISOString()));
+        setError('');
+        return null;
       }
+      const nextRows = buildWeekSheet(hourSpans(sheet.entries), weekStart, clientNowIso());
+      setHidden(false);
+      setEntries(sheet.entries);
+      setRows(nextRows);
       setError('');
+      return { rows: nextRows, entries: sheet.entries };
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
+      return null;
     }
   }, [siteId, weekStart]);
 
-  useEffect(() => {
-    load().catch(() => setError('Could not load the sheet.'));
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load().catch(() => setError('Could not load the sheet.'));
+    }, [load])
+  );
 
   async function shareFile(name: string, bytes: Uint8Array, mime: string) {
     if (Platform.OS === 'web') {
@@ -106,13 +97,14 @@ export default function WeeklyHoursScreen() {
   }
 
   async function onCsv() {
-    if (!rows) return;
     setBusy(true);
     setError('');
     try {
+      const fresh = await load();
+      if (!fresh) return;
       const site = await repo.getSite(siteId ?? '');
       const name = `Hours week ${weekStart}.csv`;
-      await shareFile(name, new TextEncoder().encode(weekCsv(rows, site?.name ?? 'Site', weekStart)), 'text/csv');
+      await shareFile(name, new TextEncoder().encode(weekCsv(fresh.rows, site?.name ?? 'Site', weekStart)), 'text/csv');
     } catch {
       setError('Could not share the sheet.');
     } finally {
@@ -121,18 +113,20 @@ export default function WeeklyHoursScreen() {
   }
 
   async function onPdf() {
-    if (!siteId || !rows) return;
+    if (!siteId) return;
     setBusy(true);
     setError('');
     try {
+      const fresh = await load();
+      if (!fresh) return;
       const [company, site] = await Promise.all([repo.companyName(), repo.getSite(siteId)]);
-      const generatedAt = new Date().toISOString();
+      const generatedAt = clientNowIso();
       const { bytes } = await buildAttendancePdf({
         companyName: company,
         siteName: site?.name ?? 'Site',
         weekStart,
         generatedAt,
-        rows,
+        rows: fresh.rows,
       });
       await shareFile(attendancePdfFilename(site?.name ?? 'Site', weekStart), bytes, 'application/pdf');
     } catch {
@@ -146,7 +140,7 @@ export default function WeeklyHoursScreen() {
     <Screen>
       <Title>Weekly hours</Title>
       <Muted>{weekRangeLabel(weekStart)}</Muted>
-      <Muted>{preparedLine(new Date().toISOString())}</Muted>
+      <Muted>{preparedLine(clientNowIso())}</Muted>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ flex: 1 }}>
           <Button label="Previous week" variant="secondary" minHeight={48} onPress={() => setWeekStart(shiftWeek(weekStart, -1))} />
@@ -188,8 +182,11 @@ export default function WeeklyHoursScreen() {
                 </Text>
                 {forgotLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{forgotLine(entry)}</Text> : null}
                 {gapLine(entry) ? <Text style={{ color: theme.text, fontWeight: '800' }}>{gapLine(entry)}</Text> : null}
-                {entry.audit && entry.audit.length > 0 ? (
-                  <Text style={{ color: theme.text, fontWeight: '800' }}>Corrected</Text>
+                {entry.late_sign_out || entry.audit?.some((row) => row.reason === LATE_SIGN_OUT_REASON) ? (
+                  <Text style={{ color: theme.text, fontWeight: '800' }}>{FLAG_LATE}</Text>
+                ) : null}
+                {entry.audit?.some((row) => row.reason !== LATE_SIGN_OUT_REASON) ? (
+                  <Text style={{ color: theme.text, fontWeight: '800' }}>{FLAG_CORRECTED}</Text>
                 ) : null}
               </Pressable>
             ))}

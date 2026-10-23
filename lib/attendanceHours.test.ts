@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import {
   buildWeekSheet,
@@ -8,8 +9,11 @@ import {
   FLAG_CORRECTED,
   FLAG_FORGOT,
   FLAG_GAP,
+  FLAG_LATE,
   forgottenClose,
   formatHours,
+  graceCouldOwn,
+  graceHolds,
   hoursOnLondonDay,
   londonCloseIso,
   londonDateKey,
@@ -18,6 +22,8 @@ import {
   londonWallIso,
   londonWeekStart,
   OVERNIGHT_GRACE_HOUR,
+  OVERNIGHT_HOLD_HOURS,
+  OVERNIGHT_START_HOUR,
   weekCsv,
   type HourSpan,
 } from './attendanceHours.ts';
@@ -29,6 +35,7 @@ function span(partial: Partial<HourSpan> & Pick<HourSpan, 'inAt' | 'outAt'>): Ho
     forgot: partial.forgot ?? false,
     gap: partial.gap ?? false,
     corrected: partial.corrected ?? false,
+    late: partial.late ?? false,
     inAt: partial.inAt,
     outAt: partial.outAt,
   };
@@ -84,6 +91,34 @@ test('a forgotten sign-out closes at 23:59 Europe/London and a second pass stays
   const [row] = buildWeekSheet([span({ inAt, outAt: null })], '2026-10-19', now);
   assert.equal(row?.days[1], '2h 59m');
   assert.equal(row?.total, formatHours(row?.totalMs ?? 0));
+});
+
+test('a day shift is closed at 05:30 and a 22:00 shift is still held', () => {
+  const dayIn = londonWallIso('2026-10-20', 7, 0);
+  const early = londonWallIso('2026-10-21', 5, 30);
+  const closed = forgottenClose(dayIn, null, early);
+  assert.equal(closed?.forgot, true);
+  assert.equal(closed?.outAt, londonCloseIso(dayIn));
+  assert.equal(londonDateKey(closed?.outAt ?? ''), '2026-10-20');
+  const evening = londonWallIso('2026-10-20', 22, 0);
+  assert.equal(forgottenClose(evening, null, early), null);
+  assert.equal(graceHolds(evening, early), true);
+  assert.equal(graceHolds(evening, londonWallIso('2026-10-21', 6, 0)), false);
+  assert.equal(graceCouldOwn(evening, londonWallIso('2026-10-21', 7, 0)), true);
+  assert.equal(graceCouldOwn(dayIn, early), false);
+  assert.equal(graceCouldOwn(evening, londonWallIso('2026-10-23', 10, 0)), false);
+});
+
+test('the phone constants match the migration grace literals', () => {
+  assert.equal(OVERNIGHT_GRACE_HOUR, 6);
+  assert.equal(OVERNIGHT_START_HOUR, 14);
+  assert.equal(OVERNIGHT_HOLD_HOURS, 24 - OVERNIGHT_START_HOUR + OVERNIGHT_GRACE_HOUR);
+  assert.equal(OVERNIGHT_HOLD_HOURS, 16);
+  const sql = fs.readFileSync('supabase/migrations/20261022180000_site_attendance.sql', 'utf8');
+  const count = (needle: string) => sql.split(needle).length - 1;
+  assert.equal(count(`time '${String(OVERNIGHT_GRACE_HOUR).padStart(2, '0')}:00'`), 1);
+  assert.equal(count(`time '${String(OVERNIGHT_START_HOUR).padStart(2, '0')}:00'`), 1);
+  assert.equal(count(`interval '${OVERNIGHT_HOLD_HOURS} hours'`), 1);
 });
 
 test('a sign-out before 06:00 London keeps the real time and 07:00 is a forgotten close', () => {
@@ -159,6 +194,19 @@ test('CSV totals match the sheet totals', () => {
   assert.match(csv, /'@Oak/);
   assert.match(csv, /'=Lee/);
   assert.match(csv, new RegExp(`${FLAG_FORGOT}; ${FLAG_GAP}; ${FLAG_CORRECTED}`));
+  const guarded = weekCsv(
+    buildWeekSheet(
+      [span({ personId: 'lee', personName: '\t=cmd', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z', late: true })],
+      '2026-10-19',
+      '2026-10-22T12:00:00.000Z'
+    ),
+    '\r@Oak',
+    '2026-10-19'
+  );
+  assert.match(guarded, /'\t=cmd/);
+  assert.match(guarded, /'\r@Oak/);
+  assert.match(guarded, new RegExp(FLAG_LATE));
+  assert.equal(guarded.includes(FLAG_CORRECTED), false);
 });
 
 test('a clock gap is only more than 10 minutes', () => {

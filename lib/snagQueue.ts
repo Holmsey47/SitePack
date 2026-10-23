@@ -1,4 +1,7 @@
+import { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
+
 export { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
+export { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
 
 export type QueuedPhoto = {
   id: string;
@@ -18,6 +21,9 @@ export type QueuedSnagCreate = {
   photos: QueuedPhoto[];
   raisedAt: string;
   serverSnagId?: string;
+  uploadedPhotos?: Array<{ storagePath: string; contentType: string; fileSizeBytes: number }>;
+  attempts?: number;
+  retryAt?: string;
 };
 
 export type QueuedSnagFix = {
@@ -29,6 +35,9 @@ export type QueuedSnagFix = {
   snagId: string;
   photos: QueuedPhoto[];
   fixedAt: string;
+  uploadedPhotos?: Array<{ storagePath: string; contentType: string; fileSizeBytes: number }>;
+  attempts?: number;
+  retryAt?: string;
 };
 
 export type QueuedSnagSign = {
@@ -42,6 +51,10 @@ export type QueuedSnagSign = {
   signerRole?: string;
   signerCompany: string;
   signaturePng?: string;
+  coveredIds: string[];
+  outstandingIds: string[];
+  attempts?: number;
+  retryAt?: string;
 };
 
 export type QueuedSnag = QueuedSnagCreate | QueuedSnagFix | QueuedSnagSign;
@@ -52,6 +65,9 @@ export type SnagNotice = {
   siteId: string;
   message: string;
   photos: QueuedPhoto[];
+  /** Business or HTTP code. `snag_list_changed` must not be sent again. */
+  code?: string;
+  retryItem?: QueuedSnag;
 };
 
 export type SnagQueueStore = {
@@ -68,13 +84,20 @@ const NOTICE_KEY = 'sitepack.snag.notices';
 export const SNAG_QUEUE_PREFIX = 'sitepack.snag.';
 const DB_NAME = 'sitepack-snags';
 
-const DROP = new Set(['not_authorized', 'not_found', 'closed', 'snag_locked']);
+const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
 
-export function isDroppedSnagCode(code: string): boolean {
-  return DROP.has(code);
+export function snagRetryDelayMs(attempts: number): number {
+  const index = Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1;
+  return RETRY_DELAYS_MS[index] ?? 60_000;
 }
 
-export function rejectedSnagNotice(kind: QueuedSnag['kind'], code: string): string {
+export function rejectedSnagNotice(kind: QueuedSnag['kind'], code: string, fixStillSending = false): string {
+  if (kind === 'sign' && code === 'snag_list_changed' && fixStillSending) {
+    return "A fix you made is still sending. Wait until it's sent, then sign again.";
+  }
+  if (kind === 'sign' && code === 'snag_list_changed') {
+    return 'The snag list changed before this sign-off was sent. Please sign again.';
+  }
   if (kind === 'sign' && code === 'closed') return 'Nothing was left to sign off';
   if (kind === 'create') return 'This snag was not saved';
   if (kind === 'fix') return 'This fix was not saved';
@@ -111,7 +134,11 @@ function copyItem(item: QueuedSnag): QueuedSnag {
 }
 
 function copyNotice(notice: SnagNotice): SnagNotice {
-  return { ...notice, photos: notice.photos.map(copyPhoto) };
+  return {
+    ...notice,
+    photos: notice.photos.map(copyPhoto),
+    retryItem: notice.retryItem ? copyItem(notice.retryItem) : undefined,
+  };
 }
 
 export function memorySnagQueue(): SnagQueueStore {
@@ -167,7 +194,7 @@ type StoredSnag =
   | (Omit<QueuedSnagCreate, 'photos'> & { photos?: StoredPhoto[] })
   | (Omit<QueuedSnagFix, 'photos'> & { photos?: StoredPhoto[] })
   | QueuedSnagSign;
-type StoredNotice = Omit<SnagNotice, 'photos'> & { photos?: StoredPhoto[] };
+type StoredNotice = Omit<SnagNotice, 'photos' | 'retryItem'> & { photos?: StoredPhoto[]; retryItem?: StoredSnag };
 
 function hasOwner(value: { ownerId?: unknown }): boolean {
   return typeof value.ownerId === 'string' && value.ownerId.length > 0;
@@ -175,7 +202,14 @@ function hasOwner(value: { ownerId?: unknown }): boolean {
 
 function isQueued(value: StoredSnag): value is StoredSnag {
   if (!value || typeof value !== 'object' || !hasOwner(value)) return false;
-  if (value.kind === 'sign') return typeof value.localId === 'string' && typeof value.siteId === 'string';
+  if (value.kind === 'sign') {
+    return (
+      typeof value.localId === 'string' &&
+      typeof value.siteId === 'string' &&
+      Array.isArray(value.coveredIds) &&
+      Array.isArray(value.outstandingIds)
+    );
+  }
   return typeof value.localId === 'string' && typeof value.siteId === 'string' && Array.isArray(value.photos);
 }
 
@@ -204,6 +238,7 @@ function encode(item: QueuedSnag): StoredSnag {
 
 function decodeNotice(item: StoredNotice): SnagNotice | null {
   if (!item || typeof item.id !== 'string' || !hasOwner(item) || typeof item.message !== 'string') return null;
+  const retryItem = item.retryItem && isQueued(item.retryItem) ? decode(item.retryItem) : undefined;
   return {
     id: item.id,
     ownerId: item.ownerId,
@@ -214,17 +249,21 @@ function decodeNotice(item: StoredNotice): SnagNotice | null {
       contentType: photo.contentType,
       bytes: fromBase64(photo.base64),
     })),
+    code: typeof item.code === 'string' ? item.code : undefined,
+    retryItem,
   };
 }
 
 function encodeNotice(notice: SnagNotice): StoredNotice {
+  const { retryItem, ...rest } = notice;
   return {
-    ...notice,
+    ...rest,
     photos: notice.photos.map((photo) => ({
       id: photo.id,
       contentType: photo.contentType,
       base64: toBase64(photo.bytes),
     })),
+    retryItem: retryItem ? encode(retryItem) : undefined,
   };
 }
 
@@ -406,6 +445,13 @@ export async function persistThenSendSnag(
   }
 }
 
+function dropUploadedPaths(item: QueuedSnag): QueuedSnag {
+  if (item.kind === 'sign') return item;
+  const next = { ...item };
+  delete next.uploadedPhotos;
+  return next;
+}
+
 function queuedAt(item: QueuedSnag): string {
   if (item.kind === 'create') return item.raisedAt;
   if (item.kind === 'fix') return item.fixedAt;
@@ -429,7 +475,8 @@ export function noticesForOwner(notices: SnagNotice[], ownerId: string | null | 
 export async function flushSnagQueue(
   queue: SnagQueueStore,
   send: (item: QueuedSnag) => Promise<void>,
-  ownerId: string
+  ownerId: string,
+  nowMs: () => number = () => Date.now()
 ): Promise<SnagNotice[]> {
   const created: SnagNotice[] = [];
   for (const notice of await queue.listNotices()) {
@@ -441,18 +488,31 @@ export async function flushSnagQueue(
       await queue.remove(item.localId);
       continue;
     }
+    const due = item.retryAt ? Date.parse(item.retryAt) : 0;
+    if (Number.isFinite(due) && due > nowMs()) continue;
     try {
       await send(item);
       await queue.remove(item.localId);
     } catch (err) {
-      const code = err instanceof Error ? err.message : '';
-      if (!DROP.has(code)) return created;
+      const current = (await queue.list()).find((row) => row.localId === item.localId) ?? item;
+      if (isRetryableSnagFailure(err)) {
+        const attempts = (current.attempts ?? 0) + 1;
+        await queue.put({ ...current, attempts, retryAt: new Date(nowMs() + snagRetryDelayMs(attempts)).toISOString() });
+        continue;
+      }
+      const code = snagFailureCode(err);
+      const retrySource = code === 'invalid_path' ? dropUploadedPaths(current) : current;
+      const pending = await queue.list();
+      const fixStillSending = pending.some((row) => row.ownerId === item.ownerId && row.siteId === item.siteId && row.kind === 'fix');
+      const listChanged = code === 'snag_list_changed';
       const notice: SnagNotice = {
         id: `reject:${item.ownerId}:${item.localId}`,
         ownerId: item.ownerId,
         siteId: item.siteId,
-        message: rejectedSnagNotice(item.kind, code),
-        photos: item.kind === 'sign' ? [] : item.photos.map(copyPhoto),
+        message: rejectedSnagNotice(item.kind, code, fixStillSending),
+        photos: retrySource.kind === 'sign' ? [] : retrySource.photos.map(copyPhoto),
+        code,
+        retryItem: listChanged ? undefined : copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
       };
       await queue.putNotice(notice);
       await queue.remove(item.localId);

@@ -32,7 +32,7 @@ import type {
   UnseenDrawing,
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
-import type { CreateSnagInput, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
+import type { CreateSnagInput, CreateSnagResult, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
 import type { AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
 import type {
   AskTalkInput,
@@ -163,8 +163,9 @@ export type SitePackRepo = {
   listSnags(siteId: string): Promise<SnagList>;
   snagReport(siteId: string): Promise<SnagReport>;
   getSnag(snagId: string): Promise<SnagDetail | null>;
-  createSnag(input: CreateSnagInput): Promise<{ snagId: string; snagSeq: number }>;
-  fixSnag(snagId: string, fixedAt: string, photos: SnagPhotoInput[]): Promise<void>;
+  createSnag(input: CreateSnagInput): Promise<CreateSnagResult>;
+  fixSnag(snagId: string, fixedAt: string, photos: SnagPhotoInput[], fixId?: string | null): Promise<{ alreadyFixed?: boolean }>;
+  removeSitePhotos(storagePaths: string[]): Promise<void>;
   signOffSnagsInternal(input: SignOffSnagsInput): Promise<SnagSignoff>;
   signOffSnagsContractor(input: SignOffSnagsInput): Promise<SnagSignoff>;
   snagTradeLabels(siteId: string): Promise<string[]>;
@@ -290,6 +291,7 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'not_required',
     'version_locked',
     'closed',
+    'snag_list_changed',
     'not_found',
     'other_firm',
     'code_expired',

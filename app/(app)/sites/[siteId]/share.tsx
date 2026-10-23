@@ -69,8 +69,9 @@ export default function ShareSiteScreen() {
         sections,
       });
       router.push({
-        pathname: `/sites/${siteId}/share-code`,
+        pathname: '/sites/[siteId]/share-code',
         params: {
+          siteId,
           code: created.code,
           expires: created.expires_at,
           firm: created.guest_company_name,

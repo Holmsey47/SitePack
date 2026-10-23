@@ -76,6 +76,7 @@ import type {
   SharedVariation,
   SiteShareList,
 } from '@/data/sharing';
+import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
@@ -83,11 +84,11 @@ function unwrap<T>(
   error: { message: string; details?: string | null; code?: string | null } | null,
   fallback?: string
 ): T {
-  if (error) {
-    const mapped = rpcErrorCode(error);
-    throw new Error(mapped === 'unknown' ? error.message : mapped);
+  if (error) throw snagRpcError(error);
+  if (data == null) {
+    const code = fallback ?? 'not_found';
+    throw new SnagRequestError({ kind: 'business', code });
   }
-  if (data == null) throw new Error(fallback ?? 'not_found');
   return data;
 }
 
@@ -97,8 +98,19 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
-  const { data, error } = await getSupabase().rpc(name, args);
-  return unwrap(data, error);
+  return throwSnagRpc(await getSupabase().rpc(name, args));
+}
+
+function rpcOrNull<T>(response: { data: T | null; error: unknown; status?: number }): T | null {
+  if (response.error || (typeof response.status === 'number' && response.status >= 400)) {
+    throw snagRpcError(response.error, response.status);
+  }
+  return response.data;
+}
+
+/** Talk writes use the same typed error as snags. Status stays on the postgrest-js response. */
+async function rpcTalk(name: string, args: Record<string, unknown>) {
+  return throwSnagRpc(await getSupabase().rpc(name, args));
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
@@ -966,7 +978,7 @@ export const supabaseRepo: SitePackRepo = {
       contentType: params.contentType,
       upsert: false,
     });
-    if (error) throw new Error(rpcErrorCode(error));
+    if (error) throw snagStorageError(error);
     return { storagePath, fileSizeBytes: params.bytes.byteLength, contentType: params.contentType };
   },
 
@@ -1052,19 +1064,33 @@ export const supabaseRepo: SitePackRepo = {
         p_photos: input.photos.map(photoPayload),
       }),
       null
-    ) as { snag_id: string; snag_seq: number };
-    return { snagId: data.snag_id, snagSeq: data.snag_seq };
+    ) as { snag_id: string; snag_seq: number; already_existed?: boolean; photo_paths?: string[] };
+    return {
+      snagId: data.snag_id,
+      snagSeq: data.snag_seq,
+      alreadyExisted: data.already_existed === true,
+      photoPaths: Array.isArray(data.photo_paths) ? data.photo_paths : [],
+    };
   },
 
-  async fixSnag(snagId, fixedAt, photos) {
-    unwrap(
+  async fixSnag(snagId, fixedAt, photos, fixId) {
+    const data = unwrap(
       await rpcJson('fix_snag', {
         p_snag_id: snagId,
         p_fixed_at: fixedAt,
         p_photos: photos.map(photoPayload),
+        p_fix_id: fixId ?? null,
       }),
       null
-    );
+    ) as { already_fixed?: boolean };
+    return { alreadyFixed: data.already_fixed === true };
+  },
+
+  async removeSitePhotos(storagePaths) {
+    const paths = storagePaths.filter((path) => path.length > 0);
+    if (paths.length < 1) return;
+    const { error } = await getSupabase().storage.from('site-photos').remove(paths);
+    if (error) throw new Error(rpcErrorCode(error));
   },
 
   async signOffSnagsInternal(input: SignOffSnagsInput) {
@@ -1074,6 +1100,8 @@ export const supabaseRepo: SitePackRepo = {
         p_site_id: input.siteId,
         p_signed_at: input.signedAt,
         p_company: input.company,
+        p_covered_ids: input.coveredIds,
+        p_outstanding_ids: input.outstandingIds,
       }),
       null
     ) as SnagSignoff;
@@ -1089,6 +1117,8 @@ export const supabaseRepo: SitePackRepo = {
         p_signer_role: input.signerRole ?? '',
         p_company: input.company,
         p_signature_png: input.signaturePng ?? '',
+        p_covered_ids: input.coveredIds,
+        p_outstanding_ids: input.outstandingIds,
       }),
       null
     ) as SnagSignoff;
@@ -1100,11 +1130,15 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signInSite(siteId, deviceAt) {
-    return unwrap(await rpcJson('sign_in_site', { p_site_id: siteId, p_device_at: deviceAt }), null) as AttendanceEntry;
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_in_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
   },
 
   async signOutSite(siteId, deviceAt) {
-    return unwrap(await rpcJson('sign_out_site', { p_site_id: siteId, p_device_at: deviceAt }), null) as AttendanceEntry;
+    return throwSnagRpc<AttendanceEntry>(
+      await getSupabase().rpc('sign_out_site', { p_site_id: siteId, p_device_at: deviceAt })
+    );
   },
 
   async mySiteAttendance(siteId) {
@@ -1117,20 +1151,13 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async listOnSiteNow(siteId) {
-    const { data, error } = await getSupabase().rpc('list_on_site_now', { p_site_id: siteId });
-    if (error) throw new Error(rpcErrorCode(error) === 'unknown' ? error.message : rpcErrorCode(error));
-    if (data == null) return null;
-    return data as OnSiteNow;
+    return rpcOrNull<OnSiteNow>(await getSupabase().rpc('list_on_site_now', { p_site_id: siteId }));
   },
 
   async weeklyAttendance(siteId, weekStart) {
-    const { data, error } = await getSupabase().rpc('weekly_attendance', {
-      p_site_id: siteId,
-      p_week_start: weekStart,
-    });
-    if (error) throw new Error(rpcErrorCode(error) === 'unknown' ? error.message : rpcErrorCode(error));
-    if (data == null) return null;
-    return data as WeeklyAttendance;
+    return rpcOrNull<WeeklyAttendance>(
+      await getSupabase().rpc('weekly_attendance', { p_site_id: siteId, p_week_start: weekStart })
+    );
   },
 
   async attendanceEntry(entryId) {
@@ -1180,7 +1207,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signTalk(input: SignTalkInput) {
-    return (await rpcJson('sign_site_talk', {
+    return (await rpcTalk('sign_site_talk', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_person_id: input.personId,
@@ -1192,7 +1219,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async askTalk(input: AskTalkInput) {
-    return (await rpcJson('ask_site_talk', {
+    return (await rpcTalk('ask_site_talk', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_person_id: input.personId,
@@ -1203,7 +1230,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async setTalkNote(talkId, personId, explained, interpreter) {
-    await rpcJson('set_talk_person_note', {
+    await rpcTalk('set_talk_person_note', {
       p_talk_id: talkId,
       p_person_id: personId,
       p_explained: explained,
@@ -1212,7 +1239,7 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signTalkPresenter(input: PresenterSignInput) {
-    return (await rpcJson('sign_talk_presenter', {
+    return (await rpcTalk('sign_talk_presenter', {
       p_talk_id: input.talkId,
       p_version_id: input.versionId,
       p_signature_png: input.signaturePng,

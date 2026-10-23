@@ -1,6 +1,6 @@
 import { AppTabs } from '@/components/app-tabs';
 import { FixtureOfflineSwitch } from '@/components/fixture-offline';
-import { TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
+import { TalkNoticeList, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
@@ -15,7 +15,8 @@ import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
-import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
@@ -41,6 +42,7 @@ export default function SitesScreen() {
   const [notices, setNotices] = useState<SeenNotice[]>([]);
   const [talkBadges, setTalkBadges] = useState<TalkBadge[]>([]);
   const [sharedSites, setSharedSites] = useState<SharedSiteCard[]>([]);
+  const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -137,6 +139,7 @@ export default function SitesScreen() {
         .then((next) => {
           if (!active) return;
           setTalkBadges(next.badges);
+          setTalkNotices(next.notices);
         })
         .catch(() => undefined);
       return () => {
@@ -145,13 +148,28 @@ export default function SitesScreen() {
     }, [person?.auth_user_id])
   );
 
+  async function dismissTalk(notice: TalkNotice) {
+    await dismissTalkNotice(getTalkQueue(), notice);
+    setTalkNotices((current) => current.filter((row) => row.id !== notice.id));
+  }
+
+  async function retryTalk(notice: TalkNotice) {
+    if (!notice.retryLocalId || !person?.auth_user_id) return;
+    await retryQueuedTalk(getTalkQueue(), notice.retryLocalId);
+    const next = await refreshTalks(person.auth_user_id);
+    setTalkBadges(next.badges);
+    setTalkNotices(next.notices);
+  }
+
   function talkNotes(siteId: string) {
     const badge = talkBadges.find((row) => row.site_id === siteId);
-    if (!badge) return null;
+    const siteNotices = talkNotices.filter((row) => row.siteId === siteId);
+    if (!badge && siteNotices.length === 0) return null;
     return (
       <View>
-        <TalkReadRow count={badge.outstanding} onPress={() => router.push(`/sites/${siteId}/talks`)} />
-        <TalkQuestionRow count={badge.questions ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+        <TalkNoticeList notices={siteNotices} onDismiss={(notice) => void dismissTalk(notice)} onRetry={(notice) => void retryTalk(notice)} />
+        <TalkReadRow count={badge?.outstanding ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+        <TalkQuestionRow count={badge?.questions ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
       </View>
     );
   }
@@ -244,6 +262,7 @@ export default function SitesScreen() {
                 notes={seenNotes(site.id)}
                 onTeam={() => router.push(`/sites/${site.id}/not-seen`)}
                 onNew={() => router.push(`/sites/${site.id}/new`)}
+                onNotice={(notice) => void followNotice(router, notice)}
               />
               {talkNotes(site.id)}
             </Card>
@@ -327,6 +346,7 @@ export default function SitesScreen() {
               notes={seenNotes(row.site_id)}
               onTeam={() => router.push(`/sites/${row.site_id}/not-seen`)}
               onNew={() => router.push(`/sites/${row.site_id}/new`)}
+              onNotice={(notice) => void followNotice(router, notice)}
             />
             {talkNotes(row.site_id)}
           </Card>
@@ -376,16 +396,24 @@ function SharedWithCompany({ rows, onOpen }: { rows: SharedSiteCard[]; onOpen: (
   );
 }
 
+function followNotice(router: { push(path: `/sites/${string}/drawing/${string}`): void }, notice: SeenNotice) {
+  void openReplacedNotice(notice).then((path) => {
+    if (path) router.push(path);
+  });
+}
+
 function SeenNotes({
   manager,
   notes,
   onTeam,
   onNew,
+  onNotice,
 }: {
   manager: boolean;
   notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
   onTeam: () => void;
   onNew: () => void;
+  onNotice: (notice: SeenNotice) => void;
 }) {
   const fresh = manager ? null : newDrawingsLine(notes.badges.length);
   if (!fresh && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
@@ -393,7 +421,7 @@ function SeenNotes({
     <View style={{ gap: 8 }}>
       {notes.line ? <GlanceRow label={notes.line} onPress={onTeam} /> : null}
       {notes.rejections.map((notice) => (
-        <SeenRejectNotice key={notice.id} message={notice.message} />
+        <SeenRejectNotice key={notice.id} message={notice.message} onPress={() => onNotice(notice)} />
       ))}
       {fresh ? <GlanceRow label={fresh} onPress={onNew} /> : null}
       {notes.waiting ? (

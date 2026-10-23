@@ -1,4 +1,4 @@
-import { InductionWarning, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
+import { InductionWarning, TalkNoticeList, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { SiteSignButton } from '@/components/SiteSignButton';
 import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -9,7 +9,8 @@ import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
-import { loadSiteSeenSummary, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
@@ -44,6 +45,7 @@ export default function SitePackScreen() {
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
   const [talkBadge, setTalkBadge] = useState<TalkBadge | null>(null);
+  const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
   const [inductionNames, setInductionNames] = useState<string[]>([]);
 
   const load = useCallback(async () => {
@@ -75,7 +77,11 @@ export default function SitePackScreen() {
       if (person?.auth_user_id) {
         const talks = await refreshTalks(person.auth_user_id).catch(() => null);
         setTalkBadge(talks?.badges.find((row) => row.site_id === siteId) ?? null);
-      } else setTalkBadge(null);
+        setTalkNotices(talks?.notices.filter((row) => row.siteId === siteId) ?? []);
+      } else {
+        setTalkBadge(null);
+        setTalkNotices([]);
+      }
       if (manageNow) {
         const gaps = await repo.inductionSignInGaps(siteId).catch(() => null);
         setInductionNames(gaps?.map((row) => row.person_name) ?? []);
@@ -221,6 +227,24 @@ export default function SitePackScreen() {
       <Title>{site.name}</Title>
       <SiteSignButton siteId={site.id} />
       {manage ? <InductionWarning names={inductionNames} /> : null}
+      <TalkNoticeList
+        notices={talkNotices}
+        onDismiss={(notice) => {
+          void dismissTalkNotice(getTalkQueue(), notice).then(() =>
+            setTalkNotices((current) => current.filter((row) => row.id !== notice.id))
+          );
+        }}
+        onRetry={(notice) => {
+          const userId = person?.auth_user_id;
+          if (!notice.retryLocalId || !userId) return;
+          void retryQueuedTalk(getTalkQueue(), notice.retryLocalId)
+            .then(() => refreshTalks(userId))
+            .then((next) => {
+              setTalkBadge(next.badges.find((row) => row.site_id === siteId) ?? null);
+              setTalkNotices(next.notices.filter((row) => row.siteId === siteId));
+            });
+        }}
+      />
       <TalkReadRow
         count={talkBadge?.outstanding ?? 0}
         onPress={() => router.push(`/sites/${siteId}/talks`)}
@@ -249,7 +273,15 @@ export default function SitePackScreen() {
         return (
           <View style={{ gap: 8 }}>
             {seenNotices.map((notice) => (
-              <SeenRejectNotice key={notice.id} message={notice.message} />
+              <SeenRejectNotice
+                key={notice.id}
+                message={notice.message}
+                onPress={() => {
+                  void openReplacedNotice(notice).then((path) => {
+                    if (path) router.push(path);
+                  });
+                }}
+              />
             ))}
             {freshLine ? <GlanceRow label={freshLine} onPress={() => router.push(`/sites/${siteId}/new`)} /> : null}
             {waiting ? (

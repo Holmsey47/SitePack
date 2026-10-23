@@ -130,7 +130,7 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   resetFixtureStore();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.gfRevC), /not_opened/);
-  await assert.rejects(() => fixtureRepo.recordDrawingOpen(IDS.yard), /not_authorized/);
+  await assert.rejects(() => fixtureRepo.recordDrawingOpen(IDS.yard), /drawing_not_found/);
   await assert.rejects(() => fixtureRepo.confirmDrawingSeen(IDS.yard), /drawing_not_found/);
   await fixtureRepo.recordDrawingOpen(IDS.gfRevC);
   const tap = new Date().toISOString();
@@ -240,7 +240,11 @@ test('the drawing seen migration does not touch storage or earlier files', () =>
   assert.match(bundleCheck, /sitepack\.dev\.forceOffline/);
   assert.match(
     sql,
-    /if not found or not private\.can_access_site\(v_drawing\.site_id\) then\s+raise exception 'drawing_not_found'/
+    /function public\.record_drawing_open[\s\S]*?if not found or not private\.can_access_site\(v_drawing\.site_id\) then\s+raise exception 'drawing_not_found'[\s\S]*?function public\.confirm_drawing_seen/
+  );
+  assert.match(
+    sql,
+    /function public\.confirm_drawing_seen[\s\S]*if not found or not private\.can_access_site\(v_drawing\.site_id\) then\s+raise exception 'drawing_not_found'/
   );
   const runner = fs.readFileSync('scripts/run-drawing-seen-rls.sh', 'utf8');
   assert.match(runner, /supabase\.co/);

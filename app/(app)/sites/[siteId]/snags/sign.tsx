@@ -10,7 +10,7 @@ import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type Sna
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { outstandingHeading, outstandingLine, snagConfirmation } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, snagConfirmation } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useLocalSearchParams } from 'expo-router';
@@ -58,11 +58,22 @@ export default function SnagSignScreen() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [company, setCompany] = useState('');
+  const [internalCompany, setInternalCompany] = useState('');
+  const [contractorCompany, setContractorCompany] = useState('');
   const [signerName, setSignerName] = useState('');
   const [signerRole, setSignerRole] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
+  const [padKey, setPadKey] = useState(0);
   const [record, setRecord] = useState<SnagSignoff | null>(null);
+
+  function clearSignFields() {
+    setInternalCompany('');
+    setContractorCompany('');
+    setSignerName('');
+    setSignerRole('');
+    setSignature(null);
+    setPadKey((key) => key + 1);
+  }
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -78,8 +89,11 @@ export default function SnagSignScreen() {
 
   const fixed = rows.filter((row) => row.status === 'Fixed');
   const open = rows.filter((row) => row.status === 'Open');
+  const coveredIds = fixed.map((row) => row.snag_id);
+  const outstandingIds = open.map((row) => row.snag_id);
   const internal = person ? canSignOffSnag(person.role) : false;
-  const companyReady = company.trim().length > 0;
+  const internalReady = internalCompany.trim().length > 0;
+  const contractorReady = contractorPadEnabled(contractorCompany);
 
   async function pdfFor(signed: SnagSignoff) {
     if (!siteId) return;
@@ -138,11 +152,13 @@ export default function SnagSignScreen() {
   }
 
   async function onInternal() {
-    if (!siteId || !person?.auth_user_id || !companyReady) return;
+    if (!siteId || !person?.auth_user_id || !internalReady) return;
     setBusy(true);
     setError('');
     const signedAt = new Date().toISOString();
     const signoffId = newId();
+    const shownCovered = coveredIds;
+    const shownOutstanding = outstandingIds;
     try {
       const online = await deviceIsOnline();
       if (!online) {
@@ -154,7 +170,9 @@ export default function SnagSignScreen() {
             siteId,
             signedAt,
             mode: 'internal',
-            signerCompany: company.trim(),
+            signerCompany: internalCompany.trim(),
+            coveredIds: shownCovered,
+            outstandingIds: shownOutstanding,
           },
           false,
           sendQueuedSnag
@@ -166,9 +184,12 @@ export default function SnagSignScreen() {
         signoffId,
         siteId,
         signedAt,
-        company: company.trim(),
+        company: internalCompany.trim(),
+        coveredIds: shownCovered,
+        outstandingIds: shownOutstanding,
       });
       setRecord(signed);
+      clearSignFields();
       await pdfFor(signed);
       await load();
     } catch (err) {
@@ -179,11 +200,13 @@ export default function SnagSignScreen() {
   }
 
   async function onContractor() {
-    if (!siteId || !person?.auth_user_id || !companyReady || !signature) return;
+    if (!siteId || !person?.auth_user_id || !contractorReady || !signature) return;
     setBusy(true);
     setError('');
     const signedAt = new Date().toISOString();
     const signoffId = newId();
+    const shownCovered = coveredIds;
+    const shownOutstanding = outstandingIds;
     const item = {
       kind: 'sign' as const,
       localId: signoffId,
@@ -193,8 +216,10 @@ export default function SnagSignScreen() {
       mode: 'contractor' as const,
       signerName: signerName.trim(),
       signerRole: signerRole.trim(),
-      signerCompany: company.trim(),
+      signerCompany: contractorCompany.trim(),
       signaturePng: signature,
+      coveredIds: shownCovered,
+      outstandingIds: shownOutstanding,
     };
     try {
       const online = await deviceIsOnline();
@@ -211,8 +236,11 @@ export default function SnagSignScreen() {
         signerName: item.signerName,
         signerRole: item.signerRole,
         signaturePng: signature,
+        coveredIds: shownCovered,
+        outstandingIds: shownOutstanding,
       });
       setRecord(signed);
+      clearSignFields();
       await pdfFor(signed);
       await load();
     } catch (err) {
@@ -242,13 +270,13 @@ export default function SnagSignScreen() {
         <View nativeID="internal-check" style={{ gap: 8 }}>
           <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
           <Muted>This is an internal check. It is not sign-off by the main contractor.</Muted>
-          <Field label="Company" value={company} onChangeText={setCompany} autoCapitalize="words" maxLength={120} />
-          <Muted>{snagConfirmation(company, 'internal')}</Muted>
+          <Field label="Company" value={internalCompany} onChangeText={setInternalCompany} autoCapitalize="words" maxLength={120} />
+          <Muted>{snagConfirmation(internalCompany, 'internal')}</Muted>
           <Button
             label="Sign off snags put right"
             minHeight={56}
             loading={busy}
-            disabled={!companyReady || fixed.length < 1}
+            disabled={!internalReady || fixed.length < 1}
             onPress={() => void onInternal()}
           />
         </View>
@@ -257,31 +285,38 @@ export default function SnagSignScreen() {
         <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Main contractor</Text>
         <Field label="Name" value={signerName} onChangeText={setSignerName} autoCapitalize="words" maxLength={120} />
         <Field label="Role" value={signerRole} onChangeText={setSignerRole} autoCapitalize="words" maxLength={80} />
-        {internal ? null : <Field label="Company" value={company} onChangeText={setCompany} autoCapitalize="words" maxLength={120} />}
-        <Muted>{snagConfirmation(company, 'contractor')}</Muted>
-        <SignaturePad disabled={!company.trim()} onChange={setSignature} />
+        <Field
+          label="Main contractor company"
+          value={contractorCompany}
+          onChangeText={setContractorCompany}
+          autoCapitalize="words"
+          maxLength={120}
+        />
+        <Muted>{snagConfirmation(contractorCompany, 'contractor')}</Muted>
+          <SignaturePad key={padKey} disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
         <Button
           label="Sign off snags put right"
           minHeight={56}
           loading={busy}
-          disabled={!companyReady || !signerName.trim() || !signerRole.trim() || !signature || fixed.length < 1}
+          disabled={!contractorReady || !signerName.trim() || !signerRole.trim() || !signature || fixed.length < 1}
           onPress={() => void onContractor()}
         />
       </View>
+      {record ? (
+        <View nativeID="signer-block" style={{ gap: 8 }}>
+          <Muted>{record.confirmation_text}</Muted>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{record.signer_name}</Text>
+          <Muted>{record.signer_role}</Muted>
+          <Muted>{record.signer_company}</Muted>
+          <Muted>Signed {formatUkDateTime(record.signed_at)}</Muted>
+        </View>
+      ) : null}
       <View nativeID="outstanding-snags" style={{ gap: 8 }}>
         <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{outstandingHeading(outstandingCount)}</Text>
         {shownOutstanding.map((line) => (
           <Muted key={line}>{line}</Muted>
         ))}
-        {record ? (
-          <View style={{ gap: 8 }}>
-            <Muted>{record.confirmation_text}</Muted>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{record.signer_name}</Text>
-            <Muted>{record.signer_role}</Muted>
-            <Muted>{record.signer_company}</Muted>
-            <Muted>Signed {formatUkDateTime(record.signed_at)}</Muted>
-          </View>
-        ) : (
+        {record ? null : (
           <Muted>
             {fixed.length < 1
               ? 'No snags are marked put right yet.'

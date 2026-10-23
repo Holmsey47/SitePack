@@ -172,7 +172,7 @@ function attendeeSigned(bucket: FixtureTalkBucket, versionId: string, personId: 
   );
 }
 
-function meaningFor(talk: TalkRow, siteName: string, role: 'attendee' | 'presenter') {
+function meaningFor(talk: TalkRow, siteName: string, role: 'attendee' | 'presenter' | 'on_behalf', managerName = '') {
   return talkMeaning({
     kind: talk.kind,
     delivery: talk.delivery,
@@ -181,7 +181,19 @@ function meaningFor(talk: TalkRow, siteName: string, role: 'attendee' | 'present
     title: talk.title,
     presenterName: talk.presenter_name,
     presentedOn: formatDate(talk.presented_at),
+    managerName,
   });
+}
+
+function sameName(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function resolvePresenterId(actor: TalkActor, presenterName: string, people: TalkPerson[]): string {
+  const matches = people.filter(
+    (person) => person.company_id === actor.company_id && sameName(person.display_name ?? '', presenterName)
+  );
+  return matches.find((person) => person.id === actor.id)?.id ?? matches[0]?.id ?? actor.id;
 }
 
 function noteFor(bucket: FixtureTalkBucket, versionId: string, personId: string) {
@@ -299,7 +311,7 @@ export function fixtureCreateTalk(
     delivery: input.delivery,
     title: content.title,
     audience: input.audience,
-    presenter_person_id: actor.id,
+    presenter_person_id: resolvePresenterId(actor, presenterName, people),
     presenter_name: presenterName,
     presenter_role: presenterRole,
     presented_at: presentedAt,
@@ -384,7 +396,8 @@ function insertSignature(
   png: string,
   deviceAt: string,
   sessionId: string,
-  siteName: string
+  siteName: string,
+  meaning?: string
 ): SignTalkResult {
   if (!signaturePngOk(png) || !talkSessionOk(sessionId)) fail('invalid_input');
   const received = new Date().toISOString();
@@ -401,7 +414,7 @@ function insertSignature(
     session_id: sessionId,
     shared_device: personId !== actor.id,
     signature_role: role,
-    meaning: meaningFor(talk, siteName, role),
+    meaning: meaning ?? meaningFor(talk, siteName, role),
     signature_png: png,
     device_at: device,
     received_at: received,
@@ -557,23 +570,28 @@ export function fixtureSignPresenter(
   if (!talk) fail('not_authorized');
   const site = requireSite(actor, sites.find((row) => row.id === talk.site_id), canAccess(talk.site_id));
   if (talk.delivery !== 'in_person') fail('invalid_input');
-  if (actor.id !== talk.presenter_person_id) fail('not_authorized');
+  const named =
+    actor.id === talk.presenter_person_id && sameName(actor.display_name, talk.presenter_name);
+  const onBehalf = manager(actor) && !sameName(actor.display_name, talk.presenter_name);
+  if (!named && !onBehalf) fail('not_authorized');
   const version = bucket.versions.find((row) => row.id === input.versionId && row.talk_id === talk.id);
   if (!version || !version.is_current) fail('version_locked');
   if (bucket.signatures.some((row) => row.version_id === version.id && row.signature_role === 'presenter')) fail('already_signed');
   const person = people.find((row) => row.id === actor.id);
+  const personName = label(person?.display_name || actor.display_name);
   return insertSignature(
     bucket,
     talk,
     version,
     actor,
     actor.id,
-    label(person?.display_name || talk.presenter_name),
+    personName,
     'presenter',
     input.signaturePng,
     input.deviceAt,
     input.sessionId,
-    site.name
+    site.name,
+    named ? meaningFor(talk, site.name, 'presenter') : meaningFor(talk, site.name, 'on_behalf', personName)
   );
 }
 

@@ -115,6 +115,8 @@ export function seedFixtureVariations(input: {
     level: string | null;
     quantity: string | null;
     value: number | null;
+    /** Undefined copies value. Null is a sign-off with no £ snapshot. */
+    shown?: number | null;
     status: VariationStatus;
     createdBy: string;
     createdAt: string;
@@ -166,8 +168,8 @@ export function seedFixtureVariations(input: {
         signer_name: row.signature.name,
         signer_role: row.signature.role,
         signer_company: row.signature.company,
-        confirmation_text: variationConfirmation(row.signature.company, row.value != null),
-        shown_value_pence: row.value,
+        confirmation_text: variationConfirmation(row.signature.company, (row.shown === undefined ? row.value : row.shown) != null),
+        shown_value_pence: row.shown === undefined ? row.value : row.shown,
         signature_png: row.signature.png,
         signed_at: row.signature.at,
         recorded_by: row.createdBy,
@@ -209,6 +211,27 @@ export function seedFixtureVariations(input: {
       company: 'Northbuild',
       png: signature,
       at: '2026-10-22T13:05:00.000Z',
+    },
+  });
+  add({
+    siteId: input.oakId,
+    vo: 3,
+    title: 'Extra angle beads to the soffit',
+    description: 'Angle beads where the soffit meets the wall.',
+    level: 'Ground',
+    quantity: '8 m',
+    value: 14550,
+    shown: null,
+    status: 'Signed',
+    createdBy: input.amyId,
+    createdAt: '2026-10-22T14:00:00.000Z',
+    photos: [{ path: `${input.companyId}/${input.oakId}/variations/soffit.png`, url: mastic }],
+    signature: {
+      name: 'Dave Moran',
+      role: 'Site manager',
+      company: 'Northbuild',
+      png: signature,
+      at: '2026-10-22T14:20:00.000Z',
     },
   });
   add({
@@ -294,6 +317,8 @@ export function fixtureListVariations(
       const version = bucket.versions.find((item) => item.variation_id === row.id && item.is_current);
       if (!version) throw new Error('not_authorized');
       const view = toVersion(bucket, version, actor);
+      const raw = bucket.signatures.find((item) => item.version_id === version.id) ?? null;
+      const signed = version.status === 'Signed' || version.status === 'Sent';
       return {
         variation_id: row.id,
         version_id: view.version_id,
@@ -303,6 +328,8 @@ export function fixtureListVariations(
         status: view.status,
         photo_count: view.photo_count,
         value_pence: view.value_pence,
+        shown_value_pence: view.signature?.shown_value_pence ?? null,
+        signed_without_price: signed && (raw == null || raw.shown_value_pence == null),
         created_at: view.created_at,
       };
     })

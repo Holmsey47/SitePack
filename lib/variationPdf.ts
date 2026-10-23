@@ -17,6 +17,8 @@ export type VariationPdfInput = {
   levelArea: string | null;
   quantityText: string | null;
   valuePence: number | null;
+  /** Printed instead of the pound line. Used when the phone must not show £. */
+  amountLine?: string | null;
   whenIso: string | null;
   signerName: string | null;
   signerRole: string | null;
@@ -145,7 +147,8 @@ export async function buildVariationPdf(input: VariationPdfInput): Promise<Uint8
   if (input.description) line(input.description, 12);
   if (input.levelArea) line(`Level or area: ${input.levelArea}`, 12);
   if (input.quantityText) line(`Quantity or hours: ${input.quantityText}`, 12);
-  if (input.valuePence != null) line(`Amount: ${formatPounds(input.valuePence)}`, 12);
+  if (input.amountLine) line(input.amountLine, 12);
+  else if (input.valuePence != null) line(`Amount: ${formatPounds(input.valuePence)}`, 12);
   header.push({ kind: 'gap', height: 8 });
 
   const embedded: Array<PDFImage | null> = [];

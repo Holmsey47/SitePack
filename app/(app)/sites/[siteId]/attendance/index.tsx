@@ -34,7 +34,7 @@ export default function AttendanceScreen() {
       } else setInductionNames([]);
       setError('');
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     }
   }, [manage, siteId]);
 

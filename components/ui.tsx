@@ -191,17 +191,31 @@ export function NewRevBadge({ sheet, revision }: { sheet: string; revision: stri
   );
 }
 
-/** A queued tap the server refused, or a late sign-out. Dismiss hides it on this phone. */
-export function SeenRejectNotice({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+/** A refused queue item. Open jumps to the current sheet. Dismiss hides an hours notice on this phone. */
+export function SeenRejectNotice({
+  message,
+  onPress,
+  onDismiss,
+}: {
+  message: string;
+  onPress?: () => void;
+  onDismiss?: () => void;
+}) {
   return (
-    <View style={styles.seenReject} accessibilityRole="text" accessibilityLabel={message}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={message}
+      onPress={onPress}
+      style={({ pressed }) => [styles.seenReject, pressed && styles.btnPressed]}>
       <Text style={styles.seenRejectText}>{message}</Text>
       {onDismiss ? (
         <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={onDismiss} style={styles.dismiss}>
           <Text style={styles.dismissText}>Dismiss</Text>
         </Pressable>
-      ) : null}
-    </View>
+      ) : (
+        <Text style={styles.seenRejectOpen}>Open</Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -388,7 +402,9 @@ const styles = StyleSheet.create({
   newRevText: { color: theme.currentInk, fontSize: 15, fontWeight: '800' },
   seenReject: {
     minHeight: 48,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     borderRadius: 12,
     backgroundColor: theme.surfaceAlt,
     borderWidth: 2,
@@ -396,7 +412,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 },
+  seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24, flex: 1 },
+  seenRejectOpen: { color: theme.current, fontSize: 17, fontWeight: '800' },
   dismiss: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' },
   dismissText: { color: theme.current, fontSize: 17, fontWeight: '800' },
   glanceRow: {

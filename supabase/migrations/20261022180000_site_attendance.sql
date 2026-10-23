@@ -2,9 +2,10 @@
 -- Hours only. This migration does not store money, statutory deductions, or storage keys.
 -- Device time is kept. received_at is the server clock for that request.
 -- Hours use the server time. A gap of more than 10 minutes is flagged.
--- An open row from a previous Europe/London day stays open until 06:00 London
--- the next day (one constant below). After that it closes at 23:59, flagged not signed out.
--- A later sign-out is kept as a late sign-out for a manager, not rejected.
+-- An evening shift (signed in at or after 14:00 London, still inside 16 hours)
+-- stays open until 06:00 London the next morning. Any other previous day closes
+-- at 23:59, flagged not signed out. A later sign-out attaches only while that
+-- shift is still one the grace could own.
 -- Owner and contracts manager can correct an entry. The reason is required.
 -- The audit keeps the before and after. Operatives receive a null audit.
 -- On site now and the weekly sheet return null unless the caller is an owner or contracts manager.
@@ -258,9 +259,27 @@ $fn$;
 
 revoke all on function private.attendance_require_site(uuid) from public, anon, authenticated;
 
--- Idempotent. An open row from an earlier London day stays open until 06:00
--- Europe/London the next day, then closes at 23:59 that start day.
--- Overnight grace window. Single constant: 06:00.
+-- A shift the overnight rule can still own: signed in at or after 14:00
+-- Europe/London and still inside the 16 hour hold. 16 is (24 - 14) + 6,
+-- so a 14:00 sign-in reaches exactly the 06:00 grace end.
+create or replace function private.attendance_overnight(p_in timestamptz, p_now timestamptz)
+returns boolean
+language sql
+immutable
+security invoker
+set search_path = ''
+as $fn$
+  select p_in is not null
+    and p_now is not null
+    and (timezone('Europe/London', p_in))::time >= time '14:00'
+    and p_now >= p_in
+    and p_now < p_in + interval '16 hours';
+$fn$;
+
+revoke all on function private.attendance_overnight(timestamptz, timestamptz) from public, anon, authenticated;
+
+-- Idempotent. A previous London day closes at 23:59 of its start day unless
+-- the shift is still inside the overnight grace (evening start, 16h hold, before 06:00).
 create or replace function private.close_forgotten_attendance()
 returns integer
 language plpgsql
@@ -288,9 +307,12 @@ begin
   where entry.company_id = v_company
     and entry.out_at is null
     and private.london_day(entry.in_at) < private.london_day(v_now)
-    and v_now >= timezone(
-      'Europe/London',
-      (private.london_day(entry.in_at) + 1) + time '06:00'
+    and not (
+      private.attendance_overnight(entry.in_at, v_now)
+      and v_now < timezone(
+        'Europe/London',
+        (private.london_day(entry.in_at) + 1) + time '06:00'
+      )
     );
 
   get diagnostics v_count = row_count;
@@ -432,19 +454,22 @@ declare
   v_device timestamptz;
   v_received timestamptz;
   v_id uuid;
+  v_open_name text;
 begin
   select * into v_actor from private.attendance_require_site(p_site_id);
   v_received := private.attendance_now();
   v_device := private.attendance_device_time(p_device_at);
   perform private.close_forgotten_attendance();
 
-  if exists (
-    select 1
-    from public.site_attendance a
-    where a.person_id = v_actor.person_id
-      and a.out_at is null
-  ) then
-    raise exception 'already_signed_in';
+  select s.name into v_open_name
+  from public.site_attendance a
+  join public.sites s on s.id = a.site_id
+  where a.person_id = v_actor.person_id
+    and a.out_at is null
+  limit 1;
+
+  if v_open_name is not null then
+    raise exception 'already_signed_in' using detail = v_open_name;
   end if;
 
   v_id := gen_random_uuid();
@@ -498,17 +523,17 @@ begin
     return private.attendance_json(v_row.id);
   end if;
 
-  -- Already closed at 23:59. Keep the tap for a manager instead of failing.
+  -- Already closed at 23:59. Attach only when this shift is still one the grace could own.
   select a.* into v_row
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
     and a.forgot_sign_out
-    and a.late_out_at is null
+    and private.attendance_overnight(a.in_at, v_received)
   order by a.in_at desc
   limit 1;
 
-  if v_row.id is null then
+  if v_row.id is null or v_row.late_out_at is not null then
     raise exception 'not_signed_in';
   end if;
 

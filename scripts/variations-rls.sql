@@ -344,6 +344,20 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
+  (
+    select elem ->> 'shown_value_pence'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'a')
+  ) is null
+  and (
+    select elem ->> 'signed_without_price'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'a')
+  ) = 'true',
+  'an operative list hides the snapshot and marks a sign-off with no price'
+);
+
+select pg_temp.ok(
   pg_temp.raises(
     'select public.send_variation(' || quote_literal((select v->>'version_id' from probe where k = 'a')) || '::uuid)',
     'not_authorized'
@@ -354,6 +368,25 @@ select pg_temp.ok(
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
+
+select pg_temp.ok(
+  (
+    select elem ->> 'shown_value_pence'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'a')
+  ) is null
+  and (
+    select (elem ->> 'value_pence')::integer
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'a')
+  ) = 2500
+  and (
+    select elem ->> 'signed_without_price'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'a')
+  ) = 'true',
+  'a same-company manager lists a signed variation whose snapshot is null'
+);
 
 select pg_temp.ok(
   pg_temp.raises(
@@ -680,6 +713,54 @@ select pg_temp.ok(
   and (select (v->>'shown_value_pence')::integer from probe where k = 'priced-sign') = 14550
   and (private.variation_version_json((select (v->>'version_id')::uuid from probe where k = 'priced')) -> 'signature' ->> 'shown_value_pence')::integer = 14550,
   'a priced manager sign-off stores the server sentence and the shown amount'
+);
+
+select pg_temp.ok(
+  private.visible_variation_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) = 14550
+  and private.visible_shown_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) = 14550
+  and (
+    select (elem ->> 'shown_value_pence')::integer
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'priced')
+  ) = 14550
+  and (
+    select elem ->> 'signed_without_price'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'priced')
+  ) = 'false',
+  'a same-company manager can read the pound amount'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  private.visible_variation_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) is null
+  and private.visible_shown_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) is null
+  and pg_temp.raises(
+    'select public.list_variations(' || quote_literal(:'sitea') || '::uuid)',
+    'not_authorized'
+  ),
+  'a manager in another company cannot read the pound amount'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (
+    select elem ->> 'shown_value_pence'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'priced')
+  ) is null
+  and (
+    select elem ->> 'signed_without_price'
+    from jsonb_array_elements(public.list_variations(:'sitea'::uuid) -> 'rows') elem
+    where elem ->> 'version_id' = (select v->>'version_id' from probe where k = 'priced')
+  ) = 'false',
+  'an operative list of a priced sign-off has a null snapshot'
 );
 
 reset role;

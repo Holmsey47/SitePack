@@ -175,21 +175,21 @@ export function questionsLabel(count: number): string {
 export function talkError(code: string): string {
   switch (code) {
     case 'not_authorized':
-      return 'You cannot do that.';
+      return 'You cannot do that. Ask the site manager.';
     case 'invalid_input':
       return 'Check the talk and try again.';
     case 'invalid_path':
-      return 'That file path is not allowed.';
+      return 'That file cannot be attached. Choose the file again.';
     case 'invalid_time':
-      return 'That time is not valid.';
+      return 'The time on this phone is not valid. Check the clock and try again.';
     case 'already_signed':
       return 'This version is already signed.';
     case 'not_required':
-      return 'This person is not required to sign.';
+      return 'This person does not need to sign this talk.';
     case 'version_locked':
-      return 'This version has been replaced. Read the new one.';
+      return 'This talk has a new version. Read it and sign again.';
     default:
-      return 'Could not save the talk.';
+      return 'That did not save. Try again.';
   }
 }
 
