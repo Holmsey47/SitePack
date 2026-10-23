@@ -47,7 +47,7 @@ import type {
   Role,
   Site,
 } from '@/data/types';
-import { snagRpcError, snagStorageError } from '@/data/snagFailure';
+import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
@@ -66,8 +66,7 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
-  const { data, error } = await getSupabase().rpc(name, args);
-  return unwrap(data, error);
+  return throwSnagRpc(await getSupabase().rpc(name, args));
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
