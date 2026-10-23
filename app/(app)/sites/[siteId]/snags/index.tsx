@@ -80,6 +80,41 @@ export default function SnagsScreen() {
   const rows = list ? filterSnags(list.rows, status, level) : [];
   const levels = list ? snagLevels(list.rows) : [];
 
+  async function dismissNotice(id: string) {
+    await getSnagQueue().removeNotice(id);
+    setNotices((current) => current.filter((row) => row.id !== id));
+  }
+
+  async function retryNotice(notice: SnagNotice) {
+    if (!notice.retryItem || !ownerId) return;
+    const queue = getSnagQueue();
+    await queue.put({ ...notice.retryItem, attempts: 0, retryAt: undefined });
+    await queue.removeNotice(notice.id);
+    if (await deviceIsOnline()) {
+      await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
+    }
+    await load();
+  }
+
+  async function saveNoticePhotos(notice: SnagNotice) {
+    for (const [index, photo] of notice.photos.entries()) {
+      const name = `snag-photo-${index + 1}.jpg`;
+      if (Platform.OS === 'web') {
+        const blob = bytesToBlob(photo.bytes, photo.contentType || 'image/jpeg');
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = name;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        continue;
+      }
+      const local = new PhoneFile(Paths.cache, name);
+      local.write(photo.bytes);
+      await Sharing.shareAsync(local.uri, { mimeType: photo.contentType || 'image/jpeg', UTI: 'public.jpeg' });
+    }
+  }
+
   async function onShare() {
     if (!siteId) return;
     setBusy(true);
@@ -172,16 +207,15 @@ export default function SnagsScreen() {
       {notices.map((notice) => (
         <Card key={notice.id}>
           <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{notice.message}</Text>
-          <Button
-            label="Dismiss"
-            variant="secondary"
-            minHeight={48}
-            onPress={() => {
-              void getSnagQueue()
-                .removeNotice(notice.id)
-                .then(() => setNotices((current) => current.filter((row) => row.id !== notice.id)));
-            }}
-          />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {notice.photos.length > 0 ? (
+              <Button label="Save photo" variant="secondary" minHeight={48} onPress={() => void saveNoticePhotos(notice)} />
+            ) : null}
+            {notice.photos.length > 0 && notice.retryItem ? (
+              <Button label="Try again" variant="secondary" minHeight={48} onPress={() => void retryNotice(notice)} />
+            ) : null}
+            <Button label="Dismiss" variant="secondary" minHeight={48} onPress={() => void dismissNotice(notice.id)} />
+          </View>
         </Card>
       ))}
       {queued.length > 0 ? (

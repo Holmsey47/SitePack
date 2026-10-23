@@ -975,19 +975,33 @@ export const supabaseRepo: SitePackRepo = {
         p_photos: input.photos.map(photoPayload),
       }),
       null
-    ) as { snag_id: string; snag_seq: number };
-    return { snagId: data.snag_id, snagSeq: data.snag_seq };
+    ) as { snag_id: string; snag_seq: number; already_existed?: boolean; photo_paths?: string[] };
+    return {
+      snagId: data.snag_id,
+      snagSeq: data.snag_seq,
+      alreadyExisted: data.already_existed === true,
+      photoPaths: Array.isArray(data.photo_paths) ? data.photo_paths : [],
+    };
   },
 
-  async fixSnag(snagId, fixedAt, photos) {
-    unwrap(
+  async fixSnag(snagId, fixedAt, photos, fixId) {
+    const data = unwrap(
       await rpcJson('fix_snag', {
         p_snag_id: snagId,
         p_fixed_at: fixedAt,
         p_photos: photos.map(photoPayload),
+        p_fix_id: fixId ?? null,
       }),
       null
-    );
+    ) as { already_fixed?: boolean };
+    return { alreadyFixed: data.already_fixed === true };
+  },
+
+  async removeSitePhotos(storagePaths) {
+    const paths = storagePaths.filter((path) => path.length > 0);
+    if (paths.length < 1) return;
+    const { error } = await getSupabase().storage.from('site-photos').remove(paths);
+    if (error) throw new Error(rpcErrorCode(error));
   },
 
   async signOffSnagsInternal(input: SignOffSnagsInput) {
@@ -997,6 +1011,8 @@ export const supabaseRepo: SitePackRepo = {
         p_site_id: input.siteId,
         p_signed_at: input.signedAt,
         p_company: input.company,
+        p_covered_ids: input.coveredIds,
+        p_outstanding_ids: input.outstandingIds,
       }),
       null
     ) as SnagSignoff;
@@ -1012,6 +1028,8 @@ export const supabaseRepo: SitePackRepo = {
         p_signer_role: input.signerRole ?? '',
         p_company: input.company,
         p_signature_png: input.signaturePng ?? '',
+        p_covered_ids: input.coveredIds,
+        p_outstanding_ids: input.outstandingIds,
       }),
       null
     ) as SnagSignoff;

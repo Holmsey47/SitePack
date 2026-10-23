@@ -175,7 +175,12 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   for (let page = 1; page <= doc.getPageCount(); page += 1) assert.ok(footerPages.has(page));
   const photoCount = snags.reduce((sum, snag) => sum + snag.photos.length, 0);
   assert.equal(trace.filter((item) => item.kind === 'photo').length, photoCount);
-  const full = trace.find((item) => item.kind === 'photo' && item.snagSeq === 1 && !item.pair);
+  const firstHeading = trace.find((item) => item.kind === 'heading' && item.snagSeq === 1);
+  const firstPhoto = trace.find((item) => item.kind === 'photo' && item.snagSeq === 1 && !item.pair);
+  assert.equal(firstHeading?.page, 1);
+  assert.equal(firstPhoto?.page, 1);
+  assert.ok(firstPhoto?.width && firstPhoto.width > 200);
+  const full = trace.find((item) => item.kind === 'photo' && item.snagSeq === 2 && !item.pair);
   assert.ok(full?.width && full.width > 450);
   const pair = trace.filter((item) => item.kind === 'photo' && item.snagSeq === 8);
   assert.equal(pair.length, 2);
@@ -214,7 +219,7 @@ test('a photo that cannot be loaded is named in the report', async () => {
     ],
   });
   const text = decodedPdfText(bytes);
-  assert.match(text, /Photo 2 could not be loaded/);
+  assert.match(text, /Photo 2 of 2 \(After\) could not be loaded/);
   assert.match(text, /Before · Photo 1 of 2/);
   assert.equal(headingStaysWithFirstPhoto(trace, 3), true);
   assert.equal(trace.some((item) => item.kind === 'missing' && item.snagSeq === 3), true);
@@ -286,4 +291,39 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   assert.match(internalText, /not sign-off by the main contractor\./);
   assert.match(internalText, /No snags are outstanding\./);
   assert.match(internalText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
+});
+
+test('a tall first photo stays with the header on page 1 of a contractor sign-off', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const { trace } = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor'),
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]])),
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Bead missing at the window reveal',
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeTall'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  assert.equal(trace.find((item) => item.kind === 'header')?.page, 1);
+  assert.equal(trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, 1);
+  assert.equal(trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
 });

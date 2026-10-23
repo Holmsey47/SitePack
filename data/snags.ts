@@ -112,6 +112,13 @@ export type CreateSnagInput = {
   photos: SnagPhotoInput[];
 };
 
+export type CreateSnagResult = {
+  snagId: string;
+  snagSeq: number;
+  alreadyExisted?: boolean;
+  photoPaths?: string[];
+};
+
 export type SignOffSnagsInput = {
   signoffId: string;
   siteId: string;
@@ -120,6 +127,8 @@ export type SignOffSnagsInput = {
   signerName?: string;
   signerRole?: string;
   signaturePng?: string;
+  coveredIds: string[];
+  outstandingIds: string[];
 };
 
 export function snagNumber(snagSeq: number): string {
@@ -179,6 +188,8 @@ export function snagError(code: string): string {
       return 'You cannot open this snag.';
     case 'signature_required':
       return 'Sign off needs a name and a signature.';
+    case 'snag_list_changed':
+      return 'The snag list changed before this sign-off was sent. Please sign again.';
     case 'closed':
       return 'Nothing is left to sign off.';
     case 'not_found':

@@ -1211,9 +1211,13 @@ export const fixtureRepo: SitePackRepo = {
     return fixtureCreateSnag(store.snags, snagActor(person), input, site?.company_id, canAccessSite(person, input.siteId));
   },
 
-  async fixSnag(snagId, fixedAt, photos) {
+  async fixSnag(snagId, fixedAt, photos, fixId) {
     const person = meOrThrow();
-    fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id));
+    return fixtureFixSnag(store.snags, snagActor(person), snagId, fixedAt, photos, (id) => canAccessSite(person, id), fixId);
+  },
+
+  async removeSitePhotos() {
+    return;
   },
 
   async signOffSnagsInternal(input: SignOffSnagsInput) {

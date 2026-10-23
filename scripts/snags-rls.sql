@@ -73,28 +73,28 @@ $$;
 create temp table probe (k text primary key, v jsonb);
 grant all on table probe to authenticated;
 
+-- Every function this migration creates has "snag" in its name. A catalog scan
+-- covers a new one without listing signatures, so a missed revoke fails here.
 select pg_temp.ok(
   (
     select count(*)
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname in (
-        'create_snag',
-        'fix_snag',
-        'sign_off_snags_internal',
-        'sign_off_snags_contractor',
-        'list_snags',
-        'snag_detail',
-        'snag_report',
-        'snag_trade_labels'
+    where n.nspname in ('public', 'private')
+      and p.proname ~ 'snag'
+  ) = 23
+  and not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private')
+      and p.proname ~ 'snag'
+      and (
+        has_function_privilege('anon', p.oid, 'execute')
+        or has_function_privilege('public', p.oid, 'execute')
       )
-      and exists (
-        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) c
-        where c like 'search_path=%'
-      )
-  ) = 8,
-  'snag functions pin search_path'
+  ),
+  'anon and public cannot execute any snag function'
 );
 
 select pg_temp.ok(
@@ -102,16 +102,22 @@ select pg_temp.ok(
     select count(*)
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
+    where n.nspname in ('public', 'private')
+      and p.proname ~ 'snag'
       and p.prosecdef
-      and p.proname in (
-        'create_snag',
-        'fix_snag',
-        'sign_off_snags_internal',
-        'sign_off_snags_contractor',
-        'snag_trade_labels'
+  ) >= 1
+  and not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private')
+      and p.proname ~ 'snag'
+      and p.prosecdef
+      and not exists (
+        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) cfg
+        where cfg like 'search_path=%'
       )
-  ) = 5
+  )
   and not exists (
     select 1
     from pg_proc p
@@ -120,27 +126,11 @@ select pg_temp.ok(
       and p.proname in ('list_snags', 'snag_detail', 'snag_report')
       and p.prosecdef
   ),
-  'writes are security definer and snag reads run as the caller'
+  'every security definer snag function pins search_path'
 );
 
 select pg_temp.ok(
-  not has_function_privilege('anon', 'public.create_snag(uuid,uuid,text,text,text,timestamptz,jsonb)', 'execute')
-  and not has_function_privilege('public', 'public.create_snag(uuid,uuid,text,text,text,timestamptz,jsonb)', 'execute')
-  and not has_function_privilege('anon', 'public.fix_snag(uuid,timestamptz,jsonb)', 'execute')
-  and not has_function_privilege('public', 'public.fix_snag(uuid,timestamptz,jsonb)', 'execute')
-  and not has_function_privilege('anon', 'public.sign_off_snags_internal(uuid,uuid,timestamptz,text)', 'execute')
-  and not has_function_privilege('public', 'public.sign_off_snags_internal(uuid,uuid,timestamptz,text)', 'execute')
-  and not has_function_privilege('anon', 'public.sign_off_snags_contractor(uuid,uuid,timestamptz,text,text,text,text)', 'execute')
-  and not has_function_privilege('public', 'public.sign_off_snags_contractor(uuid,uuid,timestamptz,text,text,text,text)', 'execute')
-  and not has_function_privilege('anon', 'public.list_snags(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.snag_detail(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.snag_report(uuid)', 'execute')
-  and not has_function_privilege('anon', 'public.snag_trade_labels(uuid)', 'execute')
-  and not has_function_privilege('anon', 'private.snag_confirmation(text,text)', 'execute')
-  and not has_function_privilege('authenticated', 'private.snag_confirmation(text,text)', 'execute')
-  and not has_function_privilege('anon', 'private.apply_snag_signoff(uuid,uuid,timestamptz,text,text,text,text,text)', 'execute')
-  and not has_function_privilege('authenticated', 'private.snag_take_photos(uuid,uuid,uuid,text,jsonb)', 'execute')
-  and not has_table_privilege('anon', 'public.snags', 'select')
+  not has_table_privilege('anon', 'public.snags', 'select')
   and not has_table_privilege('anon', 'public.snag_signoffs', 'select')
   and not has_table_privilege('authenticated', 'public.snags', 'insert')
   and not has_table_privilege('authenticated', 'public.snags', 'update')
@@ -333,7 +323,46 @@ select pg_temp.ok(
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'a'),
   now() - interval '1 hour',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg')
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  'd4444444-4444-4444-8444-444444444441'::uuid
+);
+
+select public.fix_snag(
+  (select (v->>'snag_id')::uuid from probe where k = 'a'),
+  now() - interval '1 hour',
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  'd4444444-4444-4444-8444-444444444441'::uuid
+);
+
+select public.fix_snag(
+  (select (v->>'snag_id')::uuid from probe where k = 'a'),
+  now() - interval '90 minutes',
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  'd4444444-4444-4444-8444-444444444442'::uuid
+);
+
+select pg_temp.ok(
+  (select status = 'Fixed'
+      and fixed_at = now() - interval '1 hour'
+      and fixed_received_at = now()
+      and fixed_client_id = 'd4444444-4444-4444-8444-444444444441'::uuid
+   from public.snags
+   where id = (select (v->>'snag_id')::uuid from probe where k = 'a'))
+  and (select count(*) from public.snag_photos
+       where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'a') and kind = 'after') = 1,
+  'a retry of the same fix returns success'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.fix_snag('
+      || quote_literal((select v->>'snag_id' from probe where k = 'a'))
+      || '::uuid, now(), pg_temp.one_photo('
+      || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ''other-after.jpg''), ''d4444444-4444-4444-8444-444444444449''::uuid)',
+    'snag_locked'
+  ),
+  'a different fix of a snag already put right is rejected'
 );
 
 select pg_temp.ok(
@@ -363,7 +392,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.sign_off_snags_internal('
       || quote_literal('c3333333-3333-4333-8333-333333333331')
-      || '::uuid, ' || quote_literal(:'sitea') || '::uuid, now(), ''Nope'')',
+      || '::uuid, ' || quote_literal(:'sitea') || '::uuid, now(), ''Nope'', ''{}''::uuid[], ''{}''::uuid[])',
     'not_authorized'
   ),
   'an operative cannot sign off as the contracts manager'
@@ -380,12 +409,52 @@ set local role authenticated;
 
 insert into probe (k, v)
 values (
+  'late',
+  public.create_snag(
+    gen_random_uuid(),
+    :'sitea'::uuid,
+    'Fixed after the list was shown',
+    'Second',
+    'dryliner',
+    now() - interval '90 minutes',
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'late.jpg')
+  )
+);
+
+select public.fix_snag(
+  (select (v->>'snag_id')::uuid from probe where k = 'late'),
+  now() - interval '30 minutes',
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'late-after.jpg')
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_off_snags_internal('
+      || quote_literal('c3333333-3333-4333-8333-333333333330')
+      || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, now() - interval ''20 minutes'', ''Northbuild Site'', array['
+      || quote_literal((select v->>'snag_id' from probe where k = 'a'))
+      || '::uuid], array['
+      || quote_literal((select v->>'snag_id' from probe where k = 'open'))
+      || '::uuid])',
+    'snag_list_changed'
+  ),
+  'a snag marked fixed after the list was shown is refused'
+);
+
+insert into probe (k, v)
+values (
   'sign1',
   public.sign_off_snags_internal(
     'c3333333-3333-4333-8333-333333333331'::uuid,
     :'sitea'::uuid,
     now() - interval '20 minutes',
-    'Northbuild Site'
+    'Northbuild Site',
+    array[
+      (select (v->>'snag_id')::uuid from probe where k = 'a'),
+      (select (v->>'snag_id')::uuid from probe where k = 'late')
+    ],
+    array[(select (v->>'snag_id')::uuid from probe where k = 'open')]
   )
 );
 
@@ -403,9 +472,10 @@ select pg_temp.ok(
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'a'))
   and (select confirmation_text = 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
-          and jsonb_array_length(covered) = 1
+          and jsonb_array_length(covered) = 2
           and covered->0->>'status' = 'Fixed'
           and covered->0->>'snag_id' = (select v->>'snag_id' from probe where k = 'a')
+          and covered->1->>'snag_id' = (select v->>'snag_id' from probe where k = 'late')
           and covered->0->'photo_paths' @> jsonb_build_array(:'firmx' || '/' || :'sitea' || '/snags/a.jpg')
           and jsonb_array_length(outstanding) = 1
           and outstanding->0->>'note' = 'Still open'
@@ -468,7 +538,9 @@ values (
     'c3333333-3333-4333-8333-333333333332'::uuid,
     :'sitea'::uuid,
     now() - interval '5 minutes',
-    'Northbuild Site'
+    'Northbuild Site',
+    array[(select (v->>'snag_id')::uuid from probe where k = 'open')],
+    '{}'::uuid[]
   )
 );
 
@@ -485,7 +557,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.sign_off_snags_internal('
       || quote_literal('c3333333-3333-4333-8333-333333333339')
-      || '::uuid, ' || quote_literal(:'sitea') || '::uuid, now(), ''Northbuild Site'')',
+      || '::uuid, ' || quote_literal(:'sitea') || '::uuid, now(), ''Northbuild Site'', ''{}''::uuid[], ''{}''::uuid[])',
     'closed'
   ),
   'a sign-off with nothing left to cover is refused'
@@ -526,7 +598,9 @@ values (
     'Dave Moran',
     'Site manager',
     'Northbuild',
-    'data:image/png;base64,' || repeat('QUFB', 20)
+    'data:image/png;base64,' || repeat('QUFB', 20),
+    array[(select (v->>'snag_id')::uuid from probe where k = 'b')],
+    '{}'::uuid[]
   )
 );
 
@@ -580,10 +654,10 @@ select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from public.snags) = 2
+  (select count(*) from public.snags) = 3
   and not exists (select 1 from public.snags where site_id <> :'sitea'::uuid)
-  and (select count(*) from public.snag_photos) = 4
-  and (select count(*) from public.snag_signatures) = 2
+  and (select count(*) from public.snag_photos) = 6
+  and (select count(*) from public.snag_signatures) = 3
   and (select count(*) from public.snag_signoffs) = 2
   and not exists (select 1 from public.snags where site_id = :'siteb'::uuid)
   and (select count(*) from storage.objects where bucket_id = 'site-photos') = 1
@@ -627,7 +701,7 @@ select pg_temp.jwt(:'cmx'::uuid);
 set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from public.snags) = 2
+  (select count(*) from public.snags) = 3
   and not exists (select 1 from public.snags where site_id <> :'sitea'::uuid),
   'contracts manager sees assigned sites only'
 );
@@ -637,7 +711,7 @@ select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from public.snags) = 3
+  (select count(*) from public.snags) = 4
   and (select count(*) from public.snags where company_id = :'firmy'::uuid) = 0
   and (select count(*) from storage.objects where bucket_id = 'site-photos') = 2
   and not exists (
