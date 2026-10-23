@@ -51,6 +51,8 @@ import type {
 } from '@/data/types';
 import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
+import { uploadBytes } from '@/lib/uploadBytes';
+import { Platform } from 'react-native';
 
 function unwrap<T>(
   data: T | null,
@@ -610,11 +612,13 @@ export const supabaseRepo: SitePackRepo = {
   async uploadDrawingFile({ companyId, siteId, drawingId, bytes, contentType, fileName }) {
     const supabase = getSupabase();
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;
-    const body = new Blob([bytes.buffer as ArrayBuffer], { type: contentType || 'application/pdf' });
-    const { error } = await supabase.storage.from('drawings').upload(storagePath, body, {
-      contentType: contentType || 'application/pdf',
-      upsert: true,
-    });
+    const content = contentType || 'application/pdf';
+    const { error } = await uploadBytes(
+      (path, body, options) => supabase.storage.from('drawings').upload(path, body, options),
+      storagePath,
+      bytes,
+      { contentType: content, upsert: true, os: Platform.OS }
+    );
     if (error) throw new Error(error.message);
     void fileName;
     return { storagePath, fileSizeBytes: bytes.byteLength };
@@ -764,10 +768,12 @@ export const supabaseRepo: SitePackRepo = {
     }
     const extension = assertLogoUpload(photo.bytes, photo.contentType);
     const path = logoObjectPath(person.company_id, newId(), extension);
-    const uploaded = await supabase.storage.from('company-logos').upload(path, photo.bytes, {
-      contentType: photo.contentType,
-      upsert: false,
-    });
+    const uploaded = await uploadBytes(
+      (objectPath, body, options) => supabase.storage.from('company-logos').upload(objectPath, body, options),
+      path,
+      photo.bytes,
+      { contentType: photo.contentType, upsert: false, os: Platform.OS }
+    );
     if (uploaded.error) throw new Error('invalid_input');
     const { error } = await supabase.from('companies').update({ logo_path: path }).eq('id', person.company_id);
     if (error) {
@@ -967,10 +973,12 @@ export const supabaseRepo: SitePackRepo = {
   async uploadSitePhoto(params) {
     const supabase = getSupabase();
     const storagePath = snagStoragePath(params);
-    const { error } = await supabase.storage.from('site-photos').upload(storagePath, params.bytes, {
-      contentType: params.contentType,
-      upsert: false,
-    });
+    const { error } = await uploadBytes(
+      (path, body, options) => supabase.storage.from('site-photos').upload(path, body, options),
+      storagePath,
+      params.bytes,
+      { contentType: params.contentType, upsert: false, os: Platform.OS }
+    );
     if (error) throw snagStorageError(error);
     return { storagePath, fileSizeBytes: params.bytes.byteLength, contentType: params.contentType };
   },

@@ -17,9 +17,12 @@ const CAMERA_OFF = 'The camera is off for SitePack. Turn it on in the phone sett
 const OPEN_SETTINGS = 'Open settings';
 
 function copyBytes(bytes: Uint8Array): Blob {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  return new Blob([copy], { type: 'image/jpeg' });
+  if (Platform.OS === 'web') {
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    return new Blob([copy], { type: 'image/jpeg' });
+  }
+  throw new Error('photo_unreadable');
 }
 
 function readError(err: unknown, tooLarge: string): string {

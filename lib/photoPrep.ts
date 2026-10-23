@@ -1,4 +1,5 @@
 import { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE, fittedSize, stripJpegExif } from '@/lib/photoBytes';
+import { readLocalBytes } from '@/lib/uploadBytes';
 
 function isReactNative(): boolean {
   const nav = (globalThis as { navigator?: { product?: string } }).navigator;
@@ -117,8 +118,7 @@ async function prepareOnNative(uri: string, maxEdge: number, maxBytes: number): 
       compress: quality,
       format: manipulator.SaveFormat.JPEG,
     });
-    const response = await fetch(result.uri);
-    const bytes = stripJpegExif(new Uint8Array(await response.arrayBuffer()));
+    const bytes = stripJpegExif(await readLocalBytes(result.uri));
     if (bytes.byteLength <= maxBytes) return bytes;
     if (quality > 0.45) quality -= 0.15;
     else fitted = fittedSize(fitted.width, fitted.height, Math.max(1, Math.round(maxEdge * 0.75)));
