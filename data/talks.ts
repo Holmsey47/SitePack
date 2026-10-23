@@ -179,6 +179,20 @@ export function questionsLabel(count: number): string {
   return count === 1 ? '1 question' : `${count} questions`;
 }
 
+export function handPhoneLabel(name: string): string {
+  return `Hand phone to ${name}`;
+}
+
+export function handPhoneBanner(name: string): string {
+  return `${name}, your turn to sign. Only ${name} signs here.`;
+}
+
+export function signedVersionLabel(versionNo: number): string {
+  return `Signed version ${versionNo}`;
+}
+
+export const tickThenSignLabel = 'Tick that you understood, then sign';
+
 export function talkError(code: string): string {
   switch (code) {
     case 'not_authorized':

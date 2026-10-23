@@ -323,6 +323,7 @@ test('the register and PDF keep the signed name, the person identifier, and a re
   const { bytes } = await buildTalkPdf(input);
   const text = decodedPdfText(bytes);
   assert.equal(text.split('Op A · a11111').length - 1, 2);
+  assert.equal(text.split('Signed version 2').length - 1, 2);
   assert.equal(text.split('name changed since signing').length - 1, 2);
   assert.equal(text.includes('Op B'), false);
 });
