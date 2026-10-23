@@ -1,7 +1,10 @@
+import { rpcErrorCode } from '@/data/repo';
 import { isRetryableSnagFailure, snagFailureFrom } from '@/data/snagFailure';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 export const SESSION_ENDED = 'Your session has ended. Sign in again.';
+export const SIGN_IN_AGAIN = 'Sign in again to send what is saved on this phone';
+export const TALK_BACKOFF_MAX_MS = 5 * 60 * 1000;
 
 export const TALK_QUEUE_KEY = 'sitepack.talks.queue';
 export const TALK_NOTICE_KEY = 'sitepack.talks.notices';
@@ -25,6 +28,7 @@ export type QueuedTalk = {
   sessionId: string;
   attempts?: number;
   nextAttemptAt?: string | null;
+  needsSignIn?: boolean;
 };
 
 export type TalkNotice = {
@@ -42,6 +46,7 @@ export type TalkSendResult = 'sent' | 'queued' | 'refused' | 'rejected';
 export type TalkFailure =
   | { kind: 'network' }
   | { kind: 'http'; status: number }
+  | { kind: 'signin' }
   | { kind: 'duplicate' }
   | { kind: 'auth' }
   | { kind: 'permanent'; code: string };
@@ -75,7 +80,20 @@ const PERMANENT = new Set([
 
 export function talkBackoffMs(attempt: number): number {
   const step = Math.max(attempt, 1);
-  return Math.min(30_000, 1000 * 2 ** (step - 1));
+  const delay = 1000 * 2 ** Math.min(step - 1, 20);
+  return Math.min(delay, TALK_BACKOFF_MAX_MS);
+}
+
+/** This login's notices. A missing user sees none. */
+export function noticesForUser(notices: TalkNotice[], userId: string | null | undefined): TalkNotice[] {
+  if (!userId) return [];
+  return notices.filter((notice) => notice.userId === userId);
+}
+
+/** This login's queued items. A missing user sees none. */
+export function pendingTalksForUser(items: QueuedTalk[], userId: string | null | undefined): QueuedTalk[] {
+  if (!userId) return [];
+  return items.filter((item) => item.userId === userId);
 }
 
 export function isDroppedTalkCode(code: string): boolean {
@@ -120,7 +138,8 @@ function isItem(value: unknown): value is QueuedTalk {
     typeof item.signerPersonId === 'string' &&
     (item.action === 'sign' || item.action === 'question' || item.action === 'presenter' || item.action === 'note') &&
     typeof item.deviceAt === 'string' &&
-    typeof item.sessionId === 'string'
+    typeof item.sessionId === 'string' &&
+    (item.needsSignIn == null || typeof item.needsSignIn === 'boolean')
   );
 }
 
@@ -305,7 +324,7 @@ function isDuplicateTalk(err: unknown): boolean {
 
 /**
  * A thrown session rejection with no HTTP status wipes the queue.
- * An HTTP 401 stays queued, the same as the shared snag helper, so a refreshed session can send it.
+ * An HTTP 401 stays queued for this login.
  */
 function isSessionRejected(err: unknown): boolean {
   const failure = snagFailureFrom(err);
@@ -314,18 +333,24 @@ function isSessionRejected(err: unknown): boolean {
   return failure.kind === 'business' && (failure.code === 'PGRST301' || /jwt expired/i.test(failure.code));
 }
 
+function isKnownBusiness(code: string): boolean {
+  return rpcErrorCode(code) === code;
+}
+
 /**
- * Classify with the shared snag failure. Network, timeout, 401, 408, 429, and 5xx stay queued.
- * Talk policy on top: 23505 is success, and a session rejection with no HTTP status wipes the queue.
+ * Classify with the shared snag failure. Network, timeout, 408, 429, 5xx, and unknown errors stay queued.
+ * A 401 is a sign-in prompt for this user. 23505 is already saved.
  */
 export function classifyTalkFailure(err: unknown): TalkFailure {
   if (isDuplicateTalk(err)) return { kind: 'duplicate' };
   if (err instanceof Error && err.name === 'AbortError') return { kind: 'network' };
-  if (isSessionRejected(err)) return { kind: 'auth' };
   const failure = snagFailureFrom(err);
+  if (failure.kind === 'http' && failure.status === 401) return { kind: 'signin' };
+  if (isSessionRejected(err)) return { kind: 'auth' };
   if (failure.kind === 'http' && isRetryableSnagFailure(err)) return { kind: 'http', status: failure.status };
   if (isRetryableSnagFailure(err)) return { kind: 'network' };
   if (failure.kind === 'http') return { kind: 'permanent', code: String(failure.status) };
+  if (failure.kind === 'business' && !isKnownBusiness(failure.code)) return { kind: 'network' };
   if (failure.kind === 'business') return { kind: 'permanent', code: failure.code };
   return { kind: 'network' };
 }
@@ -340,7 +365,7 @@ function waiting(item: QueuedTalk, now: number): boolean {
   return Number.isFinite(at) && at > now;
 }
 
-async function rememberRefusedTalk(queue: TalkQueueStore, item: QueuedTalk, code: string): Promise<TalkNotice> {
+export async function rememberRefusedTalk(queue: TalkQueueStore, item: QueuedTalk, code: string): Promise<TalkNotice> {
   await queue.removeNotice(`retry:${item.localId}`);
   const notice: TalkNotice = {
     id: `reject:${item.localId}`,
@@ -354,27 +379,28 @@ async function rememberRefusedTalk(queue: TalkQueueStore, item: QueuedTalk, code
   return notice;
 }
 
-async function rememberKeptTalk(queue: TalkQueueStore, item: QueuedTalk): Promise<TalkNotice> {
+async function rememberKeptTalk(queue: TalkQueueStore, item: QueuedTalk, message = keptTalkMessage(item.action)): Promise<TalkNotice> {
   const notice: TalkNotice = {
     id: `retry:${item.localId}`,
     userId: item.userId,
     siteId: item.siteId,
     talkId: item.talkId,
-    message: keptTalkMessage(item.action),
+    message,
     retryLocalId: item.localId,
   };
   await queue.putNotice(notice);
   return notice;
 }
 
-async function holdForRetry(queue: TalkQueueStore, item: QueuedTalk, now: number): Promise<TalkNotice> {
+async function holdForRetry(queue: TalkQueueStore, item: QueuedTalk, now: number, message?: string): Promise<TalkNotice> {
   const attempts = (item.attempts ?? 0) + 1;
   await queue.put({
     ...item,
     attempts,
+    needsSignIn: item.needsSignIn === true || message === SIGN_IN_AGAIN,
     nextAttemptAt: new Date(now + talkBackoffMs(attempts)).toISOString(),
   });
-  return rememberKeptTalk(queue, item);
+  return rememberKeptTalk(queue, item, message);
 }
 
 /**
@@ -407,6 +433,11 @@ export async function flushTalkQueue(
       await queue.removeNotice(`retry:${item.localId}`);
     } catch (err) {
       const failure = classifyTalkFailure(err);
+      if (failure.kind === 'signin') {
+        created.push(await holdForRetry(queue, { ...item, needsSignIn: true }, now, SIGN_IN_AGAIN));
+        blocked.add(group);
+        continue;
+      }
       if (failure.kind === 'network' || failure.kind === 'http') {
         created.push(await holdForRetry(queue, item, now));
         blocked.add(group);
@@ -456,6 +487,10 @@ export async function persistThenSendTalk(
     return 'sent';
   } catch (err) {
     const failure = classifyTalkFailure(err);
+    if (failure.kind === 'signin') {
+      await holdForRetry(queue, { ...item, needsSignIn: true }, now, SIGN_IN_AGAIN);
+      return 'queued';
+    }
     if (failure.kind === 'network' || failure.kind === 'http') {
       await holdForRetry(queue, item, now);
       return 'queued';

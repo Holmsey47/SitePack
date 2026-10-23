@@ -287,7 +287,7 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
 function csvCell(value: string): string {
   let text = value;
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
