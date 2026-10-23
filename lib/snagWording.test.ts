@@ -5,6 +5,7 @@ import {
   contractorPadEnabled,
   outstandingHeading,
   outstandingLine,
+  putRightLine,
   rememberSignAgain,
   signAgainPath,
   signoffFormOpen,
@@ -62,6 +63,20 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
   assert.equal(outstandingHeading(2), 'Outstanding (not signed off): 2');
   assert.equal(outstandingLine(4, 'Socket box proud of the board', 'Second'), 'S-4 · Socket box proud of the board · Second');
   assert.equal(outstandingLine(1, 'Bead missing', null), 'S-1 · Bead missing');
+  assert.equal(putRightLine([]), 'No snags are marked put right yet.');
+  assert.equal(
+    putRightLine([
+      { snagSeq: 5, note: 'Door closer' },
+      { snagSeq: 6, note: 'Skirting' },
+    ]),
+    '2 put right: S-5 Door closer, S-6 Skirting'
+  );
+  const long = putRightLine(
+    Array.from({ length: 8 }, (_, index) => ({ snagSeq: index + 1, note: 'Door closer missing from the frame' }))
+  );
+  assert.equal(long.startsWith('8 put right: S-1 Door closer'), true);
+  assert.equal(long.endsWith('\u2026'), true);
+  assert.ok(Array.from(long).length <= 96);
 });
 
 test('an offline save closes the form so the sign-off button cannot be tapped again', () => {
@@ -118,6 +133,12 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(screen, /clearSignFields\(\)/);
   assert.match(screen, /nativeID="saved-on-phone"/);
   assert.match(screen, />Signed off</);
+  assert.match(screen, /Not signed off/);
+  assert.match(screen, /putRightLine\(/);
+  assert.ok(screen.indexOf('nativeID="put-right-list"') < screen.indexOf('{shownSign.confirmation}'));
+  const form = screen.slice(screen.indexOf('formOpen ?'));
+  assert.ok(form.indexOf('nativeID="put-right-list"') < form.indexOf('snagConfirmation(internalCompany'));
+  assert.ok(form.indexOf('snagConfirmation(contractorCompany') < form.indexOf('<SignaturePad'));
   assert.match(screen, /takeSignAgain\(\)/);
   assert.match(screen, /setSignature\(null\)/);
   assert.doesNotMatch(screen, /params\.signerName|params\.signerRole|params\.signerCompany/);

@@ -86,3 +86,13 @@ export function outstandingLine(snagSeq: number, title: string, level: string | 
   const id = snagNumber(snagSeq);
   return area ? `${id} · ${title} · ${area}` : `${id} · ${title}`;
 }
+
+/** The snags the sentence calls "marked complete above". Long lists keep the count and end with an ellipsis. */
+export function putRightLine(rows: Array<{ snagSeq: number; note: string }>): string {
+  if (rows.length < 1) return 'No snags are marked put right yet.';
+  const full = `${rows.length} put right: ${rows.map((row) => `${snagNumber(row.snagSeq)} ${row.note.trim()}`).join(', ')}`;
+  const limit = 96;
+  const chars = Array.from(full);
+  if (chars.length <= limit) return full;
+  return `${chars.slice(0, limit - 1).join('').trimEnd()}\u2026`;
+}

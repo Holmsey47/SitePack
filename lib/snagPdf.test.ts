@@ -11,7 +11,11 @@ import {
   detailsStayWithHeading,
   headingStaysWithFirstPhoto,
   signatureStaysWithSnag,
+  SNAG_PDF_MIN_PHOTO,
+  SNAG_PDF_PAGE_H,
+  SNAG_PDF_PAGE_W,
   SNAG_PDF_SIGN_BOTTOM,
+  SNAG_PDF_UNSHOWN_NOTE,
   snagPdfFilename,
   snagReportId,
   type SnagPdfSnag,
@@ -318,9 +322,9 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.match(text, /Signed 22 Oct 2026, 2:05pm/);
   assert.match(text, /SR-22Oct2026/);
   assert.match(text, /Page 1 of /);
-  assert.match(text, /Before · Photo 1 of 1/);
-  assert.match(text, /Before · Photo 1 of 2/);
-  assert.match(text, /After · Photo 2 of 2/);
+  assert.match(text, /S-1 Before, photo 1 of 1/);
+  assert.match(text, /S-8 Before, photo 1 of 2/);
+  assert.match(text, /S-8 After, photo 2 of 2/);
   const footerPages = new Set(trace.filter((item) => item.kind === 'footer').map((item) => item.page));
   assert.equal(footerPages.size, doc.getPageCount());
   for (let page = 1; page <= doc.getPageCount(); page += 1) assert.ok(footerPages.has(page));
@@ -371,7 +375,7 @@ test('a photo that cannot be loaded is named in the report', async () => {
   });
   const text = decodedPdfText(bytes);
   assert.match(text, /Photo 2 of 2 \(After\) could not be loaded/);
-  assert.match(text, /Before · Photo 1 of 2/);
+  assert.match(text, /S-3 Before, photo 1 of 2/);
   assert.equal(headingStaysWithFirstPhoto(trace, 3), true);
   assert.equal(trace.some((item) => item.kind === 'missing' && item.snagSeq === 3), true);
 });
@@ -482,6 +486,7 @@ test('José Müller and Łukasz Wójcik survive in the sign-off PDF', async () =
   assert.match(text, /Łukasz Wójcik/);
   assert.equal(text.includes('Jos Mller'), false);
   assert.equal(text.includes('£'), false);
+  assert.equal(text.includes(SNAG_PDF_UNSHOWN_NOTE), false);
 });
 
 test('bidi overrides and control characters are stripped from the sign-off PDF', async () => {
@@ -708,4 +713,224 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     }
     assert.match(text, /This sign-off records the snags listed only/);
   }
+});
+
+test('each put-right snag stays with its photos, and a short sign-off stays on one page', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const covered = (seq: number, bytes: Uint8Array, photos: 'one' | 'pair'): SnagPdfSnag => ({
+    snagSeq: seq,
+    note: seq === 2 ? 'Door will not close on the latch' : 'Crack above the lintel',
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos:
+      photos === 'pair'
+        ? [
+            { bytes, contentType: 'image/jpeg', kind: 'before' },
+            { bytes: snagJpegBytes('afterWide'), contentType: 'image/jpeg', kind: 'after' },
+          ]
+        : [{ bytes, contentType: 'image/jpeg', kind: 'before' }],
+    signature: null,
+  });
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 2),
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng,
+    covered: [covered(1, snagJpegBytes('beforeWide'), 'one'), covered(2, snagJpegBytes('beforeWide'), 'pair')],
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.match(text, /S-2 Before, photo 1 of 2/);
+  assert.match(text, /S-2 After, photo 2 of 2/);
+  const heading = built.trace.find((item) => item.kind === 'heading' && item.snagSeq === 2);
+  const photos = built.trace.filter((item) => item.kind === 'photo' && item.snagSeq === 2);
+  assert.equal(photos.length, 2);
+  assert.ok(heading);
+  assert.ok(photos.every((item) => item.page === heading?.page));
+  for (const photo of photos) {
+    assert.ok((photo.width ?? 0) >= SNAG_PDF_MIN_PHOTO);
+    assert.ok((photo.x ?? -1) >= 0 && (photo.y ?? -1) >= 0);
+    assert.ok((photo.x ?? 0) + (photo.width ?? 0) <= SNAG_PDF_PAGE_W);
+    assert.ok((photo.y ?? 0) + (photo.height ?? 0) <= SNAG_PDF_PAGE_H);
+  }
+});
+
+const MIN_OUTSTANDING_SHARE = 8;
+
+test('a swept sign-off keeps every photo on its snag page and the last outstanding rows with the signer', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const tall = snagJpegBytes('beforeTall');
+  const wide = snagJpegBytes('beforeWide');
+  for (const count of Array.from({ length: 61 }, (_, index) => index)) {
+    for (const aspect of ['tall', 'wide'] as const) {
+      for (const coveredCount of [1, 2, 3]) {
+        const bytes = aspect === 'tall' ? tall : wide;
+        const covered: SnagPdfSnag[] = Array.from({ length: coveredCount }, (_, index) => ({
+          snagSeq: index + 1,
+          note: `Put right ${index + 1}`,
+          levelArea: 'Ground',
+          tradeLabel: 'dryliner',
+          status: 'Fixed',
+          raisedByName: 'Amy Keane',
+          raisedAt: '2026-10-22T08:15:00.000Z',
+          fixedAt: '2026-10-22T11:40:00.000Z',
+          photos: [{ bytes, contentType: 'image/jpeg', kind: 'before' as const }],
+          signature: null,
+        }));
+        const outstanding = Array.from({ length: count }, (_, index) => ({
+          snagSeq: index + 10,
+          note: `Hole beside the riser ${index + 10}`,
+          levelArea: index % 2 === 0 ? 'Ground' : 'First',
+        }));
+        const built = await buildSnagSignoffPdf({
+          reportId: 'SO-22Oct2026',
+          kind: 'contractor',
+          companyName: 'Ashfield Finishes',
+          siteName: 'Plot 12 - Oak Estate',
+          generatedAt: when,
+          confirmationText: snagConfirmation('Northbuild', 'contractor', coveredCount),
+          signerName: 'Dave Moran',
+          signerRole: 'Site manager',
+          signerCompany: 'Northbuild',
+          signedAt: when,
+          signaturePng,
+          covered,
+          outstanding,
+        });
+        const label = `${count} ${aspect} x${coveredCount}`;
+        if (coveredCount === 1 && count === 0) {
+          assert.equal((await PDFDocument.load(built.bytes)).getPageCount(), 1, `${label} left the single snag`);
+        }
+        for (const snag of covered) {
+          const heading = built.trace.find((item) => item.kind === 'heading' && item.snagSeq === snag.snagSeq);
+          const photos = built.trace.filter((item) => item.kind === 'photo' && item.snagSeq === snag.snagSeq);
+          assert.ok(heading, `${label} S-${snag.snagSeq} has no heading`);
+          assert.ok(photos.length > 0, `${label} S-${snag.snagSeq} has no photo`);
+          for (const photo of photos) {
+            assert.equal(photo.page, heading?.page, `${label} S-${snag.snagSeq} photo left its heading`);
+            assert.ok((photo.width ?? 0) >= SNAG_PDF_MIN_PHOTO, `${label} photo width ${photo.width}`);
+            assert.ok((photo.height ?? 0) > 0, `${label} photo height ${photo.height}`);
+            assert.ok((photo.x ?? -1) >= 0 && (photo.y ?? -1) >= 0, `${label} photo origin ${photo.x},${photo.y}`);
+            assert.ok((photo.x ?? 0) + (photo.width ?? 0) <= SNAG_PDF_PAGE_W, `${label} photo crosses the right edge`);
+            assert.ok((photo.y ?? 0) + (photo.height ?? 0) <= SNAG_PDF_PAGE_H, `${label} photo crosses the top`);
+          }
+        }
+        const signPage = built.trace.find((item) => item.kind === 'signature' && item.snagSeq === undefined)?.page;
+        assert.ok(signPage, `${label} has no signer`);
+        assert.ok(
+          built.trace.some((item) => item.kind === 'outstanding' && item.page === signPage),
+          `${label} outstanding list left the signer page`
+        );
+        if (count >= MIN_OUTSTANDING_SHARE) {
+          const rows = new Map<number, Set<number>>();
+          for (const item of built.trace) {
+            if (item.kind !== 'outstanding' || item.snagSeq === undefined) continue;
+            const set = rows.get(item.page) ?? new Set<number>();
+            set.add(item.snagSeq);
+            rows.set(item.page, set);
+          }
+          for (const [page, seqs] of rows) {
+            assert.ok(seqs.size >= MIN_OUTSTANDING_SHARE, `${label} page ${page} holds ${seqs.size} outstanding rows`);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('a footer cuts a long company with an ellipsis', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const company = 'Ashfield Finishes Regional Holdings '.repeat(6).trim();
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: company,
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: null,
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Bead missing at the window reveal',
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.match(text, /… · SO-22Oct2026 · Page 1 of /);
+  assert.equal(text.includes(SNAG_PDF_UNSHOWN_NOTE), false);
+});
+
+test('Ștefan Țăran, Cyrillic, and an emoji the font cannot draw', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const company = '\u0218tefan \u021A\u0103ran SRL';
+  const signer = '\u0418\u0432\u0430\u043D \u041F\u0435\u0442\u0440\u043E\u0432';
+  const note = 'Paint \u{1F600}\u4E2D missing';
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: company,
+    siteName: 'Jos\u00e9 M\u00fcller',
+    generatedAt: when,
+    confirmationText: snagConfirmation('\u0141ukasz W\u00f3jcik', 'contractor', 1),
+    signerName: signer,
+    signerRole: 'Site manager',
+    signerCompany: '\u0141ukasz W\u00f3jcik',
+    signedAt: when,
+    signaturePng: null,
+    covered: [
+      {
+        snagSeq: 1,
+        note,
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Jos\u00e9 M\u00fcller',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.equal(note, 'Paint \u{1F600}\u4E2D missing');
+  assert.equal(company, '\u0218tefan \u021A\u0103ran SRL');
+  assert.match(text, /Ștefan Țăran SRL/);
+  assert.match(text, /Иван Петров/);
+  assert.match(text, /José Müller/);
+  assert.match(text, /Łukasz Wójcik/);
+  assert.match(text, /Paint \?\? missing/);
+  assert.equal(text.includes('\u{1F600}'), false);
+  assert.equal(text.includes('\u4E2D'), false);
+  assert.match(text, /Some characters could not be shown; see the app record\./);
 });

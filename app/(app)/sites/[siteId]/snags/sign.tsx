@@ -3,14 +3,14 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
-import { canSignOffSnag, snagError, snagNumber, snagRoleLabel, type SnagDetail, type SnagSignoff } from '@/data/snags';
+import { canSignOffSnag, snagError, snagRoleLabel, type SnagDetail, type SnagSignoff } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type SnagPdfSnag } from '@/lib/snagPdf';
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -56,6 +56,7 @@ type LocalSign = {
   role: string;
   company: string;
   signedAt: string;
+  putRight: string;
 };
 
 function queryValue(value: string | string[] | undefined): string {
@@ -214,6 +215,7 @@ export default function SnagSignScreen() {
           role: snagRoleLabel(person.role),
           company: internalCompany.trim(),
           signedAt,
+          putRight: putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note }))),
         });
         setSavedOnPhone(true);
         clearSignFields();
@@ -271,6 +273,7 @@ export default function SnagSignScreen() {
           role: signerRole.trim(),
           company: contractorCompany.trim(),
           signedAt,
+          putRight: putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note }))),
         });
         setSavedOnPhone(true);
         clearSignFields();
@@ -320,6 +323,10 @@ export default function SnagSignScreen() {
     ? record.outstanding.map((item) => outstandingLine(item.snag_seq, item.note, item.level_area))
     : open.map((row) => outstandingLine(row.snag_seq, row.note, row.level_area));
   const outstandingCount = record ? record.outstanding.length : open.length;
+  const formPutRight = putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note })));
+  const signedPutRight = record
+    ? putRightLine(record.covered.map((item) => ({ snagSeq: item.snag_seq, note: item.note })))
+    : localSign?.putRight ?? formPutRight;
 
   return (
     <Screen>
@@ -327,6 +334,9 @@ export default function SnagSignScreen() {
       {shownSign ? (
         <View nativeID="signer-block" style={{ gap: 8 }}>
           <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Signed off</Text>
+          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+            {signedPutRight}
+          </Text>
           {savedOnPhone ? (
             <Text
               nativeID="saved-on-phone"
@@ -344,6 +354,9 @@ export default function SnagSignScreen() {
       ) : null}
       {formOpen ? (
         <>
+          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+            {formPutRight}
+          </Text>
           {internal ? (
             <View nativeID="internal-check" style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
@@ -383,17 +396,11 @@ export default function SnagSignScreen() {
         </>
       ) : null}
       <View nativeID="outstanding-snags" style={{ gap: 8 }}>
-        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{outstandingHeading(outstandingCount)}</Text>
+        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Not signed off</Text>
+        <Muted>{outstandingHeading(outstandingCount)}</Muted>
         {shownOutstanding.map((line) => (
           <Muted key={line}>{line}</Muted>
         ))}
-        {shownSign ? null : (
-          <Muted>
-            {fixed.length < 1
-              ? 'No snags are marked put right yet.'
-              : `${fixed.length} put right: ${fixed.map((row) => snagNumber(row.snag_seq)).join(', ')}`}
-          </Muted>
-        )}
       </View>
       <ErrorText>{error}</ErrorText>
     </Screen>
