@@ -15,7 +15,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
 import { flushSnagQueue, getSnagQueue, noticesForOwner, ownedSnagQueue, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
-import { rememberSignAgain, signOffWaitingLabel } from '@/lib/snagWording';
+import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayText } from '@/lib/snagWording';
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
@@ -247,7 +247,7 @@ export default function SnagsScreen() {
           {queued.map((item) => (
             <Card key={item.localId}>
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
-                {item.kind === 'create' ? item.note : item.kind === 'fix' ? 'After photo waiting to send' : 'Sign-off waiting to send'}
+                {item.kind === 'create' ? snagDisplayText(item.note) : item.kind === 'fix' ? 'After photo waiting to send' : SIGN_OFF_QUEUED}
               </Text>
               <Muted>{item.kind === 'create' ? formatUkDateTime(item.raisedAt) : item.kind === 'fix' ? formatUkDateTime(item.fixedAt) : formatUkDateTime(item.signedAt)}</Muted>
             </Card>
@@ -263,7 +263,7 @@ export default function SnagsScreen() {
           </Text>
           <Muted>
             {row.status}
-            {row.level_area ? ` · ${row.level_area}` : ''} · {row.note}
+            {row.level_area ? ` · ${snagDisplayText(row.level_area)}` : ''} · {snagDisplayText(row.note)}
           </Muted>
         </Card>
       ))}

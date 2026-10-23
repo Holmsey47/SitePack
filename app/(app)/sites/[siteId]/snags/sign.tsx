@@ -10,7 +10,7 @@ import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type Sna
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, snagDisplayText, takeSignAgain } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -347,10 +347,10 @@ export default function SnagSignScreen() {
               {SAVED_ON_PHONE}
             </Text>
           ) : null}
-          <Muted>{shownSign.confirmation}</Muted>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{shownSign.name}</Text>
-          <Muted>{shownSign.role}</Muted>
-          <Muted>{shownSign.company}</Muted>
+          <Muted>{snagDisplayText(shownSign.confirmation)}</Muted>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{snagDisplayText(shownSign.name)}</Text>
+          <Muted>{snagDisplayText(shownSign.role)}</Muted>
+          <Muted>{snagDisplayText(shownSign.company)}</Muted>
           <Muted>Signed {formatUkDateTime(shownSign.signedAt)}</Muted>
         </View>
       ) : null}
@@ -364,7 +364,7 @@ export default function SnagSignScreen() {
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
               <Muted>This is an internal check. It is not sign-off by the main contractor.</Muted>
               <Field label="Company" value={internalCompany} onChangeText={setInternalCompany} autoCapitalize="words" maxLength={120} />
-              <Muted>{snagConfirmation(internalCompany, 'internal', fixed.length)}</Muted>
+              <Muted>{snagDisplayText(snagConfirmation(internalCompany, 'internal', fixed.length))}</Muted>
               <Button
                 label="Sign internal check"
                 minHeight={56}
@@ -385,7 +385,7 @@ export default function SnagSignScreen() {
               autoCapitalize="words"
               maxLength={120}
             />
-            <Muted>{snagConfirmation(contractorCompany, 'contractor', fixed.length)}</Muted>
+            <Muted>{snagDisplayText(snagConfirmation(contractorCompany, 'contractor', fixed.length))}</Muted>
             <SignaturePad key={padKey} disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
             <Button
               label="Sign off snags put right"

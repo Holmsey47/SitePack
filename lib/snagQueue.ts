@@ -487,6 +487,18 @@ export function ownedSnagQueue(items: QueuedSnag[], ownerId: string | null | und
   return items.filter((item) => item.ownerId === ownerId);
 }
 
+/** True when this snag is in a sign-off this person has queued. */
+export function signOffQueuedForSnag(
+  items: QueuedSnag[],
+  ownerId: string | null | undefined,
+  siteId: string,
+  snagId: string
+): boolean {
+  return ownedSnagQueue(items, ownerId).some(
+    (item) => item.kind === 'sign' && item.siteId === siteId && item.coveredIds.includes(snagId)
+  );
+}
+
 export type SnagFlushResult = {
   notices: SnagNotice[];
   signInRequired: boolean;

@@ -54,6 +54,14 @@ export function signOffWaitingLabel(count: number): string {
   return count === 1 ? '1 sign-off waiting to send' : `${count} sign-offs waiting to send`;
 }
 
+/** Shown on a Fixed snag while that snag's sign-off is still queued. */
+export const SIGN_OFF_QUEUED = 'Sign-off waiting to send';
+
+/** Notes and names on screen. A newline or tab becomes one space, and accents are composed. */
+export function snagDisplayText(value: string): string {
+  return value.normalize('NFC').replace(/[\t\n\v\f\r]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+}
+
 /** The contractor pad stays off until its own company field has text. */
 export function contractorPadEnabled(contractorCompany: string): boolean {
   return contractorCompany.trim().length > 0;
@@ -95,17 +103,27 @@ export function signAgainPath(siteId: string): string {
 }
 
 export function outstandingLine(snagSeq: number, title: string, level: string | null): string {
-  const area = level?.trim();
+  const area = snagDisplayText(level ?? '');
   const id = snagNumber(snagSeq);
-  return area ? `${id} · ${title} · ${area}` : `${id} · ${title}`;
+  const name = snagDisplayText(title);
+  return area ? `${id} · ${name} · ${area}` : `${id} · ${name}`;
 }
 
-/** The snags the sentence calls "marked complete above". Long lists keep the count and end with an ellipsis. */
+const PUT_RIGHT_NOTE_LIMIT = 40;
+
+function shortenedNote(note: string): string {
+  const plain = snagDisplayText(note);
+  const chars = Array.from(plain);
+  if (chars.length <= PUT_RIGHT_NOTE_LIMIT) return plain;
+  return `${chars.slice(0, PUT_RIGHT_NOTE_LIMIT - 1).join('').trimEnd()}\u2026`;
+}
+
+/** The snags the sentence calls "marked complete above". Every S-number is kept. Only a long title is shortened. */
 export function putRightLine(rows: Array<{ snagSeq: number; note: string }>): string {
   if (rows.length < 1) return 'No snags are marked put right yet.';
-  const full = `${rows.length} put right: ${rows.map((row) => `${snagNumber(row.snagSeq)} ${row.note.trim()}`).join(', ')}`;
-  const limit = 96;
-  const chars = Array.from(full);
-  if (chars.length <= limit) return full;
-  return `${chars.slice(0, limit - 1).join('').trimEnd()}\u2026`;
+  const items = rows.map((row) => {
+    const title = shortenedNote(row.note);
+    return title ? `${snagNumber(row.snagSeq)} ${title}` : snagNumber(row.snagSeq);
+  });
+  return `${rows.length} put right: ${items.join(', ')}`;
 }

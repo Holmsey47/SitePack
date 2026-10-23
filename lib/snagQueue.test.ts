@@ -10,6 +10,7 @@ import {
   memorySnagQueue,
   noticesForOwner,
   ownedSnagQueue,
+  signOffQueuedForSnag,
   persistThenSendSnag,
   rejectedSnagNotice,
   removeSnagQueueKeys,
@@ -554,6 +555,13 @@ test('the owner filter leaves another user sign-off out of this queue', () => {
   assert.deepEqual(ownedSnagQueue([mine, sign], undefined), []);
   const index = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
   assert.match(index, /ownedSnagQueue\(await queue\.list\(\), ownerId\)/);
+  assert.equal(signOffQueuedForSnag([mine, sign, theirs], 'user-a', 'site', 's1'), true);
+  assert.equal(signOffQueuedForSnag([sign], 'user-b', 'site', 's1'), false);
+  assert.equal(signOffQueuedForSnag([sign], 'user-a', 'other-site', 's1'), false);
+  assert.equal(signOffQueuedForSnag([sign], 'user-a', 'site', 's2'), false);
+  assert.equal(signOffQueuedForSnag([sign], null, 'site', 's1'), false);
+  const detail = fs.readFileSync('app/(app)/sites/[siteId]/snags/[snagId].tsx', 'utf8');
+  assert.match(detail, /signOffQueuedForSnag\(items, person\?\.auth_user_id, siteId, snagId\)/);
 });
 
 test('a snag notice is shown only to the person who queued it', async () => {

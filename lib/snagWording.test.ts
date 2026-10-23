@@ -9,7 +9,9 @@ import {
   rememberSignAgain,
   signAgainPath,
   showSignOffOnSnag,
+  SIGN_OFF_QUEUED,
   SIGNED_ON_PHONE,
+  snagDisplayText,
   signoffFormOpen,
   signOffWaitingLabel,
   snagConfirmation,
@@ -80,12 +82,27 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
     ]),
     '2 put right: S-5 Door closer, S-6 Skirting'
   );
-  const long = putRightLine(
+  const eight = putRightLine(
     Array.from({ length: 8 }, (_, index) => ({ snagSeq: index + 1, note: 'Door closer missing from the frame' }))
   );
-  assert.equal(long.startsWith('8 put right: S-1 Door closer'), true);
-  assert.equal(long.endsWith('\u2026'), true);
-  assert.ok(Array.from(long).length <= 96);
+  for (let seq = 1; seq <= 8; seq += 1) assert.match(eight, new RegExp(`S-${seq}(?!\\d)`));
+  assert.equal(eight.includes('\u2026'), false);
+  assert.equal(snagDisplayText('Jose\u0301'), 'Jos\u00e9');
+  assert.equal(snagDisplayText('Crack by door\nLevel 2'), 'Crack by door Level 2');
+  assert.equal(snagDisplayText('Crack by door\tLevel 2'), 'Crack by door Level 2');
+  assert.equal(snagDisplayText('Crack by door\n\nLevel 2'), 'Crack by door Level 2');
+  assert.equal(putRightLine([{ snagSeq: 4, note: 'Crack by door\nLevel 2' }]), '1 put right: S-4 Crack by door Level 2');
+  const longTitle = 'Paint missing along the whole of the corridor wall beside the riser cupboard';
+  for (const count of [1, 3, 5, 12, 30]) {
+    const line = putRightLine(Array.from({ length: count }, (_, index) => ({ snagSeq: index + 1, note: longTitle })));
+    assert.equal(line.startsWith(`${count} put right:`), true, `${count} put right`);
+    for (let seq = 1; seq <= count; seq += 1) {
+      assert.match(line, new RegExp(`S-${seq}(?!\\d)`), `${count} missing S-${seq}`);
+    }
+    assert.equal(line.includes(longTitle), false);
+    assert.equal(line.includes('\u2026'), true);
+  }
+  assert.equal(SIGN_OFF_QUEUED, 'Sign-off waiting to send');
 });
 
 test('an offline save closes the form so the sign-off button cannot be tapped again', () => {
@@ -144,7 +161,7 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(screen, /savedOnPhone \? SIGNED_ON_PHONE : 'Signed off'/);
   assert.match(screen, /Not signed off/);
   assert.match(screen, /putRightLine\(/);
-  assert.ok(screen.indexOf('nativeID="put-right-list"') < screen.indexOf('{shownSign.confirmation}'));
+  assert.ok(screen.indexOf('nativeID="put-right-list"') < screen.indexOf('shownSign.confirmation'));
   const form = screen.slice(screen.indexOf('formOpen ?'));
   assert.ok(form.indexOf('nativeID="put-right-list"') < form.indexOf('snagConfirmation(internalCompany'));
   assert.ok(form.indexOf('snagConfirmation(contractorCompany') < form.indexOf('<SignaturePad'));
@@ -156,7 +173,11 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(index, /ownedSnagQueue\(/);
   assert.match(index, /signOffsWaiting > 0 \? \([\s\S]*signOffWaitingLabel\(signOffsWaiting\)[\s\S]*Sign off snags put right/);
   assert.match(detail, /showSignOffOnSnag\(detail\.status\)/);
+  assert.match(detail, /signOffQueuedForSnag\(/);
+  assert.match(detail, /signQueued \? \([\s\S]*SIGN_OFF_QUEUED[\s\S]*Sign off snags put right/);
   assert.doesNotMatch(detail, /status === 'Signed off' \? \([\s\S]*Sign off snags put right/);
+  assert.match(detail, /snagDisplayText\(detail\.note\)/);
+  assert.match(index, /snagDisplayText\(row\.note\)/);
   assert.match(index, /rememberSignAgain\(/);
   assert.match(index, /router\.push\(`\/sites\/\$\{siteId\}\/snags\/sign`\)/);
   assert.doesNotMatch(index, /query\.set\('signerName'|query\.set\('signerRole'|query\.set\('signerCompany'/);

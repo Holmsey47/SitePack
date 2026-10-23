@@ -13,6 +13,8 @@ import {
   detailsStayWithHeading,
   headingStaysWithFirstPhoto,
   signatureStaysWithSnag,
+  SNAG_PDF_BOTTOM,
+  SNAG_PDF_MARGIN,
   SNAG_PDF_OUTSTANDING_CONTINUED,
   SNAG_PDF_PAGE_H,
   SNAG_PDF_PAGE_W,
@@ -1081,4 +1083,282 @@ test('an emoji or a CJK name adds the fallback note, and a plain name does not',
   assert.match(plainText, /Иван Петров/);
   assert.match(plainText, /Ashfield Finishes/);
   assert.equal(plainText.includes(SNAG_PDF_UNSHOWN_NOTE), false);
+});
+
+function crc32(buf: Buffer): number {
+  let crc = ~0;
+  for (const byte of buf) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return ~crc >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type), data]);
+  const head = Buffer.alloc(4);
+  head.writeUInt32BE(data.length, 0);
+  const sum = Buffer.alloc(4);
+  sum.writeUInt32BE(crc32(body), 0);
+  return Buffer.concat([head, body, sum]);
+}
+
+function solidPng(width: number, height: number): Uint8Array {
+  const stride = width * 3 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * stride;
+    raw[row] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const at = row + 1 + x * 3;
+      raw[at] = 180;
+      raw[at + 1] = 96;
+      raw[at + 2] = 48;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      pngChunk('IHDR', ihdr),
+      pngChunk('IDAT', zlib.deflateSync(raw)),
+      pngChunk('IEND', Buffer.alloc(0)),
+    ])
+  );
+}
+
+function assertPhotoInBand(photo: SnagPdfTrace, footer: number, label: string) {
+  const x = photo.x ?? -1;
+  const y = photo.y ?? -1;
+  const width = photo.width ?? 0;
+  const height = photo.height ?? 0;
+  assert.ok(y >= footer - 0.5, `${label} photo bottom ${y} is under the footer`);
+  assert.ok(y + height <= SNAG_PDF_PAGE_H - SNAG_PDF_MARGIN + 0.5, `${label} photo top ${y + height} is in the top margin`);
+  assert.ok(x >= SNAG_PDF_MARGIN - 0.5, `${label} photo left ${x}`);
+  assert.ok(x + width <= SNAG_PDF_PAGE_W - SNAG_PDF_MARGIN + 0.5, `${label} photo right ${x + width}`);
+}
+
+test('a newline in a note becomes a space, and a decomposed name is composed', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Northbuild',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
+    signerName: 'Jose\u0301 Mu\u0308ller',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: null,
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Crack by door\nLevel 2',
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.match(text, /Crack by door Level 2/);
+  assert.equal(text.includes('Crack by doorLevel 2'), false);
+  assert.match(text, /Jos\u00e9 M\u00fcller/);
+  assert.equal(text.includes(SNAG_PDF_UNSHOWN_NOTE), false);
+});
+
+test('every photo stays between the top margin and the footer, at its own row', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const aspects = {
+    '3:4': solidPng(600, 800),
+    '9:16': solidPng(450, 800),
+    '4:3': solidPng(800, 600),
+    '16:9': solidPng(800, 450),
+  } as const;
+  const aspectSize = {
+    '3:4': { width: 600, height: 800 },
+    '9:16': { width: 450, height: 800 },
+    '4:3': { width: 800, height: 600 },
+    '16:9': { width: 800, height: 450 },
+  } as const;
+  const signBase = {
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor' as const,
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng,
+  };
+  for (const count of [0, 1, 2, 15, 36, 120]) {
+    for (const coveredCount of [1, 2, 3]) {
+      for (const aspect of ['3:4', '9:16', '4:3', '16:9'] as const) {
+        const bytes = aspects[aspect];
+        const pixel = aspectSize[aspect];
+        const covered: SnagPdfSnag[] = Array.from({ length: coveredCount }, (_, index) => ({
+          snagSeq: index + 1,
+          note: `Put right ${index + 1} with a long title for the corridor`,
+          levelArea: 'Ground',
+          tradeLabel: 'dryliner',
+          status: 'Fixed',
+          raisedByName: 'Amy Keane',
+          raisedAt: '2026-10-22T08:15:00.000Z',
+          fixedAt: '2026-10-22T11:40:00.000Z',
+          photos: [
+            { bytes, contentType: 'image/png', kind: 'before' as const },
+            { bytes, contentType: 'image/png', kind: 'after' as const },
+          ],
+          signature: null,
+        }));
+        const outstanding = Array.from({ length: count }, (_, index) => ({
+          snagSeq: index + 20,
+          note: `Hole beside the riser ${index + 20}`,
+          levelArea: index % 2 === 0 ? 'Ground' : 'First',
+        }));
+        const built = await buildSnagSignoffPdf({
+          ...signBase,
+          confirmationText: snagConfirmation('Northbuild', 'contractor', coveredCount),
+          covered,
+          outstanding,
+        });
+        const label = `${count} outstanding, ${coveredCount} covered, ${aspect}`;
+        const photos = built.trace.filter((item) => item.kind === 'photo');
+        assert.equal(photos.length, coveredCount * 2, `${label} photo count`);
+        for (const photo of photos) assertPhotoInBand(photo, SNAG_PDF_SIGN_BOTTOM, label);
+        const landscape = aspect === '4:3' || aspect === '16:9';
+        for (const snag of covered) {
+          const heading = built.trace.find((item) => item.kind === 'heading' && item.snagSeq === snag.snagSeq);
+          const snagPhotos = photos.filter((item) => item.snagSeq === snag.snagSeq);
+          assert.equal(snagPhotos[0]?.page, heading?.page, `${label} S-${snag.snagSeq} heading left its first photo`);
+          if (landscape) {
+            for (const photo of snagPhotos) {
+              assert.ok(Math.abs((photo.width ?? 0) - PAIR_PHOTO_W) < 0.5, `${label} pair width ${photo.width}`);
+              const expectedH = (PAIR_PHOTO_W * pixel.height) / pixel.width;
+              assert.ok(Math.abs((photo.height ?? 0) - expectedH) < 0.5, `${label} pair height ${photo.height}`);
+            }
+          } else if (aspect === '3:4') {
+            for (const photo of snagPhotos) {
+              assert.ok(Math.abs((photo.width ?? 0) - NATURAL_PHOTO_W) < 0.5, `${label} portrait width ${photo.width}`);
+              const expectedH = (NATURAL_PHOTO_W * pixel.height) / pixel.width;
+              assert.ok(Math.abs((photo.height ?? 0) - expectedH) < 0.5, `${label} portrait height ${photo.height}`);
+            }
+          } else {
+            for (const photo of snagPhotos) {
+              const ratio = (photo.height ?? 0) / (photo.width ?? 1);
+              assert.ok(Math.abs(ratio - pixel.height / pixel.width) < 0.02, `${label} aspect ${ratio}`);
+              assert.ok((photo.width ?? 0) < NATURAL_PHOTO_W - 1, `${label} 9:16 stayed too wide to fit`);
+            }
+          }
+        }
+        const text = decodedPdfText(built.bytes);
+        for (const snag of covered) assert.match(text, new RegExp(`S-${snag.snagSeq}(?!\\d)`));
+        if (count > 0) {
+          const continued = built.trace.some(
+            (item) =>
+              item.kind === 'outstanding' &&
+              item.page !== built.trace.find((row) => row.kind === 'signature' && row.snagSeq === undefined)?.page
+          );
+          assertFinalBlock(built.trace, outstanding, continued ? text : '', label);
+        }
+      }
+    }
+  }
+
+  const many = Array.from({ length: 20 }, (_, index) => ({
+    bytes: snagJpegBytes(index % 2 === 0 ? 'beforeWide' : 'afterWide'),
+    contentType: 'image/jpeg',
+    kind: (index < 10 ? 'before' : 'after') as 'before' | 'after',
+  }));
+  const packed: SnagPdfSnag = {
+    snagSeq: 2,
+    note: 'Door will not close on the latch',
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos: many,
+    signature: null,
+  };
+  for (const report of ['sign', 'share'] as const) {
+    const built =
+      report === 'sign'
+        ? await buildSnagSignoffPdf({
+            ...signBase,
+            confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
+            covered: [packed],
+            outstanding: [],
+          })
+        : await buildSnagPdf({
+            reportId: 'SR-22Oct2026',
+            companyName: 'Ashfield Finishes',
+            siteName: 'Plot 12 - Oak Estate',
+            generatedAt: when,
+            filterLabel: 'All snags',
+            snags: [packed],
+          });
+    const photos = built.trace.filter((item) => item.kind === 'photo');
+    assert.equal(photos.length, 20, `${report} lost landscape photos`);
+    const footer = report === 'sign' ? SNAG_PDF_SIGN_BOTTOM : SNAG_PDF_BOTTOM;
+    for (const photo of photos) {
+      assertPhotoInBand(photo, footer, `${report} 10+10`);
+      assert.ok(Math.abs((photo.width ?? 0) - PAIR_PHOTO_W) < 0.5, `${report} shrank a landscape photo to ${photo.width}`);
+    }
+  }
+});
+
+test('a five snag put-right list names every S-number in the PDF', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const title = 'Paint missing along the whole of the corridor wall beside the riser cupboard';
+  const covered: SnagPdfSnag[] = Array.from({ length: 5 }, (_, index) => ({
+    snagSeq: index + 5,
+    note: title,
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+    signature: null,
+  }));
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 5),
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: null,
+    covered,
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  for (let seq = 5; seq <= 9; seq += 1) {
+    const hits = text.match(new RegExp(`S-${seq}(?!\\d)`, 'g')) ?? [];
+    assert.ok(hits.length >= 2, `S-${seq} appeared ${hits.length} times`);
+  }
+  assert.match(text, /5 put right:/);
 });

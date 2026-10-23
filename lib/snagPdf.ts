@@ -1,6 +1,6 @@
 import { snagNumber } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
-import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine } from '@/lib/snagWording';
+import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine, putRightLine } from '@/lib/snagWording';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
@@ -12,10 +12,12 @@ export const SNAG_PDF_UNSHOWN_NOTE =
 export const SNAG_PDF_OUTSTANDING_CONTINUED = 'Outstanding (not signed off), continued';
 const PAGE_W = SNAG_PDF_PAGE_W;
 const PAGE_H = SNAG_PDF_PAGE_H;
-const MARGIN = 40;
+export const SNAG_PDF_MARGIN = 40;
+export const SNAG_PDF_BOTTOM = 48;
+const MARGIN = SNAG_PDF_MARGIN;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const TOP = 800;
-const BOTTOM = 48;
+const BOTTOM = SNAG_PDF_BOTTOM;
 /** Content stays above the page number. The disclaimer is drawn in the flow, not in this band. */
 export const SNAG_PDF_SIGN_BOTTOM = 64;
 const SIGN_BOTTOM = SNAG_PDF_SIGN_BOTTOM;
@@ -107,9 +109,11 @@ function pdfFontBytes(encoded: string): Uint8Array {
   return bytes;
 }
 
-/** Keep letters, including accents. Drop bidi overrides, control characters, and a pound sign. */
+/** Keep letters, including accents. A newline or tab becomes one space. Drop other controls, bidi overrides, and a pound sign. */
 function pdfText(value: string): string {
   return value
+    .normalize('NFC')
+    .replace(/[\t\n\v\f\r]+/g, ' ')
     .replace(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
     .replace(/£/g, '')
     .replace(/[–—]/g, '-')
@@ -302,6 +306,31 @@ async function drawReport(
     return { rows, total: rows.reduce((sum, row) => sum + row.block, 0) };
   }
 
+  /** A row taller than the page is fitted so the image stays above the footer. A row that fits keeps its column width. */
+  function fitRow(row: RowPlan, maxImageHeight: number): RowPlan {
+    if (row.visual.type !== 'photos' || row.height <= maxImageHeight + 0.5) return row;
+    const width = row.width * (maxImageHeight / row.height);
+    const height = rowHeight(row.visual.items, width);
+    const captions = row.visual.items.map((item) => wrap(item.caption, bold, 9, Math.max(width, 1), showText));
+    const captionLines = Math.max(1, ...captions.map((lines) => lines.length));
+    const block = height + 12 + Math.max(0, captionLines - 1) * CAPTION_LINE + 6;
+    return { visual: row.visual, width, height, block, captions };
+  }
+
+  function roomTop(lead: number): number {
+    return Math.min(PAGE_H - 8, PAGE_H - MARGIN + lead);
+  }
+
+  function placeRow(row: RowPlan, lead: number): RowPlan {
+    const extent = row.visual.type === 'photos' ? row.height : row.block;
+    if (y - (lead + extent) < bottom && y < TOP - 0.5) newPage();
+    const overflow = bottom - (y - lead - extent);
+    const room = roomTop(lead) - y;
+    if (overflow > 0 && room > 0) y += Math.min(overflow, room);
+    if (row.visual.type !== 'photos') return row;
+    return fitRow(row, Math.max(1, y - lead - bottom));
+  }
+
   function drawPlannedRow(row: RowPlan, snagSeq: number) {
     if (row.visual.type === 'missing') {
       paint(expanded([{ text: row.visual.text, size: 11, weight: 'regular', mark: 'missing' }], font, bold, showText), snagSeq);
@@ -447,20 +476,31 @@ async function drawReport(
       : [];
     const sigImage = signatureImage ? signatureImageHeight(signatureImage) : 0;
     const detailH = linesHeight(detail) + 4;
-    const chrome = detailH + linesHeight(sigLines) + sigImage + 10;
     const laid = naturalRows(visuals);
-    const blockH = chrome + laid.total;
-    // Move the heading and its photos together. Draw them at full size once, even when a tall photo passes the content bottom.
-    if (y - blockH < bottom && y < TOP - 0.5) newPage();
-    const overflow = bottom - (y - blockH);
-    if (overflow > 0) {
-      const roomAbove = PAGE_H - 12 - y;
-      if (roomAbove > 0) y += Math.min(overflow, roomAbove);
+    const tail = linesHeight(sigLines) + sigImage + 10;
+    const together = detailH + laid.total + tail;
+    // Keep the heading with the first photo row. Later rows start a new page when they would pass the footer.
+    if (laid.rows.length > 0 && together <= roomTop(detailH) - bottom + 0.5) {
+      if (y - together < bottom && y < TOP - 0.5) newPage();
+      const overflow = bottom - (y - together);
+      const room = roomTop(detailH) - y;
+      if (overflow > 0 && room > 0) y += Math.min(overflow, room);
+      paint(detail, snag.snagSeq);
+      y -= 4;
+      for (const row of laid.rows) drawPlannedRow(row, snag.snagSeq);
+    } else if (laid.rows.length === 0) {
+      if (y - detailH < bottom && y < TOP - 0.5) newPage();
+      paint(detail, snag.snagSeq);
+      y -= 4;
+    } else {
+      const first = placeRow(laid.rows[0]!, detailH);
+      paint(detail, snag.snagSeq);
+      y -= 4;
+      drawPlannedRow(first, snag.snagSeq);
+      for (const row of laid.rows.slice(1)) drawPlannedRow(placeRow(row, 0), snag.snagSeq);
     }
-
-    paint(detail, snag.snagSeq);
-    y -= 4;
-    for (const row of laid.rows) drawPlannedRow(row, snag.snagSeq);
+    const sigNeed = linesHeight(sigLines) + sigImage;
+    if (sigNeed > 0 && y - sigNeed < bottom && y < TOP - 0.5) newPage();
     if (sigLines.length > 0) paint(sigLines, snag.snagSeq);
     if (signatureImage) {
       const h = signatureImageHeight(signatureImage) - 8;
@@ -473,6 +513,15 @@ async function drawReport(
   }
 
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
+
+  if (options.signoff) {
+    drawWrapped(
+      putRightLine(options.signoff.covered.map((snag) => ({ snagSeq: snag.snagSeq, note: snag.note }))),
+      11,
+      'bold'
+    );
+    y -= 4;
+  }
 
   if (options.signoff && outstanding && outstandingCompact) {
     const blockHeight = (parts: { heading: LineSpec[]; items: LineSpec[][] }) =>
