@@ -411,7 +411,7 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   const contractorText = decodedPdfText(contractor.bytes);
   assert.match(contractorText, /Snag sign-off/);
   assert.equal(contractorText.includes('Internal check'), false);
-  assert.match(contractorText, /I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of/);
+  assert.match(contractorText, /I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of/);
   assert.match(contractorText, /Northbuild\./);
   assert.match(contractorText, /Outstanding \(not signed off\): 1/);
   assert.match(contractorText, /S-2 · Skirting not fixed in the hall · Ground/);
@@ -437,7 +437,7 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   });
   const internalText = decodedPdfText(internalPdf.bytes);
   assert.match(internalText, /Internal check/);
-  assert.match(internalText, /I've checked the 1 snags marked complete above and I'm satisfied they've been put right\./);
+  assert.match(internalText, /I've checked the 1 snag marked complete above and I'm satisfied they've been put right\./);
   assert.match(internalText, /internal check for Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /not sign-off by the main contractor\./);
@@ -542,7 +542,7 @@ test('the signer block stays on the same page as the last photo', async () => {
   assert.equal(short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
   assert.equal((await PDFDocument.load(short.bytes)).getPageCount(), 1);
   assert.match(decodedPdfText(short.bytes), /No snags are outstanding/);
-  assert.match(decodedPdfText(short.bytes), /I confirm the 1 snags marked complete above/);
+  assert.match(decodedPdfText(short.bytes), /I confirm the 1 snag marked complete above/);
 
   const tall = await buildSnagSignoffPdf({
     ...base,
@@ -653,7 +653,7 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     const signLow = Math.min(...signature.map((item) => item.baseline ?? 0));
     assert.ok(outLow > signHigh, `${count} outstanding is not above the signature`);
     assert.ok(noteLow < signLow, `${count} disclaimer is not under the signature`);
-    assert.match(text, /I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of/);
+    assert.match(text, /I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of/);
     assert.match(text, /Northbuild\. Snags listed as outstanding are not signed off\./);
     assert.equal(text.includes('£'), false);
     const referenceHits = text.match(/SO-22Oct2026/g) ?? [];

@@ -1,10 +1,10 @@
 import { snagNumber } from '@/data/snags';
 
-/** Legal copy. [n] is the snapshot count. The word stays "snags", including when that count is 1. */
+/** Legal copy. [n] is the snapshot count: "1 snag", or "[n] snags" for any other count. */
 export const SNAG_CONTRACTOR_CONFIRMATION =
   'I confirm the [n] snags marked complete above have been put right to my satisfaction, on behalf of [Company]. Snags listed as outstanding are not signed off.';
 
-/** Legal copy. [n] is the snapshot count. The word stays "snags", including when that count is 1. */
+/** Legal copy. [n] is the snapshot count: "1 snag", or "[n] snags" for any other count. */
 export const SNAG_INTERNAL_CONFIRMATION =
   "I've checked the [n] snags marked complete above and I'm satisfied they've been put right. This is an internal check for [Company], not sign-off by the main contractor.";
 
@@ -17,8 +17,9 @@ export type SnagSignoffKind = 'internal' | 'contractor';
 export function snagConfirmation(company: string, kind: SnagSignoffKind, markedComplete: number): string {
   const shown = company.replace(/£/g, '').trim() || 'your company';
   const count = Number.isFinite(markedComplete) ? Math.max(0, Math.floor(markedComplete)) : 0;
+  const counted = `${count} ${count === 1 ? 'snag' : 'snags'}`;
   const sentence = kind === 'contractor' ? SNAG_CONTRACTOR_CONFIRMATION : SNAG_INTERNAL_CONFIRMATION;
-  return sentence.replace('[n]', String(count)).replace('[Company]', shown);
+  return sentence.replace('[n] snags', counted).replace('[Company]', shown);
 }
 
 /** The sign-off form closes after a save, online or on the phone, so the button cannot be tapped again. */
