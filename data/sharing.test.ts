@@ -131,6 +131,7 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(share, /sharedSectionLine/);
   assert.match(share, /label="New share code"/);
   assert.match(share, /label="Stop sharing"/);
+  assert.match(share, /: \(\s*<Button label="Stop sharing"/);
   assert.match(share, /stopSharingBody/);
   assert.match(share, /SHARE_COMPANY_PLACEHOLDER/);
   const openShare = fs.readFileSync('components/open-share-screen.tsx', 'utf8');
@@ -155,6 +156,9 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(sites, />\s*Shared\s*</);
   assert.match(sites, /Their contracts manager:/);
   assert.match(openShare, /shared by \$\{preview\.host_company_name\}/);
+  assert.match(openShare, /Waiting for \$\{preview\?\.host_company_name \?\? 'the host'\} to approve/);
+  assert.match(openShare, /waiting \? null : \(/);
+  assert.match(openShare, /label="Open this site"/);
   assert.match(openShare, /sharedSectionLine/);
   const notice = fs.readFileSync('components/ui.tsx', 'utf8');
   const reject = notice.slice(notice.indexOf('export function SeenRejectNotice'), notice.indexOf('export function GlanceRow'));
@@ -215,10 +219,14 @@ test('a share link names the sections and uses the configured origin', () => {
     site: 'Harbour Point',
     code: 'ABCD2345',
     sections,
+    hostFirm: 'Ashfield Finishes',
     origin: 'https://links.example',
   });
   assert.match(text, /Northbuild can ask to view Harbour Point/);
-  assert.match(text, /You approve it first/);
+  assert.match(text, /Ashfield Finishes approves it first/);
+  assert.equal(text.includes('You approve it first'), false);
+  assert.match(fs.readFileSync('app/(app)/sites/[siteId]/share-code.tsx', 'utf8'), /hostFirm/);
+  assert.match(fs.readFileSync('app/(app)/sites/[siteId]/share.tsx', 'utf8'), /hostFirm/);
   assert.match(text, /https:\/\/links\.example\/share\/ABCD2345/);
   assert.match(text, /ABCD-2345/);
   assert.equal(sharedSectionLine(sections), 'They will see: Drawings, Snags report');

@@ -80,11 +80,14 @@ export default function ShareSiteScreen() {
     setLoading(true);
     setNotice('');
     try {
-      const created = await repo.createSiteShareInvite({
-        siteId,
-        guestCompanyName: company,
-        sections,
-      });
+      const [created, hostFirm] = await Promise.all([
+        repo.createSiteShareInvite({
+          siteId,
+          guestCompanyName: company,
+          sections,
+        }),
+        repo.companyName().catch(() => ''),
+      ]);
       setCompany('');
       setSections({ ...SHARE_SECTION_DEFAULTS });
       setFormOpen(false);
@@ -97,6 +100,7 @@ export default function ShareSiteScreen() {
           firm: created.guest_company_name,
           siteName: created.site_name,
           sections: JSON.stringify(created.sections),
+          hostFirm,
         },
       });
     } catch (error) {
@@ -210,7 +214,6 @@ export default function ShareSiteScreen() {
                   </Pressable>
                 ))
               : null}
-            <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => setRevokeTarget(share)} />
             {revokeTarget?.id === share.id ? (
               <View>
                 <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
@@ -220,7 +223,9 @@ export default function ShareSiteScreen() {
                 <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => void onRevoke()} />
                 <Button label="Keep sharing" variant="secondary" minHeight={48} onPress={() => setRevokeTarget(null)} />
               </View>
-            ) : null}
+            ) : (
+              <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => setRevokeTarget(share)} />
+            )}
           </Card>
         );
       })}

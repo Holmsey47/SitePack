@@ -87,6 +87,13 @@ for fn in service_only:
         flags=re.I,
     ):
         raise SystemExit(f"{fn} must be granted to service_role only")
+    body = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{fn}\s*\([^;]*?as\s+\$fn\$(.*?)\$fn\$",
+        sql,
+        flags=re.I | re.S,
+    )
+    if not body or "perform private.reject_unless_service();" not in body.group(1):
+        raise SystemExit(f"{fn} must call private.reject_unless_service()")
 lines = [
     "drop table if exists public.share_funcs_expected;",
     "create table public.share_funcs_expected (nspname text, proname text, replaced boolean);",

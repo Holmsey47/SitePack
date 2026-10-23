@@ -1591,6 +1591,43 @@ select pg_temp.ok(
   'authenticated has no execute on preview or redeem'
 );
 
+-- Execute is not enough. Authenticated claims, and no claims, still raise.
+do $service_gate$
+declare
+  v_user uuid := 'a1111111-1111-4111-8111-111111111111';
+  v_hash text := '9999999999999999999999999999999999999999999999999999999999999999';
+  v_fn text;
+  v_msg text;
+  v_pair text[];
+  v_cases text[] := array[
+    array['authenticated claims', '{"role":"authenticated"}', 'authenticated'],
+    array['no claims', '', '']
+  ];
+begin
+  foreach v_pair slice 1 in array v_cases loop
+    execute 'reset role';
+    perform set_config('request.jwt.claims', v_pair[2], true);
+    perform set_config('request.jwt.claim.role', v_pair[3], true);
+    perform set_config('request.jwt.claim.sub', '', true);
+    execute 'set local role service_role';
+    foreach v_fn in array array['preview_site_share', 'redeem_site_share'] loop
+      v_msg := 'returned';
+      begin
+        execute format('select public.%I($1, $2, $3)', v_fn) using v_user, v_hash, '198.51.100.50';
+      exception
+        when others then
+          v_msg := sqlerrm;
+      end;
+      if v_msg is distinct from 'not_authorized' then
+        raise exception 'FAIL: % with % -> %', v_fn, v_pair[1], v_msg;
+      end if;
+    end loop;
+  end loop;
+  execute 'reset role';
+  raise notice 'ok: preview and redeem raise not_authorized for authenticated claims and for no claims';
+end
+$service_gate$;
+
 do $spoof$
 declare
   v_i integer;

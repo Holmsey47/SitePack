@@ -283,11 +283,12 @@ export function shareInviteText(input: {
   site: string;
   code: string;
   sections: ShareSections;
+  hostFirm: string;
   origin?: string;
 }): string {
   const compact = normalizeJoinCode(input.code);
   const origin = (input.origin ?? shareWebOrigin()).replace(/\/$/, '');
-  return `${input.company} can ask to view ${input.site}. You approve it first. ${origin}/share/${compact} Code: ${formatJoinCode(compact)} ${sharedSectionLine(input.sections)}`;
+  return `${input.company} can ask to view ${input.site}. ${input.hostFirm} approves it first. ${origin}/share/${compact} Code: ${formatJoinCode(compact)} ${sharedSectionLine(input.sections)}`;
 }
 
 export function accessRemovedMessage(): string {

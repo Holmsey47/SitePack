@@ -74,7 +74,7 @@ export function OpenShareScreen({ routeCode }: { routeCode?: string }) {
         router.replace(`/sites/${opened.siteId}/shared`);
         return;
       }
-      setWaiting(`${opened.siteName} is waiting for the host to approve your company. You cannot view it yet.`);
+      setWaiting(`Waiting for ${preview?.host_company_name ?? 'the host'} to approve`);
     } catch (error) {
       setNotice(shareFailureNotice(classifyShareFailure(error)));
     } finally {
@@ -107,7 +107,9 @@ export function OpenShareScreen({ routeCode }: { routeCode?: string }) {
           <Muted>{sharedSectionLine(preview.sections)}</Muted>
         </>
       ) : null}
-      <Button label="Open this site" onPress={() => void onOpen()} loading={loading} disabled={!code} />
+      {waiting ? null : (
+        <Button label="Open this site" onPress={() => void onOpen()} loading={loading} disabled={!code} />
+      )}
     </Screen>
   );
 }

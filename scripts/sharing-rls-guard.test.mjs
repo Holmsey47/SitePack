@@ -74,3 +74,41 @@ test('the sharing probe refuses a hosted Supabase URL and diffs pg_proc after an
   const stub = fs.readFileSync('scripts/anon-default-grants.sql', 'utf8');
   assert.match(stub, /grant all on functions to anon, authenticated, service_role/);
 });
+
+test('redeem-site-share takes the user id from getUser and the ip from the request', () => {
+  const source = fs.readFileSync('supabase/functions/redeem-site-share/index.ts', 'utf8');
+  const bodyName = source.match(/(?:const|let)\s+(\w+)\s*(?::[^=]+)?=\s*await\s+req\.json\(\)/)?.[1];
+  assert.equal(bodyName, 'body');
+
+  const reads = [...source.matchAll(/\bbody\??\.(\w+)/g)].map((match) => match[1]);
+  const brackets = [...source.matchAll(/\bbody\s*\[\s*['"](\w+)['"]\s*\]/g)].map((match) => match[1]);
+  const destructured = [...source.matchAll(/\{\s*([^}]+)\}\s*=\s*(?:await\s+req\.json\(\)|body\b)/g)].flatMap((match) =>
+    match[1]
+      .split(',')
+      .map((part) => part.split(/[:=]/)[0].replace(/^\s*\.\.\./, '').trim())
+      .filter(Boolean)
+  );
+  const allowed = new Set(['code', 'preview']);
+  for (const key of [...reads, ...brackets, ...destructured]) {
+    assert.equal(allowed.has(key), true, `body read ${key}`);
+  }
+
+  assert.deepEqual(
+    [...source.matchAll(/p_user_id:\s*([^,\n]+)/g)].map((match) => match[1].trim()),
+    ['verified.data.user.id']
+  );
+  assert.deepEqual(
+    [...source.matchAll(/p_client_ip:\s*([^,\n]+)/g)].map((match) => match[1].trim()),
+    ['ip']
+  );
+  assert.match(source, /const ip = clientIp\(req\);/);
+
+  const getUserAt = source.indexOf('await admin.auth.getUser(token)');
+  const rpcAt = source.indexOf('admin.rpc(');
+  assert.equal(getUserAt >= 0 && rpcAt > getUserAt, true);
+  const between = source.slice(getUserAt, rpcAt);
+  assert.match(between, /verified\.error\s*\|\|\s*!verified\.data\.user/);
+  assert.match(between, /return json\(\{ error: 'not_authorized' \}, 401\)/);
+  assert.equal(source.includes('atob('), false);
+  assert.doesNotMatch(source, /split\(\s*['"]\.['"]\s*\)/);
+});
