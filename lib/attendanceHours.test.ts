@@ -206,7 +206,27 @@ test('CSV totals match the sheet totals', () => {
     '2026-10-19'
   );
   assert.match(guarded, /'\t=cmd/);
-  assert.match(guarded, /'\r@Oak/);
+  assert.match(guarded, /"'\r@Oak"/);
+  const embedded = weekCsv(
+    buildWeekSheet(
+      [span({ personId: 'ann', personName: 'Ann\rBob "C"', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z' })],
+      '2026-10-19',
+      '2026-10-22T12:00:00.000Z'
+    ),
+    'Oak',
+    '2026-10-19'
+  );
+  assert.match(embedded, /"Ann\rBob ""C"""/);
+  const newline = weekCsv(
+    buildWeekSheet(
+      [span({ personId: 'ann', personName: 'Ann\nBob', inAt: '2026-10-20T08:00:00.000Z', outAt: '2026-10-20T16:00:00.000Z' })],
+      '2026-10-19',
+      '2026-10-22T12:00:00.000Z'
+    ),
+    'Oak',
+    '2026-10-19'
+  );
+  assert.equal(newline.includes('"Ann\nBob"'), true);
   assert.match(guarded, new RegExp(FLAG_LATE));
   assert.equal(guarded.includes(FLAG_CORRECTED), false);
 });

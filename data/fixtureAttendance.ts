@@ -203,6 +203,9 @@ export function fixtureSignOut(
   closeForgotten(bucket, actor.company_id, receivedAt);
   const open = bucket.rows.find((item) => item.person_id === actor.id && item.site_id === siteId && !item.out_at);
   if (open) {
+    if (new Date(receivedAt).getTime() - new Date(open.in_at).getTime() > 24 * 60 * 60 * 1000) {
+      throw new SnagRequestError({ kind: 'business', code: 'shift_too_long' });
+    }
     open.out_device_at = device;
     open.out_received_at = receivedAt;
     open.out_at = receivedAt;
@@ -222,6 +225,9 @@ export function fixtureSignOut(
     )
     .sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
   if (!late || late.late_out_at) throw new Error('not_signed_in');
+  if (new Date(receivedAt).getTime() - new Date(late.in_at).getTime() > 24 * 60 * 60 * 1000) {
+    throw new SnagRequestError({ kind: 'business', code: 'shift_too_long' });
+  }
   const before = snapshot(late);
   late.late_out_device_at = device;
   late.late_out_received_at = receivedAt;
@@ -356,6 +362,9 @@ export function fixtureCorrect(
   const start = new Date(inAt).getTime();
   const end = new Date(outAt).getTime();
   if (Number.isNaN(start) || Number.isNaN(end) || end < start) throw new Error('invalid_input');
+  if (end - start > 24 * 60 * 60 * 1000) {
+    throw new SnagRequestError({ kind: 'business', code: 'shift_too_long' });
+  }
   const row = bucket.rows.find((item) => item.id === entryId);
   if (!row || row.company_id !== actor.company_id || !canAccess(row.site_id)) throw new Error('not_authorized');
   const overlap = bucket.rows.find((other) => {

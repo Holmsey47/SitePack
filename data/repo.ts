@@ -232,6 +232,8 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'already_signed_in',
     'not_signed_in',
     'correction_overlaps',
+    'shift_too_long',
+    'invalid_display_name',
     'closed',
     'snag_list_changed',
     'not_found',

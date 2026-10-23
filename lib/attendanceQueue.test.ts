@@ -12,10 +12,14 @@ import {
   ATTENDANCE_BACKOFF_MAX_MS,
   attendanceRetryDelayMs,
   isRetryableAttendanceFailure,
-  SIGN_IN_AGAIN,
+  lateSignOutNotice,
   memoryAttendanceQueue,
+  noticesForUser,
+  pendingTapsForUser,
   persistThenSendAttendance,
+  rememberRefusedTap,
   refusedTapNotice,
+  SIGN_IN_AGAIN,
   storageAttendanceQueue,
   wipeAttendanceQueue,
   type QueuedTap,
@@ -319,6 +323,112 @@ test('a notice can be dismissed', async () => {
   await queue.putNotice({ id: 'n1', userId: 'user-a', siteId: 'site-a', message: 'Saved notice' });
   await queue.dismissNotice('n1');
   assert.equal((await queue.listNotices()).length, 0);
+});
+
+test('owner-change wipe removes the notices key, including when the owner was missing', async () => {
+  const box = storage();
+  const queue = storageAttendanceQueue(box);
+  await queue.put(tap('user-a'));
+  await queue.putNotice({ id: 'n-a', userId: 'user-a', siteId: 'site-a', message: 'Kept by mistake' });
+  box.setItem(ATTENDANCE_OWNER_KEY, 'user-a');
+  await adoptAttendanceOwner('user-b', queue, box);
+  assert.equal(box.getItem(ATTENDANCE_NOTICE_KEY), null);
+  assert.equal(box.getItem(ATTENDANCE_QUEUE_KEY), null);
+  assert.equal((await queue.listNotices()).length, 0);
+  await queue.putNotice({ id: 'n-b', userId: 'user-b', siteId: 'site-a', message: 'No owner yet' });
+  box.removeItem(ATTENDANCE_OWNER_KEY);
+  await adoptAttendanceOwner('user-a', queue, box);
+  assert.equal(box.getItem(ATTENDANCE_NOTICE_KEY), null);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test('notice and pending-tap filters keep this user and drop a missing or different one', () => {
+  const taps = [tap('user-a'), { ...tap('user-b'), siteId: 'site-a' }, { ...tap('user-a'), siteId: 'site-b', localId: 'other-site' }];
+  const notes = [
+    { id: 'a', userId: 'user-a', siteId: 'site-a', message: 'A' },
+    { id: 'b', userId: 'user-b', siteId: 'site-a', message: 'B' },
+    { id: 'c', userId: 'user-a', siteId: 'site-b', message: 'C' },
+  ];
+  assert.deepEqual(pendingTapsForUser(taps, 'user-a', 'site-a').map((item) => item.userId), ['user-a']);
+  assert.deepEqual(pendingTapsForUser(taps, '', 'site-a'), []);
+  assert.deepEqual(pendingTapsForUser(taps, null, 'site-a'), []);
+  assert.deepEqual(noticesForUser(notes, 'user-a', 'site-a').map((item) => item.id), ['a']);
+  assert.deepEqual(noticesForUser(notes, 'user-b', 'site-a').map((item) => item.id), ['b']);
+  assert.deepEqual(noticesForUser(notes, undefined, 'site-a'), []);
+  const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
+  assert.match(button, /pendingTapsForUser\(await queue\.list\(\), userId, siteId\)/);
+  assert.match(button, /noticesForUser\(await queue\.listNotices\(\), userId, siteId\)/);
+});
+
+test('a refused tap notice belongs to that tap and keeps its own id', async () => {
+  const queue = memoryAttendanceQueue();
+  const first = await rememberRefusedTap(queue, { ...tap('user-b'), localId: 'one' }, 'not_signed_in');
+  const second = await rememberRefusedTap(queue, { ...tap('user-a'), localId: 'two' }, 'already_signed_in');
+  assert.equal(first.userId, 'user-b');
+  assert.equal(first.id, 'reject:one');
+  assert.equal(second.userId, 'user-a');
+  assert.equal(second.id, 'reject:two');
+  const notices = await queue.listNotices();
+  assert.equal(notices.length, 2);
+  assert.equal(new Set(notices.map((notice) => notice.id)).size, 2);
+});
+
+test('another user already waiting on this site does not hold the tap', async () => {
+  const queue = memoryAttendanceQueue();
+  await queue.put({ ...tap('user-a'), localId: 'earlier', deviceAt: '2026-10-22T07:00:00.000Z' });
+  let sent = 0;
+  const result = await persistThenSendAttendance(
+    { ...tap('user-b'), localId: 'later', deviceAt: '2026-10-22T08:00:00.000Z' },
+    true,
+    async () => {
+      sent += 1;
+    },
+    queue
+  );
+  assert.equal(result, 'sent');
+  assert.equal(sent, 1);
+  assert.equal((await queue.list()).some((item) => item.localId === 'later'), false);
+  assert.equal((await queue.list()).some((item) => item.localId === 'earlier'), true);
+});
+
+test('a late sign-out notice belongs to the tap owner', () => {
+  const notice = lateSignOutNotice(tap('user-b', 'out'), 'Signed out late. The hours still stop at 23:59 until a manager corrects them.');
+  assert.equal(notice.userId, 'user-b');
+  assert.equal(notice.siteId, 'site-a');
+  assert.equal(notice.id, 'late:user-b-out');
+  const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
+  assert.match(button, /lateSignOutNotice\(item,/);
+});
+
+test('a refused tap is removed so a later flush does not send it again', async () => {
+  const queue = memoryAttendanceQueue();
+  let calls = 0;
+  const result = await persistThenSendAttendance(tap('user-a'), true, async () => {
+    calls += 1;
+    throw new Error('not_signed_in');
+  }, queue);
+  assert.equal(result, 'refused');
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 1);
+  const again = await flushAttendanceQueue(queue, 'user-a', async () => {
+    calls += 1;
+  });
+  assert.equal(calls, 1);
+  assert.equal(again.length, 0);
+  assert.equal((await queue.listNotices()).length, 1);
+});
+
+test('an unknown error retries and the wait still stops at 5 minutes', async () => {
+  const queue = memoryAttendanceQueue();
+  const before = Date.now();
+  const result = await persistThenSendAttendance({ ...tap('user-a'), attempts: 40 }, true, async () => {
+    throw new Error('boom-not-a-code');
+  }, queue);
+  assert.equal(result, 'queued');
+  assert.equal(isRetryableAttendanceFailure(new Error('boom-not-a-code')), true);
+  const retryAt = Date.parse((await queue.list())[0]?.retryAt ?? '');
+  assert.ok(retryAt - before <= ATTENDANCE_BACKOFF_MAX_MS + 1000);
+  assert.ok(retryAt - before >= ATTENDANCE_BACKOFF_MAX_MS - 1000);
 });
 
 test('sign-out, owner change, and a rejected session wipe the attendance keys', () => {

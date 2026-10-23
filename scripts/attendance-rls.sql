@@ -156,6 +156,7 @@ select pg_temp.ok(
   and not has_function_privilege('anon', 'private.attendance_overnight(timestamptz,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_audit_json(uuid)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.reject_control_display_name()', 'execute')
   and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
   and not has_table_privilege('anon', 'public.site_attendance', 'select')
   and not has_table_privilege('anon', 'public.site_attendance_audit', 'select')
@@ -873,6 +874,150 @@ select pg_temp.ok(
   'an overlapping correction is refused and the shift is unchanged'
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'update public.people set display_name = ''Bad'' || chr(10) || ''Name'' where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
+    'update public.people set display_name = ''Bad'' || chr(127) where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  )
+  and pg_temp.raises(
+    'update public.people set display_name = chr(1) || ''Bad'' where id = ''a1111111-1111-4111-8111-111111111115''',
+    'invalid_display_name'
+  ),
+  'a display name with a control character is invalid_display_name'
+);
+
+update public.people
+set display_name = 'Op ' || chr(128)
+where id = 'a1111111-1111-4111-8111-111111111115';
+
+select pg_temp.ok(
+  (select display_name = 'Op ' || chr(128) from public.people where id = 'a1111111-1111-4111-8111-111111111115'),
+  'a display name may include a character above U+007F'
+);
+
+update public.people
+set display_name = 'Op C'
+where id = 'a1111111-1111-4111-8111-111111111115';
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap,
+  out_device_at, out_received_at, out_at, out_gap, forgot_sign_out
+) values (
+  '61111111-1111-4111-8111-111111111209',
+  '51111111-1111-4111-8111-111111111112',
+  'c1111111-1111-4111-8111-111111111111',
+  'a1111111-1111-4111-8111-111111111114',
+  'Op B',
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-19 08:00:00+00',
+  false,
+  timestamptz '2026-10-19 09:00:00+00',
+  timestamptz '2026-10-19 09:00:00+00',
+  timestamptz '2026-10-19 09:00:00+00',
+  false,
+  false
+);
+
+select set_config('sitepack.attendance_now', '2026-10-19 18:00:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111111'::uuid);
+set local role authenticated;
+
+select public.correct_attendance(
+  '61111111-1111-4111-8111-111111111209'::uuid,
+  timestamptz '2026-10-19 08:00:00+00',
+  timestamptz '2026-10-20 08:00:00+00',
+  'Exactly one day'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-20 08:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111209'
+  ),
+  'a shift of exactly 24 hours is kept'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.correct_attendance(''61111111-1111-4111-8111-111111111209''::uuid, timestamptz ''2026-10-19 08:00:00+00'', timestamptz ''2026-10-20 08:01:00+00'', ''One minute over'')',
+    'shift_too_long'
+  ),
+  'a correction longer than 24 hours is shift_too_long'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-20 08:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111209'
+  ),
+  'a too-long correction leaves the shift unchanged'
+);
+
+reset role;
+
+-- Same London day on the 25-hour clock change, so the forgotten-close does not
+-- take the row first. 00:00 BST to 23:59 GMT is longer than 24 hours.
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111210',
+  '51111111-1111-4111-8111-111111111112',
+  'c1111111-1111-4111-8111-111111111111',
+  'a1111111-1111-4111-8111-111111111114',
+  'Op B',
+  timestamptz '2026-10-24 23:00:00+00',
+  timestamptz '2026-10-24 23:00:00+00',
+  timestamptz '2026-10-24 23:00:00+00',
+  false
+);
+
+select set_config('sitepack.attendance_now', '2026-10-25 23:59:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111114'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site(''51111111-1111-4111-8111-111111111112''::uuid, timestamptz ''2026-10-25 23:59:00+00'')',
+    'shift_too_long'
+  ),
+  'a sign-out longer than 24 hours is shift_too_long'
+);
+
+select pg_temp.ok(
+  (select out_at is null from public.site_attendance where id = '61111111-1111-4111-8111-111111111210'),
+  'a too-long sign-out leaves the shift open'
+);
+
+reset role;
+select set_config('sitepack.attendance_now', '2026-10-25 23:00:00+00', true);
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111114'::uuid);
+set local role authenticated;
+
+select public.sign_out_site(
+  '51111111-1111-4111-8111-111111111112'::uuid,
+  timestamptz '2026-10-25 23:00:00+00'
+);
+
+select pg_temp.ok(
+  (
+    select out_at = timestamptz '2026-10-25 23:00:00+00'
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111210'
+  ),
+  'a sign-out of exactly 24 hours is kept'
+);
+
+reset role;
+
 select set_config('sitepack.attendance_now', '', true);
 set local role anon;
 
@@ -901,10 +1046,11 @@ declare
     'private.close_forgotten_attendance()',
     'private.attendance_overnight(now(), now())',
     'private.attendance_audit_json(''51111111-1111-4111-8111-111111111111''::uuid)',
-    'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)'
+    'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'private.reject_control_display_name()'
   ];
 begin
-  if array_length(calls, 1) <> 22 then
+  if array_length(calls, 1) <> 23 then
     raise exception 'FAIL: anon probe list drifted';
   end if;
   foreach call in array calls loop
@@ -916,7 +1062,7 @@ begin
         null;
     end;
   end loop;
-  raise notice 'ok: anon cannot call the 9 public and 13 private attendance functions';
+  raise notice 'ok: anon cannot call the 9 public and 14 private attendance functions';
 end
 $anon$;
 

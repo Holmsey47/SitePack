@@ -11,6 +11,9 @@
 -- On site now and the weekly sheet return null unless the caller is an owner or contracts manager.
 -- Writes are SECURITY DEFINER with search_path pinned to empty.
 -- Reads run as the caller, so RLS applies, after the forgotten-close function.
+-- sign_out_site and correct_attendance lock the shift before reading it into the audit.
+-- Two sign-ins at once are already_signed_in. A shift over 24 hours is shift_too_long.
+-- A display name with a control character is invalid_display_name.
 -- This migration does not alter storage, auth, or any Supabase-managed object.
 
 -- ---------------------------------------------------------------------------
@@ -476,14 +479,25 @@ begin
   end if;
 
   v_id := gen_random_uuid();
-  insert into public.site_attendance (
-    id, site_id, company_id, person_id, person_name,
-    in_device_at, in_received_at, in_at, in_gap
-  ) values (
-    v_id, p_site_id, v_actor.company_id, v_actor.person_id,
-    private.attendance_person_label(v_actor.display_name),
-    v_device, v_received, v_received, private.attendance_gap(v_device, v_received)
-  );
+  begin
+    insert into public.site_attendance (
+      id, site_id, company_id, person_id, person_name,
+      in_device_at, in_received_at, in_at, in_gap
+    ) values (
+      v_id, p_site_id, v_actor.company_id, v_actor.person_id,
+      private.attendance_person_label(v_actor.display_name),
+      v_device, v_received, v_received, private.attendance_gap(v_device, v_received)
+    );
+  exception
+    when unique_violation then
+      select s.name into v_open_name
+      from public.site_attendance a
+      join public.sites s on s.id = a.site_id
+      where a.person_id = v_actor.person_id
+        and a.out_at is null
+      limit 1;
+      raise exception 'already_signed_in' using detail = v_open_name;
+  end;
 
   return private.attendance_json(v_id);
 end;
@@ -512,9 +526,14 @@ begin
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
-    and a.out_at is null;
+    and a.out_at is null
+  for update of a;
 
   if v_row.id is not null then
+    if v_received > v_row.in_at + interval '24 hours' then
+      raise exception 'shift_too_long';
+    end if;
+
     update public.site_attendance
     set out_device_at = v_device,
         out_received_at = v_received,
@@ -542,12 +561,18 @@ begin
         and later.in_at > a.in_at
     )
   order by a.in_at desc
-  limit 1;
+  limit 1
+  for update of a;
 
   if v_row.id is null or v_row.late_out_at is not null then
     raise exception 'not_signed_in';
   end if;
 
+  if v_received > v_row.in_at + interval '24 hours' then
+    raise exception 'shift_too_long';
+  end if;
+
+  -- v_row is the locked shift. The audit before and after come from that row.
   v_before := jsonb_build_object(
     'in_at', v_row.in_at,
     'out_at', v_row.out_at,
@@ -609,7 +634,11 @@ declare
   v_before jsonb;
   v_after jsonb;
 begin
-  select * into v_row from public.site_attendance where id = p_entry_id;
+  select * into v_row
+  from public.site_attendance
+  where id = p_entry_id
+  for update;
+
   if v_row.id is null then
     raise exception 'not_authorized';
   end if;
@@ -628,6 +657,10 @@ begin
   if p_in_at < private.attendance_now() - interval '2 years'
      or p_out_at > private.attendance_now() + interval '24 hours' then
     raise exception 'invalid_time';
+  end if;
+
+  if p_out_at > p_in_at + interval '24 hours' then
+    raise exception 'shift_too_long';
   end if;
 
   select other.* into v_overlap
@@ -650,6 +683,7 @@ begin
            end;
   end if;
 
+  -- v_row is the locked shift. The audit before and after come from that row.
   v_before := jsonb_build_object(
     'in_at', v_row.in_at,
     'out_at', v_row.out_at,
@@ -868,6 +902,38 @@ begin
   return v_row;
 end;
 $fn$;
+
+-- U+0000 cannot be stored in text. U+0001–001F and U+007F are rejected.
+-- U+0080 and above, including C1, stay allowed.
+create or replace function private.reject_control_display_name()
+returns trigger
+language plpgsql
+set search_path = ''
+as $fn$
+begin
+  if new.display_name is not null
+     and new.display_name ~ (
+       '[' || pg_catalog.chr(1) || '-' || pg_catalog.chr(31) || pg_catalog.chr(127) || ']'
+     ) then
+    raise exception 'invalid_display_name';
+  end if;
+  return new;
+end;
+$fn$;
+
+revoke all on function private.reject_control_display_name() from public, anon, authenticated;
+
+drop trigger if exists people_display_name_controls on public.people;
+create trigger people_display_name_controls
+  before insert or update of display_name on public.people
+  for each row
+  execute function private.reject_control_display_name();
+
+drop trigger if exists join_events_display_name_controls on public.join_events;
+create trigger join_events_display_name_controls
+  before insert or update of display_name on public.join_events
+  for each row
+  execute function private.reject_control_display_name();
 
 revoke all on function public.close_forgotten_attendance() from public, anon;
 revoke all on function public.sign_in_site(uuid, timestamptz) from public, anon;

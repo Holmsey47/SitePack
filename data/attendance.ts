@@ -90,6 +90,8 @@ export function attendanceError(err: unknown): string {
       return 'Check the time and the reason.';
     case 'correction_overlaps':
       return detail ? `That overlaps another shift, ${detail}.` : 'That overlaps another shift.';
+    case 'shift_too_long':
+      return 'That shift is longer than 24 hours.';
     default:
       return 'Could not save the hours.';
   }

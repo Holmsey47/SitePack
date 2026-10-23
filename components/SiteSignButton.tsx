@@ -8,6 +8,9 @@ import { formatUkDateTime } from '@/lib/format';
 import {
   flushAttendanceQueue,
   getAttendanceQueue,
+  lateSignOutNotice,
+  noticesForUser,
+  pendingTapsForUser,
   persistThenSendAttendance,
   SAVED_ON_PHONE,
   SIGN_IN_AGAIN,
@@ -28,12 +31,7 @@ async function sendTap(item: QueuedTap) {
   }
   const entry = await repo.signOutSite(item.siteId, item.deviceAt);
   if (entry.late_sign_out) {
-    await getAttendanceQueue().putNotice({
-      id: `late:${item.localId}`,
-      userId: item.userId,
-      siteId: item.siteId,
-      message: LATE_SIGN_OUT_NOTICE,
-    });
+    await getAttendanceQueue().putNotice(lateSignOutNotice(item, LATE_SIGN_OUT_NOTICE));
   }
 }
 
@@ -53,8 +51,8 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
     if (await deviceIsOnline()) {
       await flushAttendanceQueue(queue, userId, sendTap).catch(() => undefined);
     }
-    const pending = (await queue.list()).filter((item) => item.userId === userId && item.siteId === siteId);
-    const notes = (await queue.listNotices()).filter((item) => item.userId === userId && item.siteId === siteId);
+    const pending = pendingTapsForUser(await queue.list(), userId, siteId);
+    const notes = noticesForUser(await queue.listNotices(), userId, siteId);
     setQueued(pending);
     setNotices(notes);
     try {

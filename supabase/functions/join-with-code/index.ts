@@ -1,4 +1,4 @@
-import { passwordHasLettersAndDigits, placeholderEmail } from '../_shared/joinCodes.ts';
+import { hasDisplayNameControl, passwordHasLettersAndDigits, placeholderEmail } from '../_shared/joinCodes.ts';
 import {
   clientIp,
   hashCode,
@@ -47,6 +47,9 @@ Deno.serve(async (req) => {
 
   const username = usernameOrNull(body.username ?? '');
   const displayName = (body.display_name ?? '').trim();
+  if (hasDisplayNameControl(displayName)) {
+    return json({ error: 'invalid_display_name' }, 400);
+  }
   const trade = (body.trade ?? '').trim();
   if (!username || !displayName || displayName.length > 80 || trade.length > 80) {
     return json({ error: 'invalid_input' }, 400);

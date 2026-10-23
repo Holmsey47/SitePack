@@ -6,7 +6,7 @@ export const SAVED_ON_PHONE = 'Saved on phone, will send';
 /** Wait this long, times the attempt count, before a failed tap is sent again. */
 export const ATTENDANCE_BACKOFF_MS = 30_000;
 
-/** Network and session retries never wait longer than this. */
+/** Network, session, and unknown-error retries never wait longer than this. */
 export const ATTENDANCE_BACKOFF_MAX_MS = 5 * 60 * 1000;
 
 export const SIGN_IN_AGAIN = 'Sign in again to send this.';
@@ -54,13 +54,22 @@ type MemoryStorage = {
   removeItem(key: string): void;
 };
 
-const DROP = new Set(['not_signed_in', 'already_signed_in', 'not_authorized', 'invalid_time', 'invalid_input']);
+const DROP = new Set([
+  'not_signed_in',
+  'already_signed_in',
+  'not_authorized',
+  'invalid_time',
+  'invalid_input',
+  'shift_too_long',
+  'correction_overlaps',
+]);
 
 export function isDroppedAttendanceCode(code: string): boolean {
   return DROP.has(code);
 }
 
 export function refusedTapNotice(action: QueuedTap['action'], code: string, detail?: string): string {
+  if (code === 'shift_too_long') return 'That shift is longer than 24 hours.';
   if (code === 'not_signed_in') return 'Sign out was not saved. You were already signed out.';
   if (code === 'already_signed_in') {
     return detail
@@ -279,6 +288,35 @@ export async function adoptAttendanceOwner(
   if (previous === userId) return;
   await queue.wipe();
   writeAttendanceOwner(userId, storage);
+}
+
+/** Taps for this login on this site. A missing owner or a different user is hidden. */
+export function pendingTapsForUser(
+  taps: QueuedTap[],
+  userId: string | null | undefined,
+  siteId: string
+): QueuedTap[] {
+  if (!userId) return [];
+  return taps.filter((item) => item.userId === userId && item.siteId === siteId);
+}
+
+/** Notices for this login on this site. A missing owner or a different user is hidden. */
+export function noticesForUser(
+  notices: AttendanceNotice[],
+  userId: string | null | undefined,
+  siteId: string
+): AttendanceNotice[] {
+  if (!userId) return [];
+  return notices.filter((item) => item.userId === userId && item.siteId === siteId);
+}
+
+export function lateSignOutNotice(item: QueuedTap, message: string): AttendanceNotice {
+  return {
+    id: `late:${item.localId}`,
+    userId: item.userId,
+    siteId: item.siteId,
+    message,
+  };
 }
 
 export function orderedTaps(items: QueuedTap[]): QueuedTap[] {

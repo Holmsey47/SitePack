@@ -220,6 +220,48 @@ test('a correction that overlaps another shift names that shift', async () => {
   delete clock.__SITEPACK_NOW;
 });
 
+test('a shift longer than 24 hours is refused', async () => {
+  resetFixtureStore();
+  process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const start = londonWallIso('2026-10-21', 7, 0);
+  const exact = new Date(new Date(start).getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const over = new Date(new Date(exact).getTime() + 60 * 1000).toISOString();
+  clock.__SITEPACK_NOW = start;
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const entry = await fixtureRepo.signInSite(IDS.oak, start);
+  await fixtureRepo.signOutSite(IDS.oak, start);
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const kept = await fixtureRepo.correctAttendance(entry.entry_id, start, exact, 'Exactly one day');
+  assert.equal(kept.out_at, exact);
+  await assert.rejects(
+    () => fixtureRepo.correctAttendance(entry.entry_id, start, over, 'One minute over'),
+    (err: unknown) => {
+      assert.ok(err instanceof SnagRequestError);
+      assert.equal(err.failure.kind === 'business' ? err.failure.code : '', 'shift_too_long');
+      assert.equal(attendanceError(err), 'That shift is longer than 24 hours.');
+      return true;
+    }
+  );
+  const still = await fixtureRepo.weeklyAttendance(IDS.oak, '2026-10-19');
+  assert.equal(still?.entries.find((row) => row.entry_id === entry.entry_id)?.out_at, exact);
+  await fixtureRepo.signOut();
+  const longIn = londonWallIso('2026-10-25', 0, 0);
+  const longOver = '2026-10-25T23:59:00.000Z';
+  clock.__SITEPACK_NOW = longIn;
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, longIn);
+  clock.__SITEPACK_NOW = longOver;
+  await assert.rejects(() => fixtureRepo.signOutSite(IDS.oak, longOver), (err: unknown) => {
+    assert.ok(err instanceof SnagRequestError);
+    assert.equal(err.failure.kind === 'business' ? err.failure.code : '', 'shift_too_long');
+    assert.equal(attendanceError(err), 'That shift is longer than 24 hours.');
+    return true;
+  });
+  delete clock.__SITEPACK_NOW;
+});
+
 test('already signed in names the site he is still on', async () => {
   resetFixtureStore();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
