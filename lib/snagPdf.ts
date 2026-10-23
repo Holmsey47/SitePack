@@ -109,13 +109,12 @@ function pdfFontBytes(encoded: string): Uint8Array {
   return bytes;
 }
 
-/** Keep letters, including accents. A newline or tab becomes one space. Drop other controls, bidi overrides, zero-width characters, and a pound sign. */
+/** Keep letters, including accents, and a pound sign. A newline or tab becomes one space. Drop other controls, bidi overrides, and zero-width characters. */
 export function pdfText(value: string): string {
   return value
     .normalize('NFC')
     .replace(/[\t\n\v\f\r]+/g, ' ')
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-    .replace(/£/g, '')
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"');
