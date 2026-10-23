@@ -129,11 +129,31 @@ select pg_temp.ok(
 select pg_temp.ok(
   not has_table_privilege('anon', 'public.site_talks', 'select')
   and not has_table_privilege('anon', 'public.site_talk_signatures', 'select')
+  and not has_column_privilege('anon', 'public.site_talk_signatures', 'signature_png', 'select')
+  and not has_column_privilege('anon', 'public.site_talk_signatures', 'person_name', 'select')
+  and has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select')
+  and has_column_privilege('authenticated', 'public.site_talk_signatures', 'person_name', 'select')
   and not has_table_privilege('authenticated', 'public.site_talks', 'insert')
   and not has_table_privilege('authenticated', 'public.site_talk_signatures', 'insert')
   and not has_table_privilege('authenticated', 'public.site_talk_signatures', 'update'),
   'anon cannot read and clients cannot write the tables directly'
 );
+
+savepoint signature_column;
+revoke select (signature_png) on table public.site_talk_signatures from authenticated;
+set local role authenticated;
+select pg_temp.ok(
+  not has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select')
+  and has_column_privilege('authenticated', 'public.site_talk_signatures', 'person_name', 'select')
+  and pg_temp.raises(
+    'select signature_png from public.site_talk_signatures',
+    'permission denied for table site_talk_signatures'
+  )
+  and (select person_name from public.site_talk_signatures limit 1) is null,
+  'the signature image can be revoked on its own and the name column stays'
+);
+reset role;
+rollback to savepoint signature_column;
 
 select pg_temp.ok(
   private.talk_meaning('induction', 'phone', 'attendee', 'Site A', 'Ignored', 'Owner X', timestamptz '2026-10-22 12:00:00+00')
@@ -525,6 +545,50 @@ select pg_temp.ok(
   'three of five are signed, with the question and the presenter marks'
 );
 
+select pg_temp.ok(
+  (select signature_png from public.site_talk_signatures where person_id = :'opa'::uuid) = :'png'
+  and (select signature_png from public.site_talk_signatures where person_id = :'opd'::uuid) = :'png'
+  and (select signature_png from public.site_talk_signatures where person_id = :'ope'::uuid) = :'png',
+  'the owner can read each signature image'
+);
+
+reset role;
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select signature_png from public.site_talk_signatures where person_id = :'opa'::uuid) = :'png'
+  and (select signature_png from public.site_talk_signatures where person_id = :'opd'::uuid) = :'png'
+  and (select count(signature_png) from public.site_talk_signatures) = 3,
+  'the contracts manager can read each signature image'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select signature_png from public.site_talk_signatures where person_id = :'opa'::uuid) = :'png'
+  and (select signature_png from public.site_talk_signatures where person_id = :'opd'::uuid) is null
+  and (select signature_png from public.site_talk_signatures where person_id = :'ope'::uuid) is null
+  and (select count(signature_png) from public.site_talk_signatures) = 1,
+  'an operative can read their own signature image and not another person''s'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(signature_png) from public.site_talk_signatures) = 0
+  and (select signature_png from public.site_talk_signatures where person_id = :'opa'::uuid) is null,
+  'another firm cannot read a signature image'
+);
+
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
 insert into probe (k, v)
 values (
   'revised',
@@ -682,8 +746,10 @@ values (
 
 select pg_temp.ok(
   (select (v->>'shared_device')::boolean and v->>'meaning' like 'I was at the toolbox talk ''Morning brief''%'
-   from probe where k = 'presenter-capture'),
-  'the presenter login can capture one other person on that talk'
+   from probe where k = 'presenter-capture')
+  and (select count(signature_png) from public.site_talk_signatures where person_id = :'opa'::uuid and signature_png = :'png') >= 1
+  and (select signature_png from public.site_talk_signatures where person_id = :'opf'::uuid) is null,
+  'the presenter login can capture one other person on that talk, and cannot read that signature image'
 );
 
 reset role;
@@ -707,7 +773,7 @@ select pg_temp.ok(
       and v->>'meaning' is distinct from 'I gave this talk to the people listed.'
    from probe where k = 'presenter-for')
   and (
-    select s.meaning = 'signed by Owner X for Op A'
+    select s.meaning = 'signed by Owner X for Op A' and s.signature_png = :'png'
     from public.site_talk_signatures s
     where s.version_id = (select (v->>'version_id')::uuid from probe where k = 'inperson')
       and s.signature_role = 'presenter'
@@ -744,8 +810,10 @@ select pg_temp.ok(
       || quote_literal((select v->>'version_id' from probe where k = 'presenter-own')) || '::uuid, '
       || quote_literal(:'png') || ', now(), ''session-opc-2'')',
     'not_authorized'
-  ),
-  'another operative cannot sign the presenter line'
+  )
+  and (select signature_png from public.site_talk_signatures where person_id = :'opf'::uuid) is null
+  and (select signature_png from public.site_talk_signatures where signature_role = 'presenter') is null,
+  'another operative cannot sign the presenter line or read a talk signature image'
 );
 
 reset role;
