@@ -131,6 +131,9 @@ comment on column public.site_talk_signatures.received_at is
 comment on column public.site_talk_signatures.shared_device is
   'True when the logged-in person is not the signer.';
 
+comment on column public.site_talk_signatures.signature_png is
+  'Signature image. Granted on its own so a later guest grant can omit this column. Row security still limits a direct select to the host owner, the host contracts manager, and the signer.';
+
 create table public.site_talk_questions (
   id uuid primary key default gen_random_uuid(),
   talk_id uuid not null references public.site_talks (id) on delete cascade,
@@ -451,7 +454,27 @@ revoke all on table public.site_talk_notes from public, anon, authenticated;
 grant select on table public.site_talks to authenticated;
 grant select on table public.site_talk_versions to authenticated;
 grant select on table public.site_talk_required to authenticated;
-grant select on table public.site_talk_signatures to authenticated;
+-- A table-level select cannot be narrowed by revoking one column.
+-- signature_png is its own grant so guest access can drop the image and keep the names.
+grant select (
+  id,
+  talk_id,
+  version_id,
+  site_id,
+  company_id,
+  person_id,
+  person_name,
+  captured_by,
+  session_id,
+  shared_device,
+  signature_role,
+  meaning,
+  device_at,
+  received_at,
+  content_hash,
+  created_at
+) on table public.site_talk_signatures to authenticated;
+grant select (signature_png) on table public.site_talk_signatures to authenticated;
 grant select on table public.site_talk_questions to authenticated;
 grant select on table public.site_talk_notes to authenticated;
 
@@ -506,6 +529,8 @@ create policy site_talk_required_select
     )
   );
 
+-- The image column is readable only on rows this policy returns:
+-- the host owner, the host contracts manager, or the signer.
 create policy site_talk_signatures_select
   on public.site_talk_signatures for select to authenticated
   using (
