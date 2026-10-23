@@ -4,7 +4,7 @@ import { Button, Card, Muted, Screen, SeenRejectNotice, Title } from '@/componen
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
-import { signedCountLabel, talkError, type TalkDetail } from '@/data/talks';
+import { handPhoneLabel, signedCountLabel, signedVersionLabel, talkError, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { buildTalkPdf, talkPdfFilename } from '@/lib/talkPdf';
 import { SAVED_ON_PHONE, SESSION_ENDED, dismissTalkNotice, getTalkQueue, persistThenSendTalk, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
@@ -242,7 +242,7 @@ export default function TalkDetailScreen() {
               {canRun ? (
                 <View style={{ gap: 8 }}>
                   <Button
-                    label="Sign for this person"
+                    label={handPhoneLabel(row.person_name)}
                     minHeight={56}
                     onPress={() => router.push(`/sites/${siteId}/talks/${talk.talk_id}/sign?personId=${row.person_id}`)}
                   />
@@ -264,6 +264,7 @@ export default function TalkDetailScreen() {
           {register.signed.map((row) => (
             <Card key={row.person_id}>
               <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registerLabel(row)}</Text>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{signedVersionLabel(talk.version_no)}</Text>
               {row.name_changed ? <Muted>name changed since signing</Muted> : null}
               <Muted>{formatUkDateTime(row.received_at)}</Muted>
               <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{row.meaning}</Text>

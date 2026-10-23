@@ -20,7 +20,16 @@ import {
   type TalkSite,
 } from './fixtureTalks.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
-import { signaturePngOk, signedCountLabel, talkPlain, talkStoragePath } from './talks.ts';
+import {
+  handPhoneBanner,
+  handPhoneLabel,
+  signaturePngOk,
+  signedCountLabel,
+  signedVersionLabel,
+  talkPlain,
+  talkStoragePath,
+  tickThenSignLabel,
+} from './talks.ts';
 import { formatDate } from '../lib/format.ts';
 import { fixtureForceOffline, isFixtureOffline } from '../lib/fixtureOffline.ts';
 import { talkMeaning } from '../lib/talkMeaning.ts';
@@ -847,6 +856,23 @@ test('a joiner sees the induction, sign-in is not blocked, and the manager sees 
   assert.ok((badges.find((row) => row.site_id === IDS.oak)?.questions ?? 0) >= 1);
   const detail = await fixtureRepo.getTalk(created.talk_id);
   assert.equal(detail?.register?.not_signed.some((row) => row.person_name === 'Amy Keane' && row.has_question), true);
+});
+
+test('handing the phone, the tick, and the signed version use the server name', () => {
+  assert.equal(handPhoneLabel('Sam Reed'), 'Hand phone to Sam Reed');
+  assert.equal(handPhoneBanner('Sam Reed'), 'Sam Reed, your turn to sign. Only Sam Reed signs here.');
+  assert.equal(signedVersionLabel(2), 'Signed version 2');
+  assert.equal(tickThenSignLabel, 'Tick that you understood, then sign');
+  const sign = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/sign.tsx', 'utf8');
+  assert.match(sign, /accessibilityRole="checkbox"/);
+  assert.match(sign, /accessibilityState=\{\{ checked: understood \}\}/);
+  assert.match(sign, /minHeight: 48/);
+  assert.match(sign, /handPhoneBanner\(serverName\)/);
+  assert.doesNotMatch(sign, /Sign for this person/);
+  const register = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/index.tsx', 'utf8');
+  assert.match(register, /handPhoneLabel\(row\.person_name\)/);
+  assert.match(register, /signedVersionLabel\(talk\.version_no\)/);
+  assert.doesNotMatch(register, /Sign for this person/);
 });
 
 test('talk copy and the register do not say compliant', () => {

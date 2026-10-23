@@ -205,9 +205,10 @@ function textBlock(
   return { kind, lines, png: null, height: measure(lines, null), ...flags };
 }
 
-function personLines(person: RegisterPdfPerson): Array<[string, number, boolean]> {
+function personLines(person: RegisterPdfPerson, versionNo?: number): Array<[string, number, boolean]> {
   const label = person.personRef ? `${person.name} · ${person.personRef}` : person.name;
   const rows: Array<[string, number, boolean]> = [[label, 13, true]];
+  if (versionNo) rows.push([`Signed version ${versionNo}`, 11, true]);
   if (person.nameChanged) rows.push(['name changed since signing', 11, true]);
   if (person.hasQuestion) rows.push(['Has a question', 11, true]);
   if (person.question) rows.push([person.question, 11, false]);
@@ -250,7 +251,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
   if (input.signed.length > 0) {
     blocks.push(textBlock('heading', [[`Signed (${input.signed.length})`, 14, true]]));
     for (const person of input.signed) {
-      const rows = personLines(person);
+      const rows = personLines(person, input.versionNo);
       rows.push([formatUkDateTime(person.receivedAt), 11, false]);
       rows.push([person.meaning, 11, false]);
       if (person.sharedDevice) rows.push(['Signed on a shared device', 11, true]);
@@ -270,6 +271,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
     const presenterLabel = presenter.personRef ? `${presenter.name} · ${presenter.personRef}` : presenter.name;
     const rows: Array<[string, number, boolean]> = [
       [presenterLabel, 13, true],
+      [`Signed version ${input.versionNo}`, 11, true],
       ...(presenter.nameChanged ? [['name changed since signing', 11, true] as [string, number, boolean]] : []),
       [formatUkDateTime(presenter.receivedAt), 11, false],
       [presenter.meaning, 11, false],

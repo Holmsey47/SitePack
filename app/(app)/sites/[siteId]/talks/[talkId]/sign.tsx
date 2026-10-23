@@ -3,7 +3,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import { Button, ErrorText, Field, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { talkError, type TalkDetail } from '@/data/talks';
+import { handPhoneBanner, talkError, tickThenSignLabel, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { isFixtureOffline } from '@/lib/fixtureOffline';
 import { SAVED_ON_PHONE, SESSION_ENDED, getTalkQueue, persistThenSendTalk } from '@/lib/talkQueue';
@@ -73,16 +73,24 @@ export default function SignTalkScreen() {
     };
   }, [params.talkId, person?.id, presenter, signerId]);
 
-  const signerName =
+  const serverName =
     talk?.register?.not_signed.find((row) => row.person_id === signerId)?.person_name ||
     talk?.register?.signed.find((row) => row.person_id === signerId)?.person_name ||
-    (signerId === person?.id ? person?.display_name : null) ||
-    'This person';
+    '';
+  const handed = !presenter && Boolean(params.personId) && params.personId !== person?.id;
+  const signerName = serverName || (handed ? '' : person?.display_name) || 'This person';
+  const signLabel = understood
+    ? presenter
+      ? onBehalf
+        ? 'Sign for the presenter'
+        : 'Sign that I gave this talk'
+      : 'Sign'
+    : tickThenSignLabel;
 
   async function submit(action: 'sign' | 'question' | 'presenter') {
     if (!talk || !person?.auth_user_id || !signerId) return;
     if (action !== 'question' && (!understood || !signature)) {
-      setError('Tick that you have read it, then sign.');
+      setError(tickThenSignLabel);
       return;
     }
     setSaving(true);
@@ -145,6 +153,22 @@ export default function SignTalkScreen() {
 
   return (
     <Screen>
+      {handed && serverName ? (
+        <View
+          accessibilityRole="header"
+          style={{
+            minHeight: 48,
+            justifyContent: 'center',
+            backgroundColor: theme.current,
+            borderRadius: 12,
+            paddingHorizontal: 14,
+            paddingVertical: 12,
+          }}>
+          <Text style={{ color: theme.currentInk, fontSize: 17, fontWeight: '800', lineHeight: 24 }}>
+            {handPhoneBanner(serverName)}
+          </Text>
+        </View>
+      ) : null}
       <Title>{presenter ? 'Presenter sign-off' : signerName}</Title>
       <Muted>
         {talk.title} · version {talk.version_no}
@@ -166,18 +190,32 @@ export default function SignTalkScreen() {
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: understood }}
+        accessibilityLabel="I've read and understood"
         onPress={() => setUnderstood((value) => !value)}
-        style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>
-          {understood ? 'Ticked · I\'ve read and understood' : 'I\'ve read and understood'}
-        </Text>
+        style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 4,
+            borderWidth: 2,
+            borderColor: understood ? theme.current : theme.text,
+            backgroundColor: understood ? theme.current : 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {understood ? (
+            <Text style={{ color: theme.currentInk, fontSize: 18, fontWeight: '800', lineHeight: 22 }}>✓</Text>
+          ) : null}
+        </View>
+        <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', flex: 1 }}>{'I\'ve read and understood'}</Text>
       </Pressable>
       <View style={{ gap: 8 }}>
         <SignaturePad onChange={setSignature} />
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
       <Button
-        label={presenter ? (onBehalf ? 'Sign for the presenter' : 'Sign that I gave this talk') : 'Sign'}
+        label={signLabel}
         minHeight={56}
         loading={saving}
         disabled={!understood || !signature}
