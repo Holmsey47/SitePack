@@ -4,10 +4,10 @@ import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 import { decodedPdfText } from './pdfDecode.ts';
 import { pngDataUrl, solidPng } from './signaturePng.ts';
-import { buildTalkPdf, packBlocks, pdfText, talkReportId, talkReportKey, type RegisterPdfInput } from './talkPdf.ts';
+import { buildTalkPdf, packBlocks, pdfText, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
 
 function footerLine(input: RegisterPdfInput, page: number, total: number): string {
-  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))} · Page ${page} of ${total}`;
+  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.talkId, input.versionNo)} · Page ${page} of ${total}`;
 }
 
 const meaning = "I was at the toolbox talk 'Fire exits' given by Jordan Hale at Oak yard on 22 Oct 2026, and I understood it.";
@@ -26,6 +26,7 @@ function register(): RegisterPdfInput {
     sharedDevice: index === 1,
   }));
   return {
+    talkId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     companyName: 'Ashfield Finishes',
     siteName: 'Oak yard',
     title: 'Fire exits',
@@ -282,17 +283,29 @@ test('José Müller and Łukasz Wójcik print in the register', async () => {
   assert.match(text, /Siobhán Ó Briain/);
   assert.equal(text.includes('ukasz Wjcik'), false);
   assert.match(text, new RegExp(`Page 1 of ${footers.length}`));
-  assert.match(text, new RegExp(talkReportId(input.versionNo, input.presentedAt, talkReportKey(input))));
+  assert.match(text, new RegExp(talkReportId(input.talkId, input.versionNo)));
 });
 
-test('two talks on the same day get different report refs', () => {
-  const when = '2026-10-22T12:00:00.000Z';
-  const later = '2026-10-22T16:30:00.000Z';
-  const fire = talkReportId(1, when, 'Oak yard\nFire exits');
-  const edges = talkReportId(1, later, 'Oak yard\nLeading edge');
+test('two talks with the same title, site, and day get different report refs', async () => {
+  const left = register();
+  const right = register();
+  left.talkId = '11111111-1111-4111-8111-111111111111';
+  right.talkId = '22222222-2222-4222-8222-222222222222';
+  assert.equal(left.title, right.title);
+  assert.equal(left.siteName, right.siteName);
+  assert.equal(left.presentedAt, right.presentedAt);
+  assert.equal(left.versionNo, right.versionNo);
+  const fire = talkReportId(left.talkId, left.versionNo);
+  const edges = talkReportId(right.talkId, right.versionNo);
   assert.notEqual(fire, edges);
-  assert.match(fire, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
-  assert.match(edges, /^TR-v1-22Oct2026-[a-z0-9]{4}$/);
+  assert.equal(fire, 'TR-11111111-1111-4111-8111-111111111111-v2');
+  assert.equal(edges, 'TR-22222222-2222-4222-8222-222222222222-v2');
+  const printedLeft = decodedPdfText((await buildTalkPdf(left)).bytes);
+  const printedRight = decodedPdfText((await buildTalkPdf(right)).bytes);
+  assert.match(printedLeft, /TR-11111111-1111-4111-8111-111111111111-v2/);
+  assert.match(printedRight, /TR-22222222-2222-4222-8222-222222222222-v2/);
+  assert.equal(printedLeft.includes(right.talkId), false);
+  assert.equal(printedRight.includes(left.talkId), false);
 });
 
 test('the register and PDF keep the signed name, the person identifier, and a rename flag', async () => {

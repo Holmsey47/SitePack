@@ -672,6 +672,93 @@ test('a title, presenter role, or question with a line break, a leading spreadsh
   );
 });
 
+test('a title, presenter role, or question rejects U+200B, U+200C, U+200D, U+2060, U+FEFF, and U+061C', () => {
+  const marks = ['\u200b', '\u200c', '\u200d', '\u2060', '\ufeff', '\u061c'];
+  for (const mark of marks) {
+    assert.throws(() => talkPlain(`Title${mark}`), /invalid_input/);
+    assert.throws(() => talkPlain(`Lead${mark}`), /invalid_input/);
+    assert.throws(() => talkPlain(`Where${mark} is it?`), /invalid_input/);
+  }
+  const world = gang();
+  const owner = actor(world.owner, 'auth-owner');
+  const sam = world.lads[0];
+  const lee = world.lads[1];
+  if (!sam || !lee) throw new Error('missing gang');
+  const created = fixtureCreateTalk(
+    world.bucket,
+    owner,
+    {
+      siteId: world.site.id,
+      kind: 'toolbox',
+      delivery: 'in_person',
+      title: 'Fire exits',
+      body: 'Walk to the gate.',
+      pdfPath: null,
+      audience: 'all',
+      personIds: [],
+      presenterPersonId: sam.id,
+      presenterRole: 'Operative',
+      presentedAt: new Date().toISOString(),
+    },
+    world.sites,
+    world.people,
+    world.assignments,
+    world.access
+  );
+  const base = {
+    siteId: world.site.id,
+    kind: 'toolbox' as const,
+    delivery: 'in_person' as const,
+    title: 'Fire exits',
+    body: 'Walk to the gate.',
+    pdfPath: null,
+    audience: 'all' as const,
+    personIds: [],
+    presenterPersonId: sam.id,
+    presenterRole: 'Operative',
+    presentedAt: new Date().toISOString(),
+  };
+  for (const mark of marks) {
+    assert.throws(
+      () => fixtureCreateTalk(world.bucket, owner, { ...base, title: `Fi${mark}re` }, world.sites, world.people, world.assignments, world.access),
+      /invalid_input/
+    );
+    assert.throws(
+      () =>
+        fixtureCreateTalk(
+          world.bucket,
+          owner,
+          { ...base, presenterRole: `Le${mark}ad` },
+          world.sites,
+          world.people,
+          world.assignments,
+          world.access
+        ),
+      /invalid_input/
+    );
+    assert.throws(
+      () =>
+        fixtureAskTalk(
+          world.bucket,
+          actor(sam),
+          {
+            talkId: created.talk_id,
+            versionId: created.version_id,
+            personId: lee.id,
+            body: `Whe${mark}re is it?`,
+            deviceAt: new Date().toISOString(),
+            sessionId: session,
+          },
+          world.sites,
+          world.people,
+          world.assignments,
+          world.access
+        ),
+      /invalid_input/
+    );
+  }
+});
+
 test('a talk file path stays inside company/site/talks', () => {
   const company = '11111111-1111-4111-8111-111111111111';
   const site = '66666666-6666-4666-8666-666666666666';
@@ -762,6 +849,7 @@ test('a signer who renames after signing keeps the signed name, identifier, and 
   const { buildTalkPdf } = await import('../lib/talkPdf.ts');
   const { decodedPdfText } = await import('../lib/pdfDecode.ts');
   const { bytes } = await buildTalkPdf({
+    talkId: created.talk_id,
     companyName: 'Ashfield Finishes',
     siteName: world.site.name,
     title: 'Fire exits',
@@ -866,13 +954,21 @@ test('handing the phone, the tick, and the signed version use the server name', 
   const sign = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/sign.tsx', 'utf8');
   assert.match(sign, /accessibilityRole="checkbox"/);
   assert.match(sign, /accessibilityState=\{\{ checked: understood \}\}/);
+  assert.match(sign, /role="checkbox"/);
+  assert.match(sign, /aria-checked=\{understood\}/);
   assert.match(sign, /minHeight: 48/);
   assert.match(sign, /handPhoneBanner\(serverName\)/);
   assert.doesNotMatch(sign, /Sign for this person/);
   const register = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/index.tsx', 'utf8');
   assert.match(register, /handPhoneLabel\(row\.person_name\)/);
   assert.match(register, /signedVersionLabel\(talk\.version_no\)/);
+  assert.match(register, /Presenter · \{registerLabel\(register\.presenter_signature\)\}[\s\S]*signedVersionLabel\(talk\.version_no\)/);
   assert.doesNotMatch(register, /Sign for this person/);
+  const picker = fs.readFileSync('app/(app)/sites/[siteId]/talks/new.tsx', 'utf8');
+  assert.match(picker, /accessibilityState=\{\{ selected: on \}\}/);
+  assert.match(picker, /aria-selected=\{on\}/);
+  const revise = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/revise.tsx', 'utf8');
+  assert.match(revise, /await repo\.removeTalkPdf\(uploadedPath\)/);
 });
 
 test('talk copy and the register do not say compliant', () => {

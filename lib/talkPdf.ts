@@ -31,6 +31,7 @@ export type RegisterPdfSigned = RegisterPdfPerson & {
 };
 
 export type RegisterPdfInput = {
+  talkId: string;
   companyName: string;
   siteName: string;
   title: string;
@@ -71,25 +72,11 @@ export function talkPdfFilename(siteName: string, title: string): string {
   return `Register ${site} ${name}.pdf`;
 }
 
-export function talkReportKey(input: Pick<RegisterPdfInput, 'siteName' | 'title'>): string {
-  return `${input.siteName}\n${input.title}`;
-}
-
-function shortRef(value: string): string {
-  if (!value) return '';
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36).padStart(4, '0').slice(-4);
-}
-
-export function talkReportId(versionNo: number, presentedAt: string, talkKey = ''): string {
-  const formatted = formatUkDateTime(presentedAt);
-  const date = formatted.split(',')[0]?.replace(/\s+/g, '') ?? 'undated';
-  const suffix = shortRef(talkKey);
-  return suffix ? `TR-v${versionNo}-${date}-${suffix}` : `TR-v${versionNo}-${date}`;
+/** Report ref is the talk id plus the version, so two talks with the same title and day stay distinct. */
+export function talkReportId(talkId: string, versionNo: number): string {
+  const id = talkId.trim();
+  if (!id) throw new Error('invalid_input');
+  return `TR-${id}-v${versionNo}`;
 }
 
 export function talkFooter(
@@ -291,7 +278,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
 export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Uint8Array; footers: string[]; pages: string[][] }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const reportId = talkReportId(input.versionNo, input.presentedAt, talkReportKey(input));
+  const reportId = talkReportId(input.talkId, input.versionNo);
   doc.setTitle(`Register ${reportId}`);
   const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
   const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });

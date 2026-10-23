@@ -104,6 +104,7 @@ export default function TalkDetailScreen() {
     try {
       const companyName = await repo.companyName();
       const { bytes } = await buildTalkPdf({
+        talkId: talk.talk_id,
         companyName,
         siteName: talk.site_name,
         title: talk.title,
@@ -297,6 +298,7 @@ export default function TalkDetailScreen() {
           {register.presenter_signature ? (
             <Card>
               <Text style={{ color: theme.text, fontWeight: '800' }}>Presenter · {registerLabel(register.presenter_signature)}</Text>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{signedVersionLabel(talk.version_no)}</Text>
               {register.presenter_signature.name_changed ? <Muted>name changed since signing</Muted> : null}
               <Muted>{formatUkDateTime(register.presenter_signature.received_at)}</Muted>
               <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{register.presenter_signature.meaning}</Text>

@@ -1535,6 +1535,12 @@ export const fixtureRepo: SitePackRepo = {
     return { storagePath };
   },
 
+  async removeTalkPdf(storagePath: string) {
+    const person = meOrThrow();
+    if (person.role === 'operative') throw new Error('not_authorized');
+    if (!storagePath.includes('/talks/')) throw new Error('invalid_path');
+  },
+
   async createJoinCode(input): Promise<JoinCodeCreated> {
     const actor = requireManager();
     const site = store.sites.find((row) => row.id === input.siteId && row.company_id === actor.company_id);

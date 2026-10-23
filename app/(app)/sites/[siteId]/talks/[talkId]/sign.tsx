@@ -190,6 +190,8 @@ export default function SignTalkScreen() {
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: understood }}
+        role="checkbox"
+        aria-checked={understood}
         accessibilityLabel="I've read and understood"
         onPress={() => setUnderstood((value) => !value)}
         style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12 }}>

@@ -52,7 +52,7 @@ create table public.site_talk_versions (
   pdf_path text,
   pdf_content_type text,
   pdf_size_bytes bigint,
-  pdf_sha256 text,
+  pdf_object_fingerprint text,
   content_hash text not null,
   is_current boolean not null default true,
   created_by uuid not null references public.people (id),
@@ -67,13 +67,13 @@ create table public.site_talk_versions (
       pdf_path is null
       and pdf_content_type is null
       and pdf_size_bytes is null
-      and pdf_sha256 is null
+      and pdf_object_fingerprint is null
     )
     or (
       pdf_path is not null
       and pdf_content_type = 'application/pdf'
       and pdf_size_bytes between 1 and 52428800
-      and pdf_sha256 is not null
+      and pdf_object_fingerprint is not null
     )
   )
 );
@@ -84,6 +84,9 @@ create unique index site_talk_versions_one_current
 
 comment on table public.site_talk_versions is
   'One body and optional PDF. Signatures point at this id and its content hash.';
+
+comment on column public.site_talk_versions.pdf_object_fingerprint is
+  'Fingerprint of the storage row (its metadata and id), not a hash of the file bytes. The storage lock stops a swap or delete.';
 
 create table public.site_talk_required (
   talk_id uuid not null references public.site_talks (id) on delete cascade,
@@ -200,8 +203,9 @@ $fn$;
 
 revoke all on function private.talk_actor() from public, anon, authenticated;
 
--- U+0000 cannot be stored in text. Line breaks, bidi overrides, and a leading
--- spreadsheet mark are rejected so a title, role, or question cannot spoof a sheet.
+-- U+0000 cannot be stored in text. Line breaks, bidi overrides, zero-width
+-- characters, an Arabic letter mark, and a leading spreadsheet mark are rejected
+-- so a title, role, or question cannot spoof a sheet.
 create or replace function private.talk_plain(p_value text)
 returns text
 language plpgsql
@@ -216,10 +220,14 @@ begin
          || pg_catalog.chr(1) || '-' || pg_catalog.chr(31)
          || pg_catalog.chr(127)
          || pg_catalog.chr(133)
+         || pg_catalog.chr(1564)
+         || pg_catalog.chr(8203) || pg_catalog.chr(8204) || pg_catalog.chr(8205)
          || pg_catalog.chr(8206) || pg_catalog.chr(8207)
          || pg_catalog.chr(8232) || pg_catalog.chr(8233)
          || pg_catalog.chr(8234) || '-' || pg_catalog.chr(8238)
+         || pg_catalog.chr(8288)
          || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
+         || pg_catalog.chr(65279)
          || ']'
        )
        or left(btrim(p_value), 1) in ('=', '+', '-', '@')
@@ -348,7 +356,7 @@ revoke all on function private.talk_hash(text, text, text, text, text, text) fro
 
 -- Exact path company/site/talks/file. The stored object, not the client, supplies type and size.
 create or replace function private.talk_storage_path(p_company uuid, p_site uuid, p_path text)
-returns table (path text, content_type text, size_bytes bigint, byte_sha256 text)
+returns table (path text, content_type text, size_bytes bigint, object_fingerprint text)
 language plpgsql
 security definer
 set search_path = ''
@@ -421,8 +429,9 @@ begin
   path := v;
   content_type := v_type;
   size_bytes := v_size;
-  -- Snapshot of the stored object. The version hash includes it, and a later update is blocked.
-  byte_sha256 := encode(
+  -- Fingerprint of the storage row (its metadata and id), not a hash of the file bytes.
+  -- The version hash includes it. Replacing or deleting the object is what the lock blocks.
+  object_fingerprint := encode(
     extensions.digest(
       convert_to(coalesce(v_meta::text, '') || '|' || v_object::text, 'UTF8'),
       'sha256'
@@ -654,7 +663,7 @@ begin
      or char_length(v_role) < 1 or char_length(v_role) > 80 then
     raise exception 'invalid_input';
   end if;
-  select claimed.path, claimed.content_type, claimed.size_bytes, claimed.byte_sha256
+  select claimed.path, claimed.content_type, claimed.size_bytes, claimed.object_fingerprint
   into v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha
   from private.talk_storage_path(v_company, p_site_id, p_pdf_path) claimed;
   if v_body = '' and v_pdf is null then
@@ -693,7 +702,7 @@ begin
   );
 
   insert into public.site_talk_versions (
-    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
+    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_object_fingerprint, content_hash, is_current, created_by
   ) values (
     v_version, v_id, p_site_id, v_company, 1, v_body, v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha, v_hash, true, v_actor.person_id
   );
@@ -786,7 +795,7 @@ begin
     v_pdf_size := null;
     v_pdf_sha := null;
   else
-    select claimed.path, claimed.content_type, claimed.size_bytes, claimed.byte_sha256
+    select claimed.path, claimed.content_type, claimed.size_bytes, claimed.object_fingerprint
     into v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha
     from private.talk_storage_path(v_talk.company_id, v_talk.site_id, p_pdf_path) claimed;
   end if;
@@ -810,7 +819,7 @@ begin
   v_version := pg_catalog.gen_random_uuid();
   v_no := v_current.version_no + 1;
   insert into public.site_talk_versions (
-    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
+    id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_object_fingerprint, content_hash, is_current, created_by
   ) values (
     v_version, v_talk.id, v_talk.site_id, v_talk.company_id, v_no, v_body, v_pdf, v_pdf_type, v_pdf_size, v_pdf_sha, v_hash, true, v_actor.person_id
   );
@@ -1767,7 +1776,7 @@ create policy people_update_self_or_owner
     and company_id = private.my_company_id()
   );
 
--- Display names reject bidi overrides, zero-width characters, and a leading spreadsheet mark.
+-- Display names reject bidi overrides, zero-width characters, an Arabic letter mark, and a leading spreadsheet mark.
 -- Replacing the attendance trigger function. It already existed, so this is not a new function.
 do $replace_name$
 begin
@@ -1791,6 +1800,7 @@ begin
            || pg_catalog.chr(8288)
            || pg_catalog.chr(8294) || '-' || pg_catalog.chr(8297)
            || pg_catalog.chr(65279)
+           || pg_catalog.chr(1564)
            || ']'
          )
          or left(v_name, 1) in ('=', '+', '-', '@') then
@@ -1805,7 +1815,8 @@ $replace_name$;
 
 revoke all on function private.reject_control_display_name() from public, anon, authenticated;
 
--- A talks/ object that a version already records cannot be replaced or removed.
+-- A talks/ object that a version in the caller's company already records cannot be replaced or removed.
+-- Another company gets false, so the check cannot reveal that a path exists.
 -- Other drawings paths keep the policies from the drawings migration.
 create or replace function private.talk_pdf_locked(p_name text)
 returns boolean
@@ -1818,6 +1829,7 @@ as $fn$
     select 1
     from public.site_talk_versions versions
     where versions.pdf_path = p_name
+      and versions.company_id = private.my_company_id()
   );
 $fn$;
 

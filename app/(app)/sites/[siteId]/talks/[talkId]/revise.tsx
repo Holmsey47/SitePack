@@ -66,16 +66,25 @@ export default function ReviseTalkScreen() {
     if (!talkId || !siteId || !person) return;
     setSaving(true);
     setError('');
+    let uploadedPath: string | null = null;
     try {
       const bytes = await bytesForSave();
       let pdfPath: string | null = null;
       if (bytes) {
         const uploaded = await repo.uploadTalkPdf({ companyId: person.company_id, siteId, bytes });
+        uploadedPath = uploaded.storagePath;
         pdfPath = uploaded.storagePath;
       }
       await repo.reviseTalk(talkId, { title, body, pdfPath });
       router.back();
     } catch (err) {
+      if (uploadedPath) {
+        try {
+          await repo.removeTalkPdf(uploadedPath);
+        } catch {
+          // The revise already failed. Dropping the unused file is best-effort.
+        }
+      }
       setError(talkError(err instanceof Error ? err.message : 'unknown'));
       setSaving(false);
     }

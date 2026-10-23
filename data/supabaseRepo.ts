@@ -1255,6 +1255,11 @@ export const supabaseRepo: SitePackRepo = {
     if (error) throw new Error(error.message);
     return { storagePath };
   },
+
+  async removeTalkPdf(storagePath) {
+    const { error } = await getSupabase().storage.from('drawings').remove([storagePath]);
+    if (error) throw new Error(error.message);
+  },
 };
 
 async function withTalkPdf(detail: TalkDetail): Promise<TalkDetail> {

@@ -126,6 +126,8 @@ export default function NewTalkScreen() {
           <Pressable
             key={row.id}
             accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            aria-selected={on}
             onPress={() => setPresenterId(row.id)}
             style={{ minHeight: 48, justifyContent: 'center' }}>
             <Text style={{ color: on ? theme.current : theme.text, fontSize: 17, fontWeight: '800' }}>
