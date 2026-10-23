@@ -1,5 +1,5 @@
 import { preparedLine, weekRangeLabel, type WeekRow } from '@/lib/attendanceHours';
-import { pdfText } from '@/lib/snagPdf';
+import { pdfText } from '@/lib/pdfText';
 import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';

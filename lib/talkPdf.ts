@@ -1,5 +1,6 @@
 import type { TalkDelivery, TalkKind } from '@/lib/talkMeaning';
 import { formatUkDateTime } from '@/lib/format';
+import { pdfText } from '@/lib/pdfText';
 import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import fontkit from '@pdf-lib/fontkit';
@@ -8,7 +9,8 @@ import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 const PAGE_W = 595;
 const PAGE_H = 842;
 const MARGIN = 40;
-const CONTENT_W = PAGE_W - MARGIN * 2;
+export const TALK_PDF_CONTENT_W = PAGE_W - MARGIN * 2;
+const CONTENT_W = TALK_PDF_CONTENT_W;
 const TOP = 800;
 const BOTTOM = 72;
 const CONTENT_H = TOP - BOTTOM;
@@ -79,6 +81,8 @@ export function talkReportId(talkId: string, versionNo: number): string {
   return `TR-${id}-v${versionNo}`;
 }
 
+export { pdfText };
+
 export function talkFooter(
   siteName: string,
   companyName: string,
@@ -87,20 +91,16 @@ export function talkFooter(
   total: number,
   font: PDFFont
 ): string {
-  let site = pdfText(siteName);
-  const company = pdfText(companyName);
+  let site = pdfText(siteName).trim() || 'Site';
+  let company = pdfText(companyName).trim() || 'Company';
   const reference = pdfText(reportId);
-  const tail = ` · ${company} · ${reference} · Page ${page} of ${total}`;
-  while (site.length > 4 && font.widthOfTextAtSize(site + tail, 9) > CONTENT_W) site = site.slice(0, -2);
-  return `${site}${tail}`;
-}
-
-/** Keep letters, including Ł and ü. A dash the name font does not draw becomes a hyphen. */
-export function pdfText(value: string): string {
-  return value
-    .normalize('NFC')
-    .replace(/[–—]/g, '-')
-    .replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/g, ' ');
+  const pageLabel = `Page ${page} of ${total}`;
+  const line = () => `${site} · ${company} · ${reference} · ${pageLabel}`;
+  while (font.widthOfTextAtSize(line(), 9) > CONTENT_W && (site.length > 1 || company.length > 1)) {
+    if (company.length >= site.length && company.length > 1) company = company.slice(0, -1);
+    else site = site.slice(0, -1);
+  }
+  return line();
 }
 
 function wrap(text: string, face: PDFFont, size: number, max: number): string[] {

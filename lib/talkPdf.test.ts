@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import test from 'node:test';
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument } from 'pdf-lib';
 import { decodedPdfText } from './pdfDecode.ts';
 import { pngDataUrl, solidPng } from './signaturePng.ts';
-import { buildTalkPdf, packBlocks, pdfText, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
+import { pdfFontBytes, SNAG_PDF_SANS } from './snagPdfFonts.ts';
+import { buildTalkPdf, packBlocks, pdfText, TALK_PDF_CONTENT_W, talkFooter, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
 
 function footerLine(input: RegisterPdfInput, page: number, total: number): string {
   return `${input.siteName} · ${input.companyName} · ${talkReportId(input.talkId, input.versionNo)} · Page ${page} of ${total}`;
@@ -342,6 +344,58 @@ test('the register and PDF keep the signed name, the person identifier, and a re
 });
 
 test('pdf text drops line separators and bidi controls', () => {
-  assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead     role');
+  assert.equal(pdfText('Lead\u0085\u2028\u2029\u202e\u200frole'), 'Lead role');
   assert.equal(pdfText('=HYPERLINK("x")\r'), '=HYPERLINK("x") ');
+  assert.equal(pdfText('O\u2019Brien \u201Cfire\u201D \u20AC \u2713 \u2013 \u2014'), 'O\'Brien "fire" EUR yes - -');
+});
+
+test('a name and a title with curly quotes print as straight quotes', async () => {
+  const input = register();
+  input.title = 'O\u2019Brien\u2019s \u201Cfire\u201D exits';
+  input.siteName = 'O\u2019Brien yard';
+  input.presenterName = 'Siobh\u00e1n O\u2019Brien';
+  input.signed = [
+    {
+      name: 'Sean O\u2019Brien',
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:05:00.000Z',
+      meaning: 'Noted and understood.',
+      signaturePng: png,
+      sharedDevice: false,
+    },
+  ];
+  const text = decodedPdfText((await buildTalkPdf(input)).bytes);
+  assert.match(text, /Sean O'Brien/);
+  assert.match(text, /Siobhán O'Brien/);
+  assert.match(text, /O'Brien's "fire" exits/);
+  assert.match(text, /O'Brien yard/);
+  assert.equal(text.includes('\u2019'), false);
+  assert.equal(text.includes('\u201c'), false);
+  assert.equal(text.includes('\u201d'), false);
+});
+
+test('a wide company and site keep the report ref and page number on the page', async () => {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const talkId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const ref = talkReportId(talkId, 99);
+  const footer = talkFooter('W'.repeat(60), 'W'.repeat(60), ref, 10, 10, font);
+  assert.ok(font.widthOfTextAtSize(footer, 9) <= TALK_PDF_CONTENT_W);
+  assert.ok(footer.includes(ref));
+  assert.ok(footer.includes('Page 10 of 10'));
+  const input = register();
+  input.siteName = 'W'.repeat(60);
+  input.companyName = 'W'.repeat(60);
+  input.talkId = talkId;
+  input.versionNo = 99;
+  const { footers } = await buildTalkPdf(input);
+  for (const line of footers) {
+    assert.ok(font.widthOfTextAtSize(line, 9) <= TALK_PDF_CONTENT_W);
+    assert.ok(line.includes(ref));
+    assert.match(line, /Page \d+ of \d+/);
+  }
 });

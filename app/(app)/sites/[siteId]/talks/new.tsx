@@ -120,22 +120,25 @@ export default function NewTalkScreen() {
       <Field label="What it says" value={body} onChangeText={setBody} multiline autoCapitalize="sentences" />
       <Button label={pdfName ? `PDF attached · ${pdfName}` : 'Attach a PDF'} variant="secondary" minHeight={56} onPress={() => void pickPdf()} />
       <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>Presenter</Text>
-      {presenters.map((row) => {
-        const on = presenterId === row.id;
-        return (
-          <Pressable
-            key={row.id}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            aria-selected={on}
-            onPress={() => setPresenterId(row.id)}
-            style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: on ? theme.current : theme.text, fontSize: 17, fontWeight: '800' }}>
-              {on ? `Presenter · ${row.name}` : row.name}
-            </Text>
-          </Pressable>
-        );
-      })}
+      <View accessibilityRole="radiogroup" accessibilityLabel="Presenter" role="radiogroup">
+        {presenters.map((row) => {
+          const on = presenterId === row.id;
+          return (
+            <Pressable
+              key={row.id}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: on }}
+              role="radio"
+              aria-checked={on}
+              onPress={() => setPresenterId(row.id)}
+              style={{ minHeight: 48, justifyContent: 'center' }}>
+              <Text style={{ color: on ? theme.current : theme.text, fontSize: 17, fontWeight: '800' }}>
+                {on ? `Presenter · ${row.name}` : row.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Field label="Presenter role" value={presenterRole} onChangeText={setPresenterRole} autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
         <ChoiceChip label="All on site" selected={audience === 'all'} onPress={() => setAudience('all')} />

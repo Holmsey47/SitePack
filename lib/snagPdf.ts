@@ -3,6 +3,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine, putRightLine } from '@/lib/snagWording';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { pdfText } from '@/lib/pdfText';
 import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 export const SNAG_PDF_PAGE_W = 595;
@@ -102,17 +103,7 @@ export function snagPhotoMissing(index: number, total: number, kind: 'before' | 
   return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
 }
 
-/** Keep letters, including accents. A newline or tab becomes one space. Drop other controls, bidi overrides, zero-width characters, and a pound sign. */
-export function pdfText(value: string): string {
-  return value
-    .normalize('NFC')
-    .replace(/[\t\n\v\f\r]+/g, ' ')
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
-    .replace(/£/g, '')
-    .replace(/[–—]/g, '-')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"');
-}
+export { pdfText };
 
 function wrap(text: string, face: Face, size: number, max: number, prepare: Prepare = pdfText): string[] {
   const words = prepare(text).split(/\s+/).filter(Boolean);

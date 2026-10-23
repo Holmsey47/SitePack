@@ -965,8 +965,10 @@ test('handing the phone, the tick, and the signed version use the server name', 
   assert.match(register, /Presenter · \{registerLabel\(register\.presenter_signature\)\}[\s\S]*signedVersionLabel\(talk\.version_no\)/);
   assert.doesNotMatch(register, /Sign for this person/);
   const picker = fs.readFileSync('app/(app)/sites/[siteId]/talks/new.tsx', 'utf8');
-  assert.match(picker, /accessibilityState=\{\{ selected: on \}\}/);
-  assert.match(picker, /aria-selected=\{on\}/);
+  assert.match(picker, /role="radiogroup"/);
+  assert.match(picker, /accessibilityRole="radio"/);
+  assert.match(picker, /aria-checked=\{on\}/);
+  assert.doesNotMatch(picker, /aria-selected/);
   const revise = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/revise.tsx', 'utf8');
   assert.match(revise, /await repo\.removeTalkPdf\(uploadedPath\)/);
 });
