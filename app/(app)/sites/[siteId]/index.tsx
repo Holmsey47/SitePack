@@ -1,12 +1,16 @@
+import { TalkNoticeList, TalkQuestionRow, TalkReadRow } from '@/components/TalkRows';
 import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
+import { refreshTalks } from '@/lib/talkSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
@@ -39,6 +43,8 @@ export default function SitePackScreen() {
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
+  const [talkBadge, setTalkBadge] = useState<TalkBadge | null>(null);
+  const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -66,6 +72,14 @@ export default function SitePackScreen() {
       }
       if (manageNow) setSeenSummary(await loadSiteSeenSummary(siteId));
       else setSeenSummary(null);
+      if (person?.auth_user_id) {
+        const talks = await refreshTalks(person.auth_user_id).catch(() => null);
+        setTalkBadge(talks?.badges.find((row) => row.site_id === siteId) ?? null);
+        setTalkNotices(talks?.notices.filter((row) => row.siteId === siteId) ?? []);
+      } else {
+        setTalkBadge(null);
+        setTalkNotices([]);
+      }
     } catch {
       const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
       const meta = readPackMeta(siteId);
@@ -201,6 +215,26 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      <TalkNoticeList
+        notices={talkNotices}
+        onDismiss={(notice) => {
+          void dismissTalkNotice(getTalkQueue(), notice).then(() =>
+            setTalkNotices((current) => current.filter((row) => row.id !== notice.id))
+          );
+        }}
+        onRetry={(notice) => {
+          const userId = person?.auth_user_id;
+          if (!notice.retryLocalId || !userId) return;
+          void retryQueuedTalk(getTalkQueue(), notice.retryLocalId)
+            .then(() => refreshTalks(userId))
+            .then((next) => {
+              setTalkBadge(next.badges.find((row) => row.site_id === siteId) ?? null);
+              setTalkNotices(next.notices.filter((row) => row.siteId === siteId));
+            });
+        }}
+      />
+      <TalkReadRow count={talkBadge?.outstanding ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
+      <TalkQuestionRow count={talkBadge?.questions ?? 0} onPress={() => router.push(`/sites/${siteId}/talks`)} />
       {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
         <GlanceRow
           label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
@@ -292,6 +326,7 @@ export default function SitePackScreen() {
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
+      <Button label="Talks" variant="secondary" onPress={() => router.push(`/sites/${siteId}/talks`)} />
       <Button label="Variations" variant="secondary" onPress={() => router.push(`/sites/${siteId}/variations`)} />
       <Button label="Snags" variant="secondary" onPress={() => router.push(`/sites/${siteId}/snags`)} />
       <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />

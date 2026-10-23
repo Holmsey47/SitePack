@@ -10,6 +10,7 @@ import {
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
 import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
+import { adoptTalkOwner, wipeTalkQueue } from '@/lib/talkQueue';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
 import { repo, useFixtures } from '@/data/index';
@@ -51,6 +52,20 @@ async function bindCache(userId: string | null) {
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.
+  }
+  if (userId) {
+    try {
+      await adoptTalkOwner(userId);
+    } catch {
+      // Adopting the talk queue must not depend on the drawing wipe.
+    }
+  }
+  if (!userId) {
+    try {
+      await wipeTalkQueue();
+    } catch {
+      // An earlier wipe throwing must not skip the talk queue.
+    }
   }
 }
 
