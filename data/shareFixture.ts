@@ -363,6 +363,16 @@ export function fixtureSharedInductions(siteId: string): SharedInductionRow[] {
 
 export function fixtureRedeemSiteShare(code: string): { shareId: string; siteId: string; siteName: string; status: string } {
   if (!code.trim()) throw new Error('invalid_input');
+  const compact = code.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  const invite = invites.find((row) => row.code === compact);
+  if (invite?.siteId === IDS.oak) {
+    return {
+      shareId: '99999999-9999-4999-8999-9999999999d2',
+      siteId: IDS.oak,
+      siteName: 'Plot 12 – Oak Estate',
+      status: 'pending',
+    };
+  }
   return {
     shareId: '99999999-9999-4999-8999-9999999999d1',
     siteId: HARBOUR_SITE_ID,

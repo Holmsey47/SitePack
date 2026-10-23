@@ -56,6 +56,64 @@ begin
 end;
 $$;
 
+-- Redeem and preview are service_role only. These wrappers set that claim for
+-- the call, then put the session claims back. The user id is an argument.
+create or replace function pg_temp.redeem(p_user uuid, p_hash text, p_ip text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_out jsonb;
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_role text := current_setting('request.jwt.claim.role', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  v_out := public.redeem_site_share(p_user, p_hash, p_ip);
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.role', coalesce(v_role, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return v_out;
+exception
+  when others then
+    perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+    perform set_config('request.jwt.claim.role', coalesce(v_role, ''), true);
+    perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+    raise;
+end;
+$$;
+
+create or replace function pg_temp.preview(p_user uuid, p_hash text, p_ip text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_out jsonb;
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_role text := current_setting('request.jwt.claim.role', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  v_out := public.preview_site_share(p_user, p_hash, p_ip);
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.role', coalesce(v_role, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return v_out;
+exception
+  when others then
+    perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+    perform set_config('request.jwt.claim.role', coalesce(v_role, ''), true);
+    perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+    raise;
+end;
+$$;
+
 create or replace function pg_temp.raises(p_sql text, p_message text)
 returns boolean
 language plpgsql
@@ -439,29 +497,29 @@ where code_hash = decode(:'hashexp', 'hex');
 select pg_temp.jwt(:'ownerz'::uuid);
 set local role authenticated;
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashother') ->> 'error') = 'invalid_input',
+  (pg_temp.redeem(:'ownerz'::uuid, :'hashother', null) ->> 'error') = 'invalid_input',
   'a different firm cannot redeem the code'
 );
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashexp') ->> 'error') = 'invalid_input'
-  and (public.redeem_site_share(:'hashrev') ->> 'error') = 'invalid_input',
+  (pg_temp.redeem(:'ownery'::uuid, :'hashexp', null) ->> 'error') = 'invalid_input'
+  and (pg_temp.redeem(:'ownery'::uuid, :'hashrev', null) ->> 'error') = 'invalid_input',
   'an expired or revoked code is refused with the same error as a bad code'
 );
 
 insert into share_probe (k, v)
-values ('redeemed_used', public.redeem_site_share(:'hashused'));
+values ('redeemed_used', pg_temp.redeem(:'ownery'::uuid, :'hashused', null));
 
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashused') ->> 'share_id')
+  (pg_temp.redeem(:'ownery'::uuid, :'hashused', null) ->> 'share_id')
     = (select v ->> 'share_id' from share_probe where k = 'redeemed_used'),
   'a second redeem of the same code returns the same share'
 );
 
 select pg_temp.jwt(:'opy'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashused') ->> 'error') = 'not_allowed',
+  (pg_temp.redeem(:'opy'::uuid, :'hashused', null) ->> 'error') = 'invalid_input',
   'an operative cannot redeem a code, even one their firm already opened'
 );
 select pg_temp.jwt(:'ownery'::uuid);
@@ -475,17 +533,17 @@ where k = 'redeemed_used';
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashused') ->> 'error') = 'invalid_input',
+  (pg_temp.redeem(:'ownery'::uuid, :'hashused', null) ->> 'error') = 'invalid_input',
   'a used code returns the same error as a bad code'
 );
 
 select pg_temp.ok(
-  (public.preview_site_share(:'hashok') ->> 'site_name') = 'Site A'
-  and (public.preview_site_share(:'hashok') ->> 'host_company_name') = 'Firm X'
-  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'drawings') = 'true'
-  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'snags') = 'true'
-  and (public.preview_site_share(:'hashok') -> 'sections' ->> 'sign_in') = 'false'
-  and position('@' in (public.preview_site_share(:'hashok'))::text) = 0
+  (pg_temp.preview(:'ownery'::uuid, :'hashok', null) ->> 'site_name') = 'Site A'
+  and (pg_temp.preview(:'ownery'::uuid, :'hashok', null) ->> 'host_company_name') = 'Firm X'
+  and (pg_temp.preview(:'ownery'::uuid, :'hashok', null) -> 'sections' ->> 'drawings') = 'true'
+  and (pg_temp.preview(:'ownery'::uuid, :'hashok', null) -> 'sections' ->> 'snags') = 'true'
+  and (pg_temp.preview(:'ownery'::uuid, :'hashok', null) -> 'sections' ->> 'sign_in') = 'false'
+  and position('@' in (pg_temp.preview(:'ownery'::uuid, :'hashok', null))::text) = 0
   and pg_temp.raises(
     'select public.shared_drawings(' || quote_literal(:'sitea') || '::uuid)',
     'share_revoked'
@@ -509,14 +567,14 @@ set local role authenticated;
 
 select pg_temp.jwt(:'ownerz'::uuid);
 select pg_temp.ok(
-  (public.preview_site_share(:'hashok') ->> 'error') = 'invalid_input'
-  and (public.preview_site_share('abcd') ->> 'error') = 'invalid_input',
+  (pg_temp.preview(:'ownerz'::uuid, :'hashok', null) ->> 'error') = 'invalid_input'
+  and (pg_temp.preview(:'ownerz'::uuid, 'abcd', null) ->> 'error') = 'invalid_input',
   'a preview for another firm returns the same error as a bad code'
 );
 
 select pg_temp.jwt(:'opy'::uuid);
 select pg_temp.ok(
-  (public.preview_site_share(:'hashop') ->> 'error') = 'not_allowed',
+  (pg_temp.preview(:'opy'::uuid, :'hashop', null) ->> 'error') = 'invalid_input',
   'an operative cannot preview a code open'
 );
 reset role;
@@ -529,7 +587,7 @@ select pg_temp.jwt(:'ownery'::uuid);
 set local role authenticated;
 
 insert into share_probe (k, v)
-values ('redeemed', public.redeem_site_share(:'hashok'));
+values ('redeemed', pg_temp.redeem(:'ownery'::uuid, :'hashok', null));
 
 select pg_temp.ok(
   (select v ->> 'status' from share_probe where k = 'redeemed') = 'pending'
@@ -1260,13 +1318,13 @@ select pg_temp.ok(
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashlook') ->> 'error') = 'invalid_input',
+  (pg_temp.redeem(:'ownery'::uuid, :'hashlook', null) ->> 'error') = 'invalid_input',
   'a lookalike company name returns the same error as a bad code'
 );
 
 select pg_temp.jwt(:'opy'::uuid);
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashop') ->> 'error') = 'not_allowed',
+  (pg_temp.redeem(:'opy'::uuid, :'hashop', null) ->> 'error') = 'invalid_input',
   'an operative cannot open a fresh code'
 );
 
@@ -1279,7 +1337,7 @@ select pg_temp.ok(
 select pg_temp.jwt(:'ownery'::uuid);
 set local role authenticated;
 select pg_temp.ok(
-  (public.redeem_site_share(:'hashop') ->> 'site_id') = :'sitea',
+  (pg_temp.redeem(:'ownery'::uuid, :'hashop', null) ->> 'site_id') = :'sitea',
   'the firm owner can still redeem after an operative is refused'
 );
 
@@ -1293,12 +1351,12 @@ declare
   v_err text;
 begin
   for v_i in 1..10 loop
-    v_err := public.redeem_site_share('abcd') ->> 'error';
+    v_err := pg_temp.redeem('a2222222-2222-4222-8222-222222222221'::uuid, 'abcd', null) ->> 'error';
     if v_err is distinct from 'invalid_input' then
       raise exception 'FAIL: attempt % -> %', v_i, v_err;
     end if;
   end loop;
-  v_err := public.redeem_site_share('abcd') ->> 'error';
+  v_err := pg_temp.redeem('a2222222-2222-4222-8222-222222222221'::uuid, 'abcd', null) ->> 'error';
   if v_err is distinct from 'too_many_attempts' then
     raise exception 'FAIL: 11th attempt -> %', v_err;
   end if;
@@ -1330,7 +1388,7 @@ begin
     true
   );
   execute 'set local role authenticated';
-  v_err := public.redeem_site_share('abcd', '203.0.113.9') ->> 'error';
+  v_err := pg_temp.redeem('a3333333-3333-4333-8333-333333333331'::uuid, 'abcd', '203.0.113.9') ->> 'error';
   execute 'reset role';
   select count(*) into v_count
   from public.site_share_attempts
@@ -1346,15 +1404,15 @@ reset role;
 select pg_temp.ok(
   position(
     'pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)'
-    in pg_get_functiondef('public.redeem_site_share(text,text)'::regprocedure)
+    in pg_get_functiondef('public.redeem_site_share(uuid,text,text)'::regprocedure)
   ) > 0
   and position(
     'share-ip:'
-    in pg_get_functiondef('public.redeem_site_share(text,text)'::regprocedure)
+    in pg_get_functiondef('public.redeem_site_share(uuid,text,text)'::regprocedure)
   ) > 0
   and position(
     'pg_advisory_xact_lock(pg_catalog.hashtext(v_actor.person_id::text)'
-    in pg_get_functiondef('public.preview_site_share(text,text)'::regprocedure)
+    in pg_get_functiondef('public.preview_site_share(uuid,text,text)'::regprocedure)
   ) > 0,
   'the redeem lock is hashtext of the person id'
 );
@@ -1389,7 +1447,7 @@ begin
     true
   );
   execute 'set local role authenticated';
-  v_redeem := public.redeem_site_share('1212121212121212121212121212121212121212121212121212121212121212');
+  v_redeem := pg_temp.redeem('a3333333-3333-4333-8333-333333333331'::uuid, '1212121212121212121212121212121212121212121212121212121212121212', null);
   if (v_redeem ->> 'status') is distinct from 'pending' then
     raise exception 'FAIL: rename redeem %', v_redeem;
   end if;
@@ -1494,4 +1552,108 @@ begin
   update public.companies set name = 'Firm Z' where id = v_firm;
 end
 $rename$;
+
+reset role;
+select pg_temp.ok(
+  not has_function_privilege('authenticated', 'public.preview_site_share(uuid,text,text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.redeem_site_share(uuid,text,text)', 'execute')
+  and not has_function_privilege('anon', 'public.preview_site_share(uuid,text,text)', 'execute')
+  and not has_function_privilege('anon', 'public.redeem_site_share(uuid,text,text)', 'execute')
+  and has_function_privilege('service_role', 'public.preview_site_share(uuid,text,text)', 'execute')
+  and has_function_privilege('service_role', 'public.redeem_site_share(uuid,text,text)', 'execute')
+  and to_regprocedure('public.preview_site_share(text,text)') is null
+  and to_regprocedure('public.redeem_site_share(text,text)') is null,
+  'authenticated has no execute on preview or redeem'
+);
+
+do $spoof$
+declare
+  v_i integer;
+  v_before integer;
+  v_after integer;
+  v_redeem jsonb;
+  v_state text;
+  v_victim uuid := 'a2222222-2222-4222-8222-222222222222';
+  v_claimed text := '203.0.113.77';
+  v_hash text := 'efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef';
+begin
+  execute 'reset role';
+  select count(*) into v_before
+  from public.site_share_attempts
+  where client_ip = private.ip_subject(v_claimed);
+
+  perform set_config('request.jwt.claim.sub', 'a3333333-3333-4333-8333-333333333331', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a3333333-3333-4333-8333-333333333331', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+
+  for v_i in 1..40 loop
+    begin
+      perform public.redeem_site_share(v_victim, 'abcd', v_claimed);
+      raise exception 'FAIL: authenticated redeem ran';
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if v_state is distinct from '42501' or position('authenticated redeem ran' in sqlerrm) > 0 then
+          raise exception 'FAIL: spoof redeem % %', v_state, sqlerrm;
+        end if;
+    end;
+    begin
+      perform public.preview_site_share(v_victim, 'abcd', v_claimed);
+      raise exception 'FAIL: authenticated preview ran';
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if v_state is distinct from '42501' or position('authenticated preview ran' in sqlerrm) > 0 then
+          raise exception 'FAIL: spoof preview % %', v_state, sqlerrm;
+        end if;
+    end;
+  end loop;
+
+  execute 'reset role';
+  select count(*) into v_after
+  from public.site_share_attempts
+  where client_ip = private.ip_subject(v_claimed);
+  if v_after <> v_before then
+    raise exception 'FAIL: forged calls wrote % rows', v_after - v_before;
+  end if;
+
+  insert into public.site_share_attempts (actor_id, client_ip)
+  select 'a3333333-3333-4333-8333-333333333331'::uuid, private.ip_subject(v_claimed)
+  from generate_series(1, 40);
+
+  perform set_config('request.jwt.claim.sub', 'a1111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a1111111-1111-4111-8111-111111111111', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  perform public.create_site_share_invite(
+    '51111111-1111-4111-8111-111111111112'::uuid,
+    'Firm Y',
+    true, false, false, false, false,
+    v_hash
+  );
+  execute 'reset role';
+
+  v_redeem := pg_temp.redeem(v_victim, v_hash, '198.51.100.77');
+  if (v_redeem ->> 'error') is not null
+     or (v_redeem ->> 'site_id') is distinct from '51111111-1111-4111-8111-111111111112'
+     or (v_redeem ->> 'status') is distinct from 'pending'
+  then
+    raise exception 'FAIL: valid redeem blocked by a claimed ip %', v_redeem;
+  end if;
+  raise notice 'ok: forty failures claiming another ip do not block a valid redeem';
+end
+$spoof$;
 

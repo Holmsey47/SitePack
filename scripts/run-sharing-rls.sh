@@ -65,6 +65,28 @@ for name in names:
 replaced = {"private.visible_variation_pence", "private.visible_shown_pence"}
 if len(seen) != 30 or replaced - set(seen):
     raise SystemExit(f"expected 30 functions including the 2 replaced, found {len(seen)}")
+service_only = ("preview_site_share", "redeem_site_share")
+for fn in service_only:
+    if not re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{fn}\s*\(\s*p_user_id\s+uuid\s*,\s*p_code_hash\s+text\s*,\s*p_client_ip\s+text\s*\)",
+        sql,
+        flags=re.I,
+    ):
+        raise SystemExit(f"{fn} must take the user id and the client ip")
+    if re.search(rf"grant\s+execute\s+on\s+function\s+public\.{fn}\([^)]*\)\s+to\s+authenticated", sql, flags=re.I):
+        raise SystemExit(f"{fn} must not be granted to authenticated")
+    if not re.search(
+        rf"revoke\s+all\s+on\s+function\s+public\.{fn}\(uuid,\s*text,\s*text\)\s+from\s+public,\s*anon,\s*authenticated",
+        sql,
+        flags=re.I,
+    ):
+        raise SystemExit(f"{fn} must revoke authenticated")
+    if not re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{fn}\(uuid,\s*text,\s*text\)\s+to\s+service_role",
+        sql,
+        flags=re.I,
+    ):
+        raise SystemExit(f"{fn} must be granted to service_role only")
 lines = [
     "drop table if exists public.share_funcs_expected;",
     "create table public.share_funcs_expected (nspname text, proname text, replaced boolean);",
@@ -107,10 +129,10 @@ rate_pids=()
 for i in 1 2 3 4 5 6 7 8; do
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q >"${rate_dir}/${i}.out" 2>"${rate_dir}/${i}.err" <<SQL &
 select set_config('request.jwt.claim.sub', '${rate_actor}', false);
-select set_config('request.jwt.claim.role', 'authenticated', false);
-select set_config('request.jwt.claims', json_build_object('sub', '${rate_actor}', 'role', 'authenticated')::text, false);
-set role authenticated;
-select public.redeem_site_share('abcd') from generate_series(1, 10);
+select set_config('request.jwt.claim.role', 'service_role', false);
+select set_config('request.jwt.claims', '{"role":"service_role"}', false);
+set role service_role;
+select public.redeem_site_share('${rate_actor}'::uuid, 'abcd', '198.51.100.10') from generate_series(1, 10);
 SQL
   rate_pids+=("$!")
 done

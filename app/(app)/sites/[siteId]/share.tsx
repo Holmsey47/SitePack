@@ -211,6 +211,16 @@ export default function ShareSiteScreen() {
                 ))
               : null}
             <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => setRevokeTarget(share)} />
+            {revokeTarget?.id === share.id ? (
+              <View>
+                <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+                  {`Stop sharing with ${share.guest_company_name}?`}
+                </Text>
+                <Muted>{stopSharingBody(share.sections)}</Muted>
+                <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => void onRevoke()} />
+                <Button label="Keep sharing" variant="secondary" minHeight={48} onPress={() => setRevokeTarget(null)} />
+              </View>
+            ) : null}
           </Card>
         );
       })}
@@ -224,7 +234,9 @@ export default function ShareSiteScreen() {
               <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{invite.guest_company_name}</Text>
               <Muted>{sharedSectionLine(invite.sections)}</Muted>
               <Muted>{pendingInviteLabel(invite)}</Muted>
-              <Muted>{`Expires ${formatUkDateTime(invite.expires_at)}`}</Muted>
+              {new Date(invite.expires_at).getTime() > Date.now() ? (
+                <Muted>{`Expires ${formatUkDateTime(invite.expires_at)}`}</Muted>
+              ) : null}
               <Button label="Cancel" variant="danger" minHeight={56} onPress={() => setCancelInvite(invite)} />
             </Card>
           ))}
@@ -281,17 +293,6 @@ export default function ShareSiteScreen() {
       ) : null}
 
       {notice ? <SeenRejectNotice message={notice} onDismiss={() => setNotice('')} /> : null}
-
-      {revokeTarget ? (
-        <Card>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
-            {`Stop sharing with ${revokeTarget.guest_company_name}?`}
-          </Text>
-          <Muted>{stopSharingBody(revokeTarget.sections)}</Muted>
-          <Button label="Stop sharing" variant="danger" minHeight={56} onPress={() => void onRevoke()} />
-          <Button label="Keep sharing" variant="secondary" minHeight={48} onPress={() => setRevokeTarget(null)} />
-        </Card>
-      ) : null}
     </Screen>
   );
 }

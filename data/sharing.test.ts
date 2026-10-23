@@ -28,6 +28,7 @@ import {
   fixtureSharedInductions,
   fixtureSharedSignIn,
   fixtureSharedSiteView,
+  fixtureRedeemSiteShare,
   fixtureSharedSnags,
   HARBOUR_SITE_ID,
   resetShareFixture,
@@ -66,12 +67,14 @@ test('an unused code can be cancelled and a used one cannot', () => {
   assert.ok(unused);
   assert.ok(expired);
   assert.match(pendingInviteLabel(unused, now), /^Unused/);
-  assert.match(pendingInviteLabel(expired, now), /^Expired/);
+  assert.equal(pendingInviteLabel(expired, now), 'Expired 1 Oct. Cancel it to tidy up.');
   assert.match(pendingInviteLabel(unused, now), /Cancel it if you do not want it opened/);
   fixtureRevokeSiteShareInvite(unused.id);
   const left = pendingShareInvites(fixtureListSiteShares(IDS.oak).invites);
   assert.equal(left.length, 1);
   assert.equal(left[0]?.guest_company_name, 'Old Contractor Ltd');
+  assert.equal(fixtureRedeemSiteShare('ABCD2345').siteName, 'Plot 12 – Oak Estate');
+  assert.equal(fixtureRedeemSiteShare('ABCD-2345').siteId, IDS.oak);
   assert.throws(() => fixtureRevokeSiteShareInvite(unused.id), /not_authorized/);
 });
 
@@ -214,8 +217,8 @@ test('a share link names the sections and uses the configured origin', () => {
     sections,
     origin: 'https://links.example',
   });
-  assert.match(text, /Northbuild/);
-  assert.match(text, /Harbour Point/);
+  assert.match(text, /Northbuild can ask to view Harbour Point/);
+  assert.match(text, /You approve it first/);
   assert.match(text, /https:\/\/links\.example\/share\/ABCD2345/);
   assert.match(text, /ABCD-2345/);
   assert.equal(sharedSectionLine(sections), 'They will see: Drawings, Snags report');

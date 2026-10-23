@@ -8,6 +8,9 @@
 -- share. The host owner or contracts manager approves it before any read works.
 -- preview_site_share names the site, the host firm, and the sections. It does not
 -- grant access and it does not use the code.
+-- preview_site_share and redeem_site_share take the user id and the client IP.
+-- Only service_role can execute them. The edge function reads the user from the
+-- verified JWT and the IP from the request headers.
 -- Every new function is security definer with search_path empty.
 -- Execute is revoked from public and anon. This file does not alter storage or auth.
 
@@ -728,7 +731,10 @@ revoke all on function public.create_site_share_invite(uuid, text, boolean, bool
 grant execute on function public.create_site_share_invite(uuid, text, boolean, boolean, boolean, boolean, boolean, text) to authenticated;
 
 -- What the code would share. Same refusal as a bad redeem. No share row, no use.
-create or replace function public.preview_site_share(p_code_hash text, p_client_ip text default null)
+-- Service role only. The user id and the IP are arguments, never the caller's JWT.
+drop function if exists public.preview_site_share(text, text);
+
+create or replace function public.preview_site_share(p_user_id uuid, p_code_hash text, p_client_ip text)
 returns jsonb
 language plpgsql
 security definer
@@ -744,7 +750,13 @@ declare
   v_ip text;
   v_ip_failed integer;
 begin
-  select * into v_actor from private.share_actor();
+  perform private.reject_unless_service();
+
+  select p.id as person_id, p.company_id, p.role, c.name as company_name, p.display_name, p.email
+  into v_actor
+  from public.people p
+  join public.companies c on c.id = p.company_id
+  where p.auth_user_id = p_user_id;
   if not found or v_actor.company_id is null then
     raise exception 'not_authorized';
   end if;
@@ -805,7 +817,7 @@ begin
   if v_actor.role not in ('owner', 'cm') then
     insert into public.site_share_attempts (actor_id, client_ip)
     values (v_actor.person_id, nullif(v_ip, 'unknown'));
-    return jsonb_build_object('error', 'not_allowed');
+    return jsonb_build_object('error', 'invalid_input');
   end if;
 
   select s.name into v_site_name from public.sites s where s.id = v_invite.site_id;
@@ -823,10 +835,12 @@ begin
 end;
 $fn$;
 
-revoke all on function public.preview_site_share(text, text) from public, anon;
-grant execute on function public.preview_site_share(text, text) to authenticated;
+revoke all on function public.preview_site_share(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.preview_site_share(uuid, text, text) to service_role;
 
-create or replace function public.redeem_site_share(p_code_hash text, p_client_ip text default null)
+drop function if exists public.redeem_site_share(text, text);
+
+create or replace function public.redeem_site_share(p_user_id uuid, p_code_hash text, p_client_ip text)
 returns jsonb
 language plpgsql
 security definer
@@ -843,7 +857,13 @@ declare
   v_ip text;
   v_ip_failed integer;
 begin
-  select * into v_actor from private.share_actor();
+  perform private.reject_unless_service();
+
+  select p.id as person_id, p.company_id, p.role, c.name as company_name, p.display_name, p.email
+  into v_actor
+  from public.people p
+  join public.companies c on c.id = p.company_id
+  where p.auth_user_id = p_user_id;
   if not found or v_actor.company_id is null then
     raise exception 'not_authorized';
   end if;
@@ -905,7 +925,7 @@ begin
   if v_actor.role not in ('owner', 'cm') then
     insert into public.site_share_attempts (actor_id, client_ip)
     values (v_actor.person_id, nullif(v_ip, 'unknown'));
-    return jsonb_build_object('error', 'not_allowed');
+    return jsonb_build_object('error', 'invalid_input');
   end if;
 
   select * into v_share
@@ -981,8 +1001,8 @@ begin
 end;
 $fn$;
 
-revoke all on function public.redeem_site_share(text, text) from public, anon;
-grant execute on function public.redeem_site_share(text, text) to authenticated;
+revoke all on function public.redeem_site_share(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.redeem_site_share(uuid, text, text) to service_role;
 
 create or replace function public.set_site_share_sections(
   p_share_id uuid,

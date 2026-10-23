@@ -268,11 +268,14 @@ export function shareRenameNote(row: { renamed: boolean; current_company_name: s
   return `Now called ${row.current_company_name}. The name above was pinned when they redeemed.`;
 }
 
-/** Pending card status. An unused code past its expiry reads Expired. */
+/** Pending card status. An unused code past its expiry names the day and asks to cancel it. */
 export function pendingInviteLabel(invite: { expires_at: string }, now = Date.now()): string {
   const expired = new Date(invite.expires_at).getTime() <= now;
-  const state = expired ? 'Expired' : 'Unused';
-  return `${state}. Cancel it if you do not want it opened.`;
+  if (!expired) return 'Unused. Cancel it if you do not want it opened.';
+  const when = new Date(invite.expires_at)
+    .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' })
+    .replace(/\.$/, '');
+  return `Expired ${when}. Cancel it to tidy up.`;
 }
 
 export function shareInviteText(input: {
@@ -284,7 +287,7 @@ export function shareInviteText(input: {
 }): string {
   const compact = normalizeJoinCode(input.code);
   const origin = (input.origin ?? shareWebOrigin()).replace(/\/$/, '');
-  return `${input.company} can view ${input.site} on SitePack: ${origin}/share/${compact} Code: ${formatJoinCode(compact)} ${sharedSectionLine(input.sections)}`;
+  return `${input.company} can ask to view ${input.site}. You approve it first. ${origin}/share/${compact} Code: ${formatJoinCode(compact)} ${sharedSectionLine(input.sections)}`;
 }
 
 export function accessRemovedMessage(): string {
