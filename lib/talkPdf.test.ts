@@ -2,42 +2,12 @@ import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
+import { decodedPdfText } from './pdfDecode.ts';
 import { pngDataUrl, solidPng } from './signaturePng.ts';
-import { buildTalkPdf, packBlocks, type RegisterPdfInput } from './talkPdf.ts';
+import { buildTalkPdf, packBlocks, talkReportId, type RegisterPdfInput } from './talkPdf.ts';
 
-function decodedPdfText(bytes: Uint8Array): string {
-  const raw = Buffer.from(bytes);
-  const streams: string[] = [];
-  let index = 0;
-  while (index < raw.length) {
-    const start = raw.indexOf('stream', index);
-    if (start < 0) break;
-    let dataStart = start + 'stream'.length;
-    if (raw[dataStart] === 0x0d && raw[dataStart + 1] === 0x0a) dataStart += 2;
-    else if (raw[dataStart] === 0x0a) dataStart += 1;
-    const end = raw.indexOf('endstream', dataStart);
-    if (end < 0) break;
-    let dataEnd = end;
-    if (raw[dataEnd - 1] === 0x0a) dataEnd -= 1;
-    if (raw[dataEnd - 1] === 0x0d) dataEnd -= 1;
-    try {
-      streams.push(zlib.inflateSync(raw.subarray(dataStart, dataEnd)).toString('latin1'));
-    } catch {
-      // Plain streams are not text.
-    }
-    index = end + 'endstream'.length;
-  }
-  const source = streams.join('\n');
-  const shown: string[] = [];
-  for (const match of source.matchAll(/\((?:\\\)|[^)])*\)/g)) {
-    shown.push(match[0]?.slice(1, -1).replace(/\\([()\\])/g, '$1') ?? '');
-  }
-  for (const match of source.matchAll(/<([0-9A-Fa-f\s]+)>/g)) {
-    const hex = match[1]?.replace(/\s/g, '') ?? '';
-    if (hex.length < 2 || hex.length % 2 !== 0) continue;
-    shown.push(Buffer.from(hex, 'hex').toString('latin1'));
-  }
-  return shown.join('\n').replace(/\u0097/g, '—').replace(/\u0096/g, '–');
+function footerLine(input: RegisterPdfInput, page: number, total: number): string {
+  return `${input.siteName} · ${input.companyName} · ${talkReportId(input.versionNo, input.presentedAt)} · Page ${page} of ${total}`;
 }
 
 const meaning = "I was at the toolbox talk 'Fire exits' given by Jordan Hale at Oak yard on 22 Oct 2026, and I understood it.";
@@ -114,7 +84,7 @@ test('the register prints the stored sentence, markers, presenter, and page foot
   assert.ok(doc.getPageCount() >= 2);
   assert.equal(footers.length, doc.getPageCount());
   footers.forEach((footer, index) => {
-    assert.equal(footer, `Oak yard · Ashfield Finishes · page ${index + 1} of ${footers.length}`);
+    assert.equal(footer, footerLine(input, index + 1, footers.length));
   });
   const text = decodedPdfText(bytes);
   assert.match(text, /Version 2/);
@@ -130,7 +100,7 @@ test('the register prints the stored sentence, markers, presenter, and page foot
   assert.match(text, /I was at the toolbox talk 'Fire exits'/);
   assert.equal(/compliant/i.test(text), false);
   for (let page = 1; page <= footers.length; page += 1) {
-    assert.match(text, new RegExp(`page ${page} of ${footers.length}`));
+    assert.match(text, new RegExp(`Page ${page} of ${footers.length}`));
   }
 });
 
@@ -233,8 +203,8 @@ test('every signer is printed once and no row crosses the footer', async () => {
     assert.ok(footers.length > 1, `gang ${size} continues onto another page`);
     assert.equal(footers.length, pages.length);
     footers.forEach((footer, index) => {
-      assert.equal(footer, `Oak yard · Ashfield Finishes · page ${index + 1} of ${footers.length}`);
-      assert.match(text, new RegExp(`page ${index + 1} of ${footers.length}`));
+      assert.equal(footer, footerLine(input, index + 1, footers.length));
+      assert.match(text, new RegExp(`Page ${index + 1} of ${footers.length}`));
     });
     const signOff = pages.filter((page) => page.some((line) => line.includes('I gave this talk')));
     assert.equal(signOff.length, 1);
@@ -275,10 +245,10 @@ test('a row taller than one page continues instead of being clipped', async () =
   }
 });
 
-test('Polish and Irish names and an em dash are kept', async () => {
+test('José Müller and Łukasz Wójcik print in the register', async () => {
   const input = register();
-  input.siteName = 'Siobhán Ó Briain — yard';
-  input.companyName = 'Ashfield Finishes';
+  input.siteName = 'Siobhán Ó Briain yard';
+  input.presenterName = 'José Müller';
   input.signed = [
     {
       name: 'Łukasz Wójcik',
@@ -287,15 +257,28 @@ test('Polish and Irish names and an em dash are kept', async () => {
       explained: false,
       interpreter: false,
       receivedAt: '2026-10-22T13:05:00.000Z',
-      meaning: 'Noted — understood.',
+      meaning: 'Noted and understood.',
+      signaturePng: png,
+      sharedDevice: false,
+    },
+    {
+      name: 'José Müller',
+      hasQuestion: false,
+      question: null,
+      explained: false,
+      interpreter: false,
+      receivedAt: '2026-10-22T13:06:00.000Z',
+      meaning: 'Noted and understood.',
       signaturePng: png,
       sharedDevice: false,
     },
   ];
-  const { bytes } = await buildTalkPdf(input);
+  const { bytes, footers } = await buildTalkPdf(input);
   const text = decodedPdfText(bytes);
-  assert.match(text, /Lukasz Wójcik/);
-  assert.equal(text.includes('ukasz Wjcik'), false);
+  assert.match(text, /Łukasz Wójcik/);
+  assert.match(text, /José Müller/);
   assert.match(text, /Siobhán Ó Briain/);
-  assert.match(text, /—/);
+  assert.equal(text.includes('ukasz Wjcik'), false);
+  assert.match(text, new RegExp(`Page 1 of ${footers.length}`));
+  assert.match(text, new RegExp(talkReportId(input.versionNo, input.presentedAt)));
 });

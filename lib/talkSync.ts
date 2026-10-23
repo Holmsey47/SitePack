@@ -1,7 +1,7 @@
 import { repo } from '@/data/index';
 import type { TalkBadge } from '@/data/talks';
 import { isFixtureOffline } from '@/lib/fixtureOffline';
-import { flushTalkQueue, getTalkQueue, type QueuedTalk, type TalkNotice } from '@/lib/talkQueue';
+import { flushTalkQueue, getTalkQueue, noticesForUser, pendingTalksForUser, type QueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { deviceIsOnline } from '@/lib/variationQueue';
 
 export async function talkSend(item: QueuedTalk): Promise<void> {
@@ -49,5 +49,9 @@ export async function refreshTalks(userId: string): Promise<{
   const online = !isFixtureOffline() && (await deviceIsOnline());
   if (online) await flushTalkQueue(queue, userId, talkSend).catch(() => undefined);
   const badges = await repo.myTalkBadges().catch(() => [] as TalkBadge[]);
-  return { badges, notices: await queue.listNotices(), queued: await queue.list() };
+  return {
+    badges,
+    notices: noticesForUser(await queue.listNotices(), userId),
+    queued: pendingTalksForUser(await queue.list(), userId),
+  };
 }

@@ -62,6 +62,25 @@ exception
 end;
 $$;
 
+create or replace function pg_temp.keep_talk(
+  p_name text,
+  p_owner uuid,
+  p_bucket text default 'drawings',
+  p_mime text default 'application/pdf',
+  p_size bigint default 2400,
+  p_owner_id text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
+  values (p_bucket, p_name, p_owner, p_owner_id, jsonb_build_object('mimetype', p_mime, 'size', p_size));
+end;
+$$;
+
 create temp table probe (k text primary key, v jsonb);
 grant all on table probe to authenticated;
 
@@ -199,6 +218,119 @@ select pg_temp.ok(
     'invalid_path'
   ),
   'a PDF path with .., a leading slash, or the wrong company is rejected'
+);
+
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/stolen.pdf', :'opa'::uuid);
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/bucket.pdf', :'ownerx'::uuid, 'site-photos');
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/photo.pdf', :'ownerx'::uuid, 'drawings', 'image/jpeg', 800);
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/huge.pdf', :'ownerx'::uuid, 'drawings', 'application/pdf', 52428801);
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf', null, 'drawings', 'application/pdf', 1800, :'ownerx');
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/missing.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/brief.pdf/extra.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks-extra/a.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/a file.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '//' || :'sitea' || '/talks/a.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/stolen.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/bucket.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/photo.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/huge.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'' || chr(10) || ''line'', ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Owner'' || chr(127), ''Owner'', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Own'' || chr(1) || ''er'', ''Owner'', now())',
+    'invalid_input'
+  ),
+  'a talk file must be this caller''s object at company/site/talks/file, and names reject control characters'
+);
+
+insert into probe (k, v)
+values (
+  'pdf',
+  public.create_site_talk(
+    :'sitea'::uuid,
+    'toolbox',
+    'phone',
+    'Stored file',
+    'Read the file.',
+    :'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf',
+    'all',
+    array[]::uuid[],
+    'Owner X',
+    'Owner',
+    timestamptz '2026-10-22 12:00:00+00'
+  )
+);
+
+select pg_temp.ok(
+  (select pdf_content_type = 'application/pdf' and pdf_size_bytes = 1800 and pdf_path = :'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf'
+   from public.site_talk_versions
+   where id = (select (v->>'version_id')::uuid from probe where k = 'pdf')),
+  'mime type and size come from the stored object'
 );
 
 insert into probe (k, v)
@@ -426,6 +558,8 @@ select pg_temp.ok(
   'a changed body is a new version and the earlier signatures stay on the old one'
 );
 
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/brief.pdf', :'ownerx'::uuid);
+
 insert into probe (k, v)
 values (
   'inperson',
@@ -449,6 +583,73 @@ select pg_temp.ok(
       and v->>'presenter_person_id' = :'opa'
    from probe where k = 'inperson'),
   'an in-person toolbox talk accepts a talks/ PDF path and the named presenter is that person'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Again'', ''Body'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/brief.pdf')
+      || ', ''all'', array[]::uuid[], ''Owner X'', ''Owner'', now())',
+    'invalid_path'
+  )
+  and (select pdf_content_type = 'application/pdf' and pdf_size_bytes = 2400
+       from public.site_talk_versions
+       where id = (select (v->>'version_id')::uuid from probe where k = 'inperson')),
+  'the same talk file cannot be recorded twice, and its type and size are the object''s'
+);
+
+update public.people set display_name = 'Op' || chr(10) || 'F' where id = :'opf'::uuid;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'created')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'revised')) || '::uuid, '
+      || quote_literal(:'opf') || '::uuid, true, ' || quote_literal(:'png') || ', now(), ''session-owner-1'')',
+    'invalid_input'
+  ),
+  'a signer name with a control character is rejected'
+);
+
+update public.people set display_name = 'Op F' where id = :'opf'::uuid;
+
+insert into probe (k, v)
+values (
+  'sign-again-a',
+  public.sign_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'created'),
+    (select (v->>'version_id')::uuid from probe where k = 'revised'),
+    :'opa'::uuid,
+    true,
+    :'png',
+    now(),
+    'session-probe-1'
+  )
+);
+
+insert into probe (k, v)
+values (
+  'sign-again-b',
+  public.sign_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'created'),
+    (select (v->>'version_id')::uuid from probe where k = 'revised'),
+    :'opa'::uuid,
+    true,
+    :'png',
+    now(),
+    'session-probe-1'
+  )
+);
+
+select pg_temp.ok(
+  (select v->>'signature_id' from probe where k = 'sign-again-a')
+    = (select v->>'signature_id' from probe where k = 'sign-again-b')
+  and (select count(*) from public.site_talk_signatures s
+       where s.version_id = (select (v->>'version_id')::uuid from probe where k = 'revised')
+         and s.person_id = :'opa'::uuid
+         and s.signature_role = 'attendee') = 1,
+  'a second sign of the same version returns the stored row'
 );
 
 select pg_temp.jwt(:'opc'::uuid);

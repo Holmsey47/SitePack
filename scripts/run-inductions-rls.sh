@@ -62,3 +62,4 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f scripts/inductions-rls.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public.probe_funcs_before'
 echo "inductions RLS ok"
+bash scripts/talk-sign-race.sh

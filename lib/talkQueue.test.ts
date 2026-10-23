@@ -9,10 +9,15 @@ import {
   flushTalkQueue,
   keptTalkMessage,
   memoryTalkQueue,
+  noticesForUser,
+  pendingTalksForUser,
   persistThenSendTalk,
+  rememberRefusedTalk,
   refusedTalkNotice,
+  SIGN_IN_AGAIN,
   storageTalkQueue,
   talkBackoffMs,
+  TALK_BACKOFF_MAX_MS,
   TALK_NOTICE_KEY,
   TALK_OWNER_KEY,
   TALK_QUEUE_KEY,
@@ -218,15 +223,17 @@ test('a phone network error, a 503, and an unknown storage error each take their
   });
   assert.deepEqual(calls, ['net', 'pgrst', 'plain', 'html', 'empty', 'storage', 'bad', 'unauth', 'jwt', 'after']);
   const left = (await queue.list()).map((row) => row.localId).sort();
-  assert.deepEqual(left, ['empty', 'html', 'net', 'pgrst', 'plain', 'storage']);
+  assert.deepEqual(left, ['empty', 'html', 'jwt', 'net', 'pgrst', 'plain', 'storage', 'unauth']);
   const notices = await queue.listNotices();
   assert.equal(notices.some((row) => row.id === 'reject:storage'), false);
   assert.equal(notices.some((row) => row.id === 'reject:bad' && row.retryLocalId === null), true);
-  assert.equal(notices.some((row) => row.id === 'reject:unauth' && row.retryLocalId === null), true);
-  assert.equal(notices.some((row) => row.id === 'reject:jwt' && row.retryLocalId === null), true);
+  assert.equal(notices.some((row) => row.id === 'reject:unauth'), false);
+  assert.equal(notices.some((row) => row.id === 'reject:jwt'), false);
+  assert.equal(notices.find((row) => row.id === 'retry:unauth')?.message, SIGN_IN_AGAIN);
+  assert.equal(notices.find((row) => row.id === 'retry:jwt')?.message, SIGN_IN_AGAIN);
+  assert.equal((await queue.list()).find((row) => row.localId === 'jwt')?.needsSignIn, true);
   assert.match(notices.find((row) => row.id === 'reject:bad')?.message ?? '', /not saved/);
-  assert.match(notices.find((row) => row.id === 'reject:unauth')?.message ?? '', /not saved/);
-  assert.equal(notices.filter((row) => row.retryLocalId).length, 6);
+  assert.equal(notices.filter((row) => row.retryLocalId).length, 8);
 });
 
 const PGRST002 = JSON.stringify({
@@ -271,6 +278,9 @@ async function postgrestFailures(): Promise<Map<string, SnagRequestError>> {
       if (status >= 500) {
         assert.equal(isRetryableSnagFailure(err), true);
         assert.deepEqual(classified, { kind: 'http', status });
+      } else if (status === 401) {
+        assert.equal(isRetryableSnagFailure(err), true);
+        assert.equal(classified.kind, 'signin');
       } else {
         assert.equal(isRetryableSnagFailure(err), false);
         assert.equal(classified.kind, 'permanent');
@@ -361,4 +371,111 @@ test('sign-out, owner change, and a rejected session wipe the talk queue', () =>
   const sync = fs.readFileSync('lib/talkSync.ts', 'utf8');
   assert.match(sync, /isFixtureOffline\(\) && \(await deviceIsOnline\(\)\)/);
   assert.match(sync, /if \(online\) await flushTalkQueue/);
+  assert.match(sync, /noticesForUser\(await queue\.listNotices\(\), userId\)/);
+  assert.match(sync, /pendingTalksForUser\(await queue\.list\(\), userId\)/);
+});
+
+test('a 401 stays queued for this user, and a different login still wipes it', async () => {
+  const queue = memoryTalkQueue();
+  const kept = storage();
+  await adoptTalkOwner('user-a', queue, kept);
+  const result = await persistThenSendTalk(item('user-a'), true, async () => {
+    throw Object.assign(new Error('JWT expired'), { status: 401 });
+  }, queue);
+  assert.equal(result, 'queued');
+  assert.equal(SIGN_IN_AGAIN, 'Sign in again to send what is saved on this phone');
+  const saved = (await queue.list())[0];
+  assert.equal(saved?.needsSignIn, true);
+  assert.equal(saved?.userId, 'user-a');
+  assert.equal((await queue.listNotices())[0]?.message, SIGN_IN_AGAIN);
+  await adoptTalkOwner('user-a', queue, kept);
+  assert.equal((await queue.list()).length, 1);
+  await adoptTalkOwner('user-b', queue, kept);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 0);
+});
+
+test('network and unknown-error backoff stops at 5 minutes', async () => {
+  assert.equal(talkBackoffMs(1), 1000);
+  assert.equal(talkBackoffMs(20), TALK_BACKOFF_MAX_MS);
+  assert.equal(talkBackoffMs(100), TALK_BACKOFF_MAX_MS);
+  const queue = memoryTalkQueue();
+  const before = Date.now();
+  const result = await persistThenSendTalk({ ...item('user-a'), attempts: 40 }, true, async () => {
+    throw new Error('boom-not-a-code');
+  }, queue);
+  assert.equal(result, 'queued');
+  assert.equal(classifyTalkFailure(new Error('boom-not-a-code')).kind, 'network');
+  assert.equal(classifyTalkFailure(new Error('unknown')).kind, 'network');
+  const retryAt = Date.parse((await queue.list())[0]?.nextAttemptAt ?? '');
+  assert.ok(retryAt - before <= TALK_BACKOFF_MAX_MS + 1000);
+  assert.ok(retryAt - before >= TALK_BACKOFF_MAX_MS - 1000);
+});
+
+test('a wipe removes notices as well as queued signatures', async () => {
+  const box = storage();
+  const queue = storageTalkQueue(box);
+  await queue.put(item('user-a'));
+  await queue.putNotice({
+    id: 'reject:kept',
+    userId: 'user-a',
+    siteId: 'site-a',
+    talkId: 'talk-1',
+    message: 'Kept by mistake',
+    retryLocalId: null,
+  });
+  box.setItem(TALK_OWNER_KEY, 'user-a');
+  await wipeTalkQueue(queue);
+  assert.equal(box.getItem(TALK_QUEUE_KEY), null);
+  assert.equal(box.getItem(TALK_NOTICE_KEY), null);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 0);
+});
+
+test('notice and pending filters keep this user and drop a missing or different one', () => {
+  const queued = [item('user-a'), { ...item('user-b'), localId: 'b' }];
+  const notes = [
+    { id: 'a', userId: 'user-a', siteId: 'site-a', talkId: 'talk-1', message: 'A', retryLocalId: null },
+    { id: 'b', userId: 'user-b', siteId: 'site-a', talkId: 'talk-1', message: 'B', retryLocalId: null },
+  ];
+  assert.deepEqual(pendingTalksForUser(queued, 'user-a').map((row) => row.userId), ['user-a']);
+  assert.deepEqual(pendingTalksForUser(queued, 'user-b').map((row) => row.localId), ['b']);
+  assert.deepEqual(pendingTalksForUser(queued, ''), []);
+  assert.deepEqual(pendingTalksForUser(queued, null), []);
+  assert.deepEqual(pendingTalksForUser(queued, undefined), []);
+  assert.deepEqual(noticesForUser(notes, 'user-a').map((row) => row.id), ['a']);
+  assert.deepEqual(noticesForUser(notes, 'user-b').map((row) => row.id), ['b']);
+  assert.deepEqual(noticesForUser(notes, ''), []);
+  assert.deepEqual(noticesForUser([{ ...notes[0]!, userId: '' }], ''), []);
+});
+
+test('a refused notice belongs to that signature and keeps its own id', async () => {
+  const queue = memoryTalkQueue();
+  const first = await rememberRefusedTalk(queue, { ...item('user-b'), localId: 'one' }, 'not_authorized');
+  const second = await rememberRefusedTalk(queue, { ...item('user-a'), localId: 'two' }, 'version_locked');
+  assert.equal(first.userId, 'user-b');
+  assert.equal(first.id, 'reject:one');
+  assert.equal(second.userId, 'user-a');
+  assert.equal(second.id, 'reject:two');
+  const notices = await queue.listNotices();
+  assert.equal(notices.length, 2);
+  assert.equal(new Set(notices.map((notice) => notice.id)).size, 2);
+  assert.notEqual(notices[0]?.id, 'reject');
+});
+
+test('a refused signature is removed so a later flush does not send it again', async () => {
+  const queue = memoryTalkQueue();
+  let calls = 0;
+  const result = await persistThenSendTalk(item('user-a'), true, async () => {
+    calls += 1;
+    throw new Error('version_locked');
+  }, queue);
+  assert.equal(result, 'refused');
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 1);
+  await flushTalkQueue(queue, 'user-a', async () => {
+    calls += 1;
+  });
+  assert.equal(calls, 1);
+  assert.equal((await queue.listNotices()).length, 1);
 });

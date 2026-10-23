@@ -1,7 +1,9 @@
 import type { TalkDelivery, TalkKind } from '@/lib/talkMeaning';
 import { formatUkDateTime } from '@/lib/format';
+import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import { dataUrlBytes } from '@/lib/signaturePng';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -65,82 +67,31 @@ export function talkPdfFilename(siteName: string, title: string): string {
   return `Register ${site} ${name}.pdf`;
 }
 
-export function talkFooter(siteName: string, companyName: string, page: number, total: number, font: PDFFont): string {
+export function talkReportId(versionNo: number, presentedAt: string): string {
+  const formatted = formatUkDateTime(presentedAt);
+  const date = formatted.split(',')[0]?.replace(/\s+/g, '') ?? 'undated';
+  return `TR-v${versionNo}-${date}`;
+}
+
+export function talkFooter(
+  siteName: string,
+  companyName: string,
+  reportId: string,
+  page: number,
+  total: number,
+  font: PDFFont
+): string {
   let site = pdfText(siteName);
   const company = pdfText(companyName);
-  const tail = ` · ${company} · page ${page} of ${total}`;
+  const reference = pdfText(reportId);
+  const tail = ` · ${company} · ${reference} · Page ${page} of ${total}`;
   while (site.length > 4 && font.widthOfTextAtSize(site + tail, 9) > CONTENT_W) site = site.slice(0, -2);
   return `${site}${tail}`;
 }
 
-/** Letters WinAnsi has no glyph for. Mapped, never dropped. */
-const LATIN_EXTRA: Record<string, string> = {
-  Ł: 'L',
-  ł: 'l',
-  Ą: 'A',
-  ą: 'a',
-  Ć: 'C',
-  ć: 'c',
-  Ę: 'E',
-  ę: 'e',
-  Ń: 'N',
-  ń: 'n',
-  Ś: 'S',
-  ś: 's',
-  Ź: 'Z',
-  ź: 'z',
-  Ż: 'Z',
-  ż: 'z',
-  Đ: 'D',
-  đ: 'd',
-  Ø: 'O',
-  ø: 'o',
-  Æ: 'AE',
-  æ: 'ae',
-  Œ: 'OE',
-  œ: 'oe',
-  Þ: 'Th',
-  þ: 'th',
-  ß: 'ss',
-};
-
-const WIN_EXTRA = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ');
-
-function canWinAnsi(ch: string): boolean {
-  const code = ch.codePointAt(0) ?? 0;
-  if (code >= 0x20 && code <= 0x7e) return true;
-  if (code >= 0xa0 && code <= 0xff) return true;
-  return WIN_EXTRA.has(ch);
-}
-
-/**
- * Keep every letter. WinAnsi characters stay, including ó and an em dash.
- * Letters outside that set are transliterated.
- */
+/** Keep letters, including Ł and ü. A dash the name font does not draw becomes a hyphen. */
 export function pdfText(value: string): string {
-  let out = '';
-  for (const ch of value.normalize('NFC')) {
-    if (ch === '\n' || ch === '\r' || ch === '\t') {
-      out += ' ';
-      continue;
-    }
-    const mapped = LATIN_EXTRA[ch];
-    if (mapped) {
-      out += mapped;
-      continue;
-    }
-    if (canWinAnsi(ch)) {
-      out += ch;
-      continue;
-    }
-    const plain = ch.normalize('NFD').replace(/\p{M}/gu, '');
-    if (plain && plain !== ch && [...plain].every((part) => canWinAnsi(part) || LATIN_EXTRA[part])) {
-      out += pdfText(plain);
-      continue;
-    }
-    out += '?';
-  }
-  return out;
+  return value.normalize('NFC').replace(/[–—]/g, '-').replace(/[\u0000-\u001f\u007f]/g, ' ');
 }
 
 function wrap(text: string, face: PDFFont, size: number, max: number): string[] {
@@ -311,9 +262,11 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
 
 export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Uint8Array; footers: string[]; pages: string[][] }> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Register ${pdfText(input.title)}`);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  doc.registerFontkit(fontkit);
+  const reportId = talkReportId(input.versionNo, input.presentedAt);
+  doc.setTitle(`Register ${reportId}`);
+  const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
+  const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
   const blocks = buildBlocks(input, font, bold);
   const packed = packBlocks(blocks, CONTENT_H);
   const groups = packed.length > 0 ? packed : [blocks.filter((block) => block.kind === 'intro')];
@@ -369,7 +322,7 @@ export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Ui
   }
   pageLines.push(lines);
 
-  const footers = drawn.map((_, index) => talkFooter(input.siteName, input.companyName, index + 1, drawn.length, font));
+  const footers = drawn.map((_, index) => talkFooter(input.siteName, input.companyName, reportId, index + 1, drawn.length, font));
   drawn.forEach((sheet, index) => {
     const footer = footers[index] ?? '';
     pageLines[index]?.push(footer);

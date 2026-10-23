@@ -3,7 +3,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine } from '@/lib/snagWording';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
-import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
+import { pdfFontBytes, SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -88,13 +88,6 @@ export function snagPhotoCaption(index: number, total: number, kind: 'before' | 
 export function snagPhotoMissing(index: number, total: number, kind: 'before' | 'after'): string {
   const label = kind === 'before' ? 'Before' : 'After';
   return `Photo ${index + 1} of ${total} (${label}) could not be loaded`;
-}
-
-function pdfFontBytes(encoded: string): Uint8Array {
-  const binary = globalThis.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }
 
 /** Keep letters, including accents. A pound sign is not part of a snag report. */
