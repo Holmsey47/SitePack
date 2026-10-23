@@ -9,6 +9,7 @@ import {
   isRetryableSnagFailure,
   memorySnagQueue,
   noticesForOwner,
+  ownedSnagQueue,
   persistThenSendSnag,
   rejectedSnagNotice,
   removeSnagQueueKeys,
@@ -530,6 +531,29 @@ test('a real supabase client keeps gateway 502 and 503 queued and turns 4xx into
       assert.equal((await queue.listNotices()).length, 1);
     }
   }
+});
+
+test('the owner filter leaves another user sign-off out of this queue', () => {
+  const mine = item([1], 'user-a', 'create-a');
+  const sign = {
+    kind: 'sign' as const,
+    localId: 'sign-a',
+    ownerId: 'user-a',
+    siteId: 'site',
+    signedAt: '2026-10-22T13:05:00.000Z',
+    mode: 'contractor' as const,
+    signerCompany: 'Northbuild',
+    coveredIds: ['s1'],
+    outstandingIds: [],
+  };
+  const theirs = { ...sign, localId: 'sign-b', ownerId: 'user-b' };
+  assert.deepEqual(ownedSnagQueue([mine, sign, theirs], 'user-a').map((row) => row.localId), ['create-a', 'sign-a']);
+  assert.deepEqual(ownedSnagQueue([mine, sign, theirs], 'user-b').map((row) => row.localId), ['sign-b']);
+  assert.deepEqual(ownedSnagQueue([mine, sign], ''), []);
+  assert.deepEqual(ownedSnagQueue([mine, sign], null), []);
+  assert.deepEqual(ownedSnagQueue([mine, sign], undefined), []);
+  const index = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
+  assert.match(index, /ownedSnagQueue\(await queue\.list\(\), ownerId\)/);
 });
 
 test('a snag notice is shown only to the person who queued it', async () => {

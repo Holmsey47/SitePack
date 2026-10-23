@@ -10,7 +10,7 @@ import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type Sna
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -333,7 +333,9 @@ export default function SnagSignScreen() {
       <Title>Sign off snags put right</Title>
       {shownSign ? (
         <View nativeID="signer-block" style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Signed off</Text>
+          <Text nativeID="sign-off-state" style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>
+            {savedOnPhone ? SIGNED_ON_PHONE : 'Signed off'}
+          </Text>
           <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
             {signedPutRight}
           </Text>

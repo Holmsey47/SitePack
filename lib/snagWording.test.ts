@@ -8,7 +8,10 @@ import {
   putRightLine,
   rememberSignAgain,
   signAgainPath,
+  showSignOffOnSnag,
+  SIGNED_ON_PHONE,
   signoffFormOpen,
+  signOffWaitingLabel,
   snagConfirmation,
   takeSignAgain,
 } from './snagWording.ts';
@@ -59,6 +62,12 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
   assert.equal(signoffFormOpen({ savedOnPhone: false, signedOff: false }), true);
   assert.equal(signoffFormOpen({ savedOnPhone: true, signedOff: false }), false);
   assert.equal(signoffFormOpen({ savedOnPhone: false, signedOff: true }), false);
+  assert.equal(SIGNED_ON_PHONE, "Signed on this phone, will send when there's signal");
+  assert.equal(signOffWaitingLabel(1), '1 sign-off waiting to send');
+  assert.equal(signOffWaitingLabel(2), '2 sign-offs waiting to send');
+  assert.equal(showSignOffOnSnag('Fixed'), true);
+  assert.equal(showSignOffOnSnag('Signed off'), false);
+  assert.equal(showSignOffOnSnag('Open'), false);
   assert.equal(outstandingHeading(0), 'No snags are outstanding.');
   assert.equal(outstandingHeading(2), 'Outstanding (not signed off): 2');
   assert.equal(outstandingLine(4, 'Socket box proud of the board', 'Second'), 'S-4 · Socket box proud of the board · Second');
@@ -132,7 +141,7 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(screen, /setSavedOnPhone\(true\)/);
   assert.match(screen, /clearSignFields\(\)/);
   assert.match(screen, /nativeID="saved-on-phone"/);
-  assert.match(screen, />Signed off</);
+  assert.match(screen, /savedOnPhone \? SIGNED_ON_PHONE : 'Signed off'/);
   assert.match(screen, /Not signed off/);
   assert.match(screen, /putRightLine\(/);
   assert.ok(screen.indexOf('nativeID="put-right-list"') < screen.indexOf('{shownSign.confirmation}'));
@@ -143,6 +152,11 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(screen, /setSignature\(null\)/);
   assert.doesNotMatch(screen, /params\.signerName|params\.signerRole|params\.signerCompany/);
   const index = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
+  const detail = fs.readFileSync('app/(app)/sites/[siteId]/snags/[snagId].tsx', 'utf8');
+  assert.match(index, /ownedSnagQueue\(/);
+  assert.match(index, /signOffsWaiting > 0 \? \([\s\S]*signOffWaitingLabel\(signOffsWaiting\)[\s\S]*Sign off snags put right/);
+  assert.match(detail, /showSignOffOnSnag\(detail\.status\)/);
+  assert.doesNotMatch(detail, /status === 'Signed off' \? \([\s\S]*Sign off snags put right/);
   assert.match(index, /rememberSignAgain\(/);
   assert.match(index, /router\.push\(`\/sites\/\$\{siteId\}\/snags\/sign`\)/);
   assert.doesNotMatch(index, /query\.set\('signerName'|query\.set\('signerRole'|query\.set\('signerCompany'/);

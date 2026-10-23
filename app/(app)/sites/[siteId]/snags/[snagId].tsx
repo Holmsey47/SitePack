@@ -7,6 +7,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { preparePhoto } from '@/lib/photoPrep';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE, type QueuedPhoto } from '@/lib/snagQueue';
+import { showSignOffOnSnag } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
@@ -185,7 +186,7 @@ export default function SnagDetailScreen() {
           <Button label="Mark fixed" minHeight={56} loading={busy} disabled={afterPhotos.length < 1} onPress={() => void onFix()} />
         </View>
       ) : null}
-      {detail.status === 'Fixed' ? (
+      {showSignOffOnSnag(detail.status) ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
       {Platform.OS === 'web'

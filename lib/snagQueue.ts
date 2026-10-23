@@ -481,6 +481,12 @@ export function noticesForOwner(notices: SnagNotice[], ownerId: string | null | 
   return notices.filter((notice) => notice.ownerId === ownerId);
 }
 
+/** This person's queued snags. Another owner's rows, and a signed-out phone, stay out. */
+export function ownedSnagQueue(items: QueuedSnag[], ownerId: string | null | undefined): QueuedSnag[] {
+  if (!ownerId) return [];
+  return items.filter((item) => item.ownerId === ownerId);
+}
+
 export type SnagFlushResult = {
   notices: SnagNotice[];
   signInRequired: boolean;

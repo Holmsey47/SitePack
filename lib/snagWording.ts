@@ -1,4 +1,4 @@
-import { snagNumber } from '@/data/snags';
+import { snagNumber, type SnagStatus } from '@/data/snags';
 
 /** Legal copy for one snag. [Company] is filled with a function so a name cannot expand as a pattern. */
 export const SNAG_CONTRACTOR_ONE =
@@ -39,6 +39,19 @@ export function snagConfirmation(company: string, kind: SnagSignoffKind, markedC
 /** The sign-off form closes after a save, online or on the phone, so the button cannot be tapped again. */
 export function signoffFormOpen(input: { savedOnPhone: boolean; signedOff: boolean }): boolean {
   return !input.savedOnPhone && !input.signedOff;
+}
+
+/** Shown in place of Signed off until the queued sign-off is confirmed. */
+export const SIGNED_ON_PHONE = "Signed on this phone, will send when there's signal";
+
+/** The snag screen offers sign-off only while the snag is Fixed. A signed-off snag has no button. */
+export function showSignOffOnSnag(status: SnagStatus): boolean {
+  return status === 'Fixed';
+}
+
+/** Replaces the sign-off button while this person's sign-off is still queued. */
+export function signOffWaitingLabel(count: number): string {
+  return count === 1 ? '1 sign-off waiting to send' : `${count} sign-offs waiting to send`;
 }
 
 /** The contractor pad stays off until its own company field has text. */
