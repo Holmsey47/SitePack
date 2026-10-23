@@ -1,10 +1,10 @@
 import { DrawingFrame } from '@/components/drawing-frame';
-import { TalkNoticeList } from '@/components/TalkRows';
+import { TalkNoticeList, TalkTypeLabel } from '@/components/TalkRows';
 import { Button, Card, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
-import { handPhoneLabel, signedCountLabel, signedVersionLabel, talkError, type TalkDetail } from '@/data/talks';
+import { handPhoneLabel, ownSignStatus, signedCountLabel, signedVersionLabel, talkError, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { buildTalkPdf, talkPdfFilename } from '@/lib/talkPdf';
 import { SAVED_ON_PHONE, SESSION_ENDED, dismissTalkNotice, getTalkQueue, persistThenSendTalk, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
@@ -63,7 +63,7 @@ export default function TalkDetailScreen() {
 
   useEffect(() => {
     if (!talk) return;
-    const title = talk.register ? "Who's signed" : talk.kind === 'induction' ? 'Induction' : 'Toolbox talk';
+    const title = talk.register ? "Who's signed" : talk.kind === 'rams' ? 'RAMS' : talk.kind === 'induction' ? 'Induction' : 'Toolbox talk';
     navigation.setOptions({ title });
   }, [navigation, talk]);
 
@@ -184,10 +184,9 @@ export default function TalkDetailScreen() {
 
   return (
     <Screen>
+      <TalkTypeLabel kind={talk.kind} />
       <Title>{talk.title}</Title>
-      <Muted>
-        {talk.kind === 'induction' ? 'Induction' : 'Toolbox talk'} · version {talk.version_no}
-      </Muted>
+      <Muted>version {talk.version_no}</Muted>
       <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>
         {talk.presenter_name}, {talk.presenter_role}
       </Text>
@@ -216,6 +215,9 @@ export default function TalkDetailScreen() {
           <DrawingFrame uri={talk.pdf_url} />
         </View>
       ) : null}
+      {talk.kind === 'rams' && !register && !talk.mine_signed ? (
+        <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', minHeight: 48 }}>{ownSignStatus(false)}</Text>
+      ) : null}
       {!talk.mine_signed ? (
         <Button
           label="Read and sign"
@@ -233,6 +235,9 @@ export default function TalkDetailScreen() {
           <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', minHeight: 48 }}>
             Not signed yet ({register.not_signed.length})
           </Text>
+          {talk.kind === 'rams' ? (
+            <Muted>Assigned operatives on this site who have not signed this version.</Muted>
+          ) : null}
           {register.not_signed.map((row) => (
             <Card key={row.person_id}>
               <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{registerLabel(row)}</Text>

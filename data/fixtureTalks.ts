@@ -167,6 +167,12 @@ function seesRegister(actor: TalkActor, talk: TalkRow): boolean {
   return manager(actor) || actor.id === talk.presenter_person_id;
 }
 
+/** RAMS signed and unsigned names are for the owner and contracts manager. An operative sees only their own status. */
+function seesRollCall(actor: TalkActor, talk: TalkRow): boolean {
+  if (talk.kind === 'rams') return manager(actor);
+  return seesRegister(actor, talk);
+}
+
 function attendeeSigned(bucket: FixtureTalkBucket, versionId: string, personId: string) {
   return bucket.signatures.some(
     (row) => row.version_id === versionId && row.person_id === personId && row.signature_role === 'attendee'
@@ -234,8 +240,15 @@ function listItem(
   assignments: TalkAssignment[]
 ): TalkListItem {
   const version = currentVersion(bucket, talk.id);
-  const show = seesRegister(actor, talk);
+  const show = seesRollCall(actor, talk);
   const tally = show ? counts(bucket, talk, version, people, assignments) : null;
+  const unsigned = show && talk.kind === 'rams'
+    ? people
+        .filter((person) => requiredIds(bucket, talk, people, assignments).includes(person.id))
+        .filter((person) => !attendeeSigned(bucket, version.id, person.id))
+        .map((person) => ({ person_id: person.id, person_name: label(person.display_name) }))
+        .sort((a, b) => a.person_name.localeCompare(b.person_name))
+    : null;
   return {
     talk_id: talk.id,
     site_id: talk.site_id,
@@ -255,6 +268,7 @@ function listItem(
     question_count: tally ? tally.question_count : null,
     mine_signed: attendeeSigned(bucket, version.id, actor.id),
     mine_question: Boolean(questionFor(bucket, version.id, actor.id)),
+    unsigned,
   };
 }
 
@@ -274,9 +288,9 @@ function assertContent(input: { kind: TalkKind; delivery: TalkDelivery; title: s
   if (title.length < 1 || title.length > 120) fail('invalid_input');
   if (body.length > 8000) fail('invalid_input');
   if (!body && !input.pdfPath) fail('invalid_input');
-  if (input.kind !== 'induction' && input.kind !== 'toolbox') fail('invalid_input');
+  if (input.kind !== 'induction' && input.kind !== 'toolbox' && input.kind !== 'rams') fail('invalid_input');
   if (input.delivery !== 'phone' && input.delivery !== 'in_person') fail('invalid_input');
-  if (input.kind === 'induction' && input.delivery !== 'phone') fail('invalid_input');
+  if ((input.kind === 'induction' || input.kind === 'rams') && input.delivery !== 'phone') fail('invalid_input');
   const pdf = input.pdfPath ? talkStoragePath(input.site.company_id, input.site.id, input.pdfPath) : null;
   return { title, body, pdf };
 }
@@ -747,7 +761,7 @@ export function fixtureTalkDetail(
   }
   const version = currentVersion(bucket, talk.id);
   const signed = version.pdf_path ? pdfUrl(version.pdf_path) : null;
-  const show = seesRegister(actor, talk);
+  const show = seesRollCall(actor, talk);
   return {
     talk_id: talk.id,
     site_id: talk.site_id,

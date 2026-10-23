@@ -1611,6 +1611,254 @@ select pg_temp.ok(
   'a signer who renames to another person''s name still shows the name and identifier from when they signed'
 );
 
+-- RAMS uses the same sign and version path. Kind is fixed at create.
+
+reset role;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into public.site_talks (id, site_id, company_id, kind, delivery, title, audience, presenter_person_id, presenter_name, presenter_role, presented_at, created_by) values ('
+      || quote_literal(gen_random_uuid()) || '::uuid, '
+      || quote_literal(:'sitea') || '::uuid, '
+      || quote_literal(:'firmx') || '::uuid, ''poster'', ''phone'', ''Nope'', ''all'', '
+      || quote_literal(:'ownerx') || '::uuid, ''Owner X'', ''Owner'', now(), '
+      || quote_literal(:'ownerx') || '::uuid)',
+    'new row for relation "site_talks" violates check constraint "site_talks_kind"'
+  ),
+  'the type check rejects a kind that is not induction, toolbox, or rams'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into public.site_talks (id, site_id, company_id, kind, delivery, title, audience, presenter_person_id, presenter_name, presenter_role, presented_at, created_by) values ('
+      || quote_literal(gen_random_uuid()) || '::uuid, '
+      || quote_literal(:'sitea') || '::uuid, '
+      || quote_literal(:'firmx') || '::uuid, ''rams'', ''in_person'', ''Nope'', ''all'', '
+      || quote_literal(:'ownerx') || '::uuid, ''Owner X'', ''Owner'', now(), '
+      || quote_literal(:'ownerx') || '::uuid)',
+    'new row for relation "site_talks" violates check constraint "site_talks_phone_document"'
+  ),
+  'a RAMS has to be read on the phone'
+);
+
+select pg_temp.ok(
+  (select column_default = '''induction''::text'
+   from information_schema.columns
+   where table_schema = 'public' and table_name = 'site_talks' and column_name = 'kind'),
+  'kind defaults to induction and existing rows stay induction or toolbox'
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''rams'', ''phone'', ''Roof work'', ''Edge protection.'', null, ''all'', array[]::uuid[], '
+      || quote_literal(:'ownerx') || '::uuid, ''Owner'', now())',
+    'not_authorized'
+  ),
+  'an operative cannot set the RAMS type'
+);
+
+select pg_temp.jwt(:'cmx'::uuid);
+
+insert into probe (k, v)
+values (
+  'rams-cm',
+  public.create_site_talk(
+    :'sitea'::uuid,
+    'rams',
+    'phone',
+    'CM RAMS',
+    'Read this.',
+    null,
+    'all',
+    array[]::uuid[],
+    :'cmx'::uuid,
+    'Contracts manager',
+    timestamptz '2026-10-22 12:00:00+00'
+  )
+);
+
+select pg_temp.ok(
+  (select kind = 'rams' from public.site_talks where id = (select (v->>'talk_id')::uuid from probe where k = 'rams-cm')),
+  'a contracts manager can set the type to RAMS'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+
+insert into probe (k, v)
+values (
+  'rams',
+  public.create_site_talk(
+    :'sitea'::uuid,
+    'rams',
+    'phone',
+    'Edge protection',
+    'Use a harness.',
+    null,
+    'all',
+    array[]::uuid[],
+    :'ownerx'::uuid,
+    'Owner',
+    timestamptz '2026-10-22 12:00:00+00'
+  )
+);
+
+-- The rename check above left Op A's current display name as Op B.
+-- The other Op B is assigned to Site B only and must stay off this list.
+select pg_temp.ok(
+  (
+    select
+      item->>'kind' = 'rams'
+      and (item->>'signed_count')::int = 0
+      and (item->>'required_count')::int = 5
+      and item->'unsigned' = jsonb_build_array(
+        jsonb_build_object('person_id', :'opa'::uuid, 'person_name', 'Op B'),
+        jsonb_build_object('person_id', :'opc'::uuid, 'person_name', 'Op C'),
+        jsonb_build_object('person_id', :'opd'::uuid, 'person_name', 'Op D'),
+        jsonb_build_object('person_id', :'ope'::uuid, 'person_name', 'Op E'),
+        jsonb_build_object('person_id', :'opf'::uuid, 'person_name', 'Op F')
+      )
+      and not exists (
+        select 1 from jsonb_array_elements(item->'unsigned') u
+        where u->>'person_id' in (:'opb', :'cmx', :'ownerx', :'ownery')
+      )
+    from jsonb_array_elements(public.list_site_talks(:'sitea'::uuid)) item
+    where item->>'talk_id' = (select v->>'talk_id' from probe where k = 'rams')
+  ),
+  'the RAMS unsigned list is the assigned operatives in this company'
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+
+select pg_temp.ok(
+  (
+    select item->>'unsigned' is null
+      and item->>'signed_count' is null
+      and (item->>'mine_signed')::boolean = false
+    from jsonb_array_elements(public.list_site_talks(:'sitea'::uuid)) item
+    where item->>'talk_id' = (select v->>'talk_id' from probe where k = 'rams')
+  )
+  and (select v->>'register' is null and (v->>'mine_signed')::boolean = false
+       from public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'rams')) v),
+  'an operative sees only whether they have signed the current RAMS'
+);
+
+insert into probe (k, v)
+values (
+  'rams-sign',
+  public.sign_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'rams'),
+    (select (v->>'version_id')::uuid from probe where k = 'rams'),
+    :'opa'::uuid,
+    true,
+    :'png',
+    now() - interval '5 minutes',
+    'session-rams-1'
+  )
+);
+
+select pg_temp.ok(
+  (select v->>'meaning' = 'I''ve read and understood the RAMS ''Edge protection'' for Site A.'
+      and v->>'version_id' = (select v->>'version_id' from probe where k = 'rams')
+   from probe where k = 'rams-sign'),
+  'signing a RAMS stores the sentence for that version'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+
+select pg_temp.ok(
+  (
+    select (item->>'signed_count')::int = 1
+      and not exists (
+        select 1 from jsonb_array_elements(item->'unsigned') u
+        where u->>'person_id' = :'opa'
+      )
+    from jsonb_array_elements(public.list_site_talks(:'sitea'::uuid)) item
+    where item->>'talk_id' = (select v->>'talk_id' from probe where k = 'rams')
+  ),
+  'a signed operative drops off the current RAMS unsigned list'
+);
+
+insert into probe (k, v)
+values (
+  'rams-revised',
+  public.revise_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'rams'),
+    'Edge protection',
+    'Use a harness and a net.',
+    null
+  )
+);
+
+select pg_temp.ok(
+  (select kind = 'rams' from public.site_talks where id = (select (v->>'talk_id')::uuid from probe where k = 'rams'))
+  and (select (v->>'version_id') from probe where k = 'rams-revised')
+      is distinct from (select v->>'version_id' from probe where k = 'rams'),
+  'revising a RAMS keeps the type and opens a new version'
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'rams')) || '::uuid, '
+      || quote_literal((select v->>'version_id' from probe where k = 'rams')) || '::uuid, '
+      || quote_literal(:'opa') || '::uuid, true, ' || quote_literal(:'png') || ', now(), ''session-rams-1'')',
+    'version_locked'
+  ),
+  'a signature for the previous RAMS version is refused'
+);
+
+select pg_temp.ok(
+  (select (item->>'mine_signed')::boolean = false
+      and item->>'unsigned' is null
+   from jsonb_array_elements(public.list_site_talks(:'sitea'::uuid)) item
+   where item->>'talk_id' = (select v->>'talk_id' from probe where k = 'rams'))
+  and (select count(*) from public.site_talk_signatures
+       where version_id = (select (v->>'version_id')::uuid from probe where k = 'rams')
+         and person_id = :'opa'::uuid
+         and signature_role = 'attendee') = 1,
+  'a new RAMS version needs a new signature and keeps the old one'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'update public.site_talks set kind = ''toolbox'' where id = '
+      || quote_literal((select v->>'talk_id' from probe where k = 'rams')) || '::uuid',
+    'permission denied for table site_talks'
+  )
+  and (select kind = 'rams' from public.site_talks where id = (select (v->>'talk_id')::uuid from probe where k = 'rams')),
+  'the owner cannot change the type in place'
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'update public.site_talks set kind = ''induction'' where id = '
+      || quote_literal((select v->>'talk_id' from probe where k = 'rams')) || '::uuid',
+    'permission denied for table site_talks'
+  )
+  and (select kind = 'rams' from public.site_talks where id = (select (v->>'talk_id')::uuid from probe where k = 'rams')),
+  'an operative cannot change the type'
+);
+
+select pg_temp.jwt(:'ownery'::uuid);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.list_site_talks(' || quote_literal(:'sitea') || '::uuid)',
+    'not_authorized'
+  ),
+  'another company cannot read the RAMS signed or unsigned list'
+);
+
 reset role;
 grant select on new_talk_funcs to anon;
 set local role anon;

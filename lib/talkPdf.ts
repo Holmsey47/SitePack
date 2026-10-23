@@ -1,3 +1,4 @@
+import { registerPdfTitle } from '@/data/talks';
 import type { TalkDelivery, TalkKind } from '@/lib/talkMeaning';
 import { formatUkDateTime } from '@/lib/format';
 import { fitPdfNames, PDF_UNSHOWN_NOTE, pdfEllipsis, pdfGlyphs, pdfText, type PdfGlyphs } from '@/lib/pdfText';
@@ -204,8 +205,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont, show
   const blocks: Block[] = [];
   const introLines: Line[] = [];
   const introRows: Array<[string, number, boolean]> = [
-    [input.kind === 'induction' ? 'Induction register' : 'Toolbox talk register', 18, true],
-    [input.title, 14, true],
+    [registerPdfTitle(input.kind, input.title), 18, true],
     [input.siteName, 12, true],
     [input.companyName, 12, false],
     [`Version ${input.versionNo}`, 12, true],

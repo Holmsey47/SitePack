@@ -1,5 +1,6 @@
 import { SeenRejectNotice } from '@/components/ui';
-import { questionsLabel, readAndSignLabel } from '@/data/talks';
+import { questionsLabel, readAndSignLabel, talkTypeLabel } from '@/data/talks';
+import type { TalkKind } from '@/lib/talkMeaning';
 import type { TalkNotice } from '@/lib/talkQueue';
 import { theme } from '@/lib/theme';
 import { Pressable, Text, View, type GestureResponderEvent } from 'react-native';
@@ -7,6 +8,27 @@ import { Pressable, Text, View, type GestureResponderEvent } from 'react-native'
 function openRow(event: GestureResponderEvent, onPress: () => void) {
   if (typeof event.stopPropagation === 'function') event.stopPropagation();
   onPress();
+}
+
+/** The document type. At least 48dp, a label rather than a button. */
+export function TalkTypeLabel({ kind }: { kind: TalkKind }) {
+  const label = talkTypeLabel(kind);
+  return (
+    <View
+      accessibilityRole="text"
+      accessibilityLabel={label}
+      style={{
+        minHeight: 48,
+        justifyContent: 'center',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: theme.current,
+      }}>
+      <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>{label}</Text>
+    </View>
+  );
 }
 
 /** One row on Home and the site card. Not a stack of pills. */

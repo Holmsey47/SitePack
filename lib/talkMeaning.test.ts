@@ -58,4 +58,28 @@ test('induction, phone, in person, and presenter each have one sentence', () => 
     }),
     'I gave this talk to the people listed.'
   );
+  assert.equal(
+    talkMeaning({
+      kind: 'rams',
+      delivery: 'phone',
+      signatureRole: 'attendee',
+      siteName: site,
+      title,
+      presenterName: presenter,
+      presentedOn: on,
+    }),
+    "I've read and understood the RAMS 'Fire exits' for Oak yard."
+  );
+  assert.equal(
+    talkMeaning({
+      kind: 'rams',
+      delivery: 'phone',
+      signatureRole: 'presenter',
+      siteName: site,
+      title,
+      presenterName: presenter,
+      presentedOn: on,
+    }),
+    'I issued this RAMS to the people listed.'
+  );
 });

@@ -112,7 +112,7 @@ export default function NewTalkScreen() {
       const created = await repo.createTalk({
         siteId,
         kind,
-        delivery: kind === 'induction' ? 'phone' : delivery,
+        delivery: kind === 'toolbox' ? delivery : 'phone',
         title,
         body,
         pdfPath,
@@ -131,11 +131,26 @@ export default function NewTalkScreen() {
 
   return (
     <Screen>
-      <Title>New talk</Title>
+      <Title>New document</Title>
       <Muted>Time recorded: {when}</Muted>
       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-        <ChoiceChip label="Induction" selected={kind === 'induction'} onPress={() => setKind('induction')} />
+        <ChoiceChip
+          label="Induction"
+          selected={kind === 'induction'}
+          onPress={() => {
+            setKind('induction');
+            setDelivery('phone');
+          }}
+        />
         <ChoiceChip label="Toolbox talk" selected={kind === 'toolbox'} onPress={() => setKind('toolbox')} />
+        <ChoiceChip
+          label="RAMS"
+          selected={kind === 'rams'}
+          onPress={() => {
+            setKind('rams');
+            setDelivery('phone');
+          }}
+        />
       </View>
       {kind === 'toolbox' ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -196,7 +211,7 @@ export default function NewTalkScreen() {
           })
         : null}
       {error ? <ErrorText>{error}</ErrorText> : null}
-      <Button label="Create talk" minHeight={56} loading={saving} onPress={() => void onCreate()} />
+      <Button label="Create document" minHeight={56} loading={saving} onPress={() => void onCreate()} />
     </Screen>
   );
 }

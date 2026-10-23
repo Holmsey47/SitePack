@@ -7,6 +7,7 @@ import {
   emptyTalks,
   fixtureAskTalk,
   fixtureCreateTalk,
+  fixtureListTalks,
   fixtureReviseTalk,
   fixtureSetTalkNote,
   fixtureSignPresenter,
@@ -23,6 +24,9 @@ import { IDS, SEED_PASSWORD } from './ids.ts';
 import {
   handPhoneBanner,
   handPhoneLabel,
+  ownSignStatus,
+  registerPdfTitle,
+  signDocumentTitle,
   signaturePngOk,
   signedCountLabel,
   signedVersionLabel,
@@ -969,6 +973,16 @@ test('handing the phone, the tick, and the signed version use the server name', 
   assert.match(picker, /event\.key === ' '/);
   assert.doesNotMatch(picker, /aria-selected/);
   assert.doesNotMatch(picker, /Presenter · /);
+  assert.match(picker, /label="RAMS"/);
+  assert.match(sign, /signDocumentTitle\(talk\.kind, talk\.title\)/);
+  assert.equal(signDocumentTitle('rams', 'Edge protection'), 'Sign RAMS: Edge protection');
+  assert.equal(signDocumentTitle('induction', 'Site induction'), 'Sign Induction: Site induction');
+  assert.equal(signDocumentTitle('toolbox', 'Fire exits'), 'Sign Toolbox talk: Fire exits');
+  assert.equal(registerPdfTitle('rams', 'Edge protection'), 'RAMS sign-off register: Edge protection');
+  assert.equal(ownSignStatus(false), 'You have not signed');
+  assert.equal(ownSignStatus(true), 'You have signed');
+  const typeLabel = fs.readFileSync('components/TalkRows.tsx', 'utf8');
+  assert.match(typeLabel, /export function TalkTypeLabel[\s\S]*minHeight: 48/);
   const revise = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/revise.tsx', 'utf8');
   assert.match(revise, /await repo\.removeTalkPdf\(uploadedPath\)/);
 });
@@ -992,7 +1006,6 @@ test('talk copy and the register do not say compliant', () => {
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
     assert.equal(/compliant/i.test(text), false, file);
-    assert.equal(/\bRAMS\b/.test(text), false, file);
     assert.equal(/template library/i.test(text), false, file);
   }
   const sign = fs.readFileSync('app/(app)/sites/[siteId]/talks/[talkId]/sign.tsx', 'utf8');
@@ -1007,4 +1020,148 @@ test('talk copy and the register do not say compliant', () => {
   assert.equal(isFixtureOffline(), true);
   fixtureForceOffline(false);
   assert.equal(isFixtureOffline(), false);
+});
+
+test('a RAMS signature is version-bound, and only assigned operatives are unsigned', () => {
+  const world = gang();
+  const owner = actor(world.owner, 'auth-owner');
+  const lad = actor(world.lads[0]);
+  const outsider: TalkPerson = {
+    id: 'other-co',
+    role: 'operative',
+    company_id: '22222222-2222-4222-8222-222222222222',
+    display_name: 'Other Company',
+  };
+  const cm: TalkPerson = {
+    id: 'cm-1',
+    role: 'cm',
+    company_id: world.company,
+    display_name: 'Priya Shah',
+  };
+  const people = [...world.people, outsider, cm];
+  const assignments = [...world.assignments, { site_id: world.site.id, person_id: cm.id }];
+  assert.throws(
+    () =>
+      fixtureCreateTalk(
+        world.bucket,
+        lad,
+        {
+          siteId: world.site.id,
+          kind: 'rams',
+          delivery: 'phone',
+          title: 'Edge protection',
+          body: 'Use a harness.',
+          pdfPath: null,
+          audience: 'all',
+          personIds: [],
+          presenterPersonId: world.owner.id,
+          presenterRole: 'Owner',
+          presentedAt: new Date().toISOString(),
+        },
+        world.sites,
+        people,
+        assignments,
+        world.access
+      ),
+    /not_authorized/
+  );
+  assert.throws(
+    () =>
+      fixtureCreateTalk(
+        world.bucket,
+        owner,
+        {
+          siteId: world.site.id,
+          kind: 'rams',
+          delivery: 'in_person',
+          title: 'Edge protection',
+          body: 'Use a harness.',
+          pdfPath: null,
+          audience: 'all',
+          personIds: [],
+          presenterPersonId: world.owner.id,
+          presenterRole: 'Owner',
+          presentedAt: new Date().toISOString(),
+        },
+        world.sites,
+        people,
+        assignments,
+        world.access
+      ),
+    /invalid_input/
+  );
+  const created = fixtureCreateTalk(
+    world.bucket,
+    owner,
+    {
+      siteId: world.site.id,
+      kind: 'rams',
+      delivery: 'phone',
+      title: 'Edge protection',
+      body: 'Use a harness.',
+      pdfPath: null,
+      audience: 'all',
+      personIds: [],
+      presenterPersonId: world.owner.id,
+      presenterRole: 'Owner',
+      presentedAt: new Date().toISOString(),
+    },
+    world.sites,
+    people,
+    assignments,
+    world.access
+  );
+  const ownerList = fixtureListTalks(world.bucket, owner, world.site.id, world.sites, people, assignments, world.access);
+  const row = ownerList.find((item) => item.talk_id === created.talk_id);
+  assert.equal(row?.kind, 'rams');
+  assert.deepEqual(
+    row?.unsigned?.map((person) => person.person_name),
+    ['Kai Moss', 'Lee Costa', 'Nia Cole', 'Rio Kent', 'Sam Reed']
+  );
+  assert.equal(row?.unsigned?.some((person) => person.person_name === 'Jordan Hale'), false);
+  assert.equal(row?.unsigned?.some((person) => person.person_name === 'Priya Shah'), false);
+  assert.equal(row?.unsigned?.some((person) => person.person_name === 'Other Company'), false);
+  const ladList = fixtureListTalks(world.bucket, lad, world.site.id, world.sites, people, assignments, world.access);
+  const mine = ladList.find((item) => item.talk_id === created.talk_id);
+  assert.equal(mine?.unsigned, null);
+  assert.equal(mine?.signed_count, null);
+  assert.equal(mine?.mine_signed, false);
+  const detail = fixtureTalkDetail(
+    world.bucket,
+    lad,
+    created.talk_id,
+    world.sites,
+    people,
+    assignments,
+    world.access,
+    () => null
+  );
+  assert.ok(detail);
+  assert.equal(detail.register, null);
+  sign(world, lad, lad.id, created.talk_id, created.version_id);
+  const after = fixtureListTalks(world.bucket, owner, world.site.id, world.sites, people, assignments, world.access).find(
+    (item) => item.talk_id === created.talk_id
+  );
+  assert.equal(after?.signed_count, 1);
+  assert.equal(after?.unsigned?.some((person) => person.person_id === lad.id), false);
+  const revised = fixtureReviseTalk(
+    world.bucket,
+    owner,
+    created.talk_id,
+    { title: 'Edge protection', body: 'Use a harness and a net.', pdfPath: null },
+    world.sites,
+    world.access
+  );
+  assert.notEqual(revised.version_id, created.version_id);
+  assert.throws(
+    () => sign(world, lad, lad.id, created.talk_id, created.version_id),
+    /version_locked/
+  );
+  const again = fixtureListTalks(world.bucket, owner, world.site.id, world.sites, people, assignments, world.access).find(
+    (item) => item.talk_id === created.talk_id
+  );
+  assert.equal(again?.unsigned?.some((person) => person.person_id === lad.id), true);
+  const signedAgain = sign(world, lad, lad.id, created.talk_id, revised.version_id);
+  assert.equal(signedAgain.version_id, revised.version_id);
+  assert.match(signedAgain.meaning, /I've read and understood the RAMS 'Edge protection'/);
 });

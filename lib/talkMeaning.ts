@@ -1,4 +1,4 @@
-export type TalkKind = 'induction' | 'toolbox';
+export type TalkKind = 'induction' | 'toolbox' | 'rams';
 export type TalkDelivery = 'phone' | 'in_person';
 export type TalkSignatureRole = 'attendee' | 'presenter' | 'on_behalf';
 
@@ -29,9 +29,15 @@ export function talkMeaning(input: TalkMeaningInput): string {
     const manager = (input.managerName ?? '').trim() || 'the site manager';
     return `signed by ${manager} for ${presenter}`;
   }
-  if (input.signatureRole === 'presenter') return 'I gave this talk to the people listed.';
+  if (input.signatureRole === 'presenter') {
+    if (input.kind === 'rams') return 'I issued this RAMS to the people listed.';
+    return 'I gave this talk to the people listed.';
+  }
   if (input.kind === 'induction') {
     return `I've read and understood the site induction for ${site} and I'll follow it. If anything's unclear, I'll ask the site manager before starting work.`;
+  }
+  if (input.kind === 'rams') {
+    return `I've read and understood the RAMS '${title}' for ${site}.`;
   }
   if (input.delivery === 'in_person') {
     return `I was at the toolbox talk '${title}' given by ${presenter} at ${site} on ${input.presentedOn}, and I understood it.`;

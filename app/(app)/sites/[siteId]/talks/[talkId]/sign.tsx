@@ -3,7 +3,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import { Button, ErrorText, Field, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { handPhoneBanner, talkError, tickThenSignLabel, type TalkDetail } from '@/data/talks';
+import { handPhoneBanner, signDocumentTitle, talkError, tickThenSignLabel, type TalkDetail } from '@/data/talks';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { isFixtureOffline } from '@/lib/fixtureOffline';
 import { SAVED_ON_PHONE, SESSION_ENDED, getTalkQueue, persistThenSendTalk } from '@/lib/talkQueue';
@@ -169,7 +169,10 @@ export default function SignTalkScreen() {
           </Text>
         </View>
       ) : null}
-      <Title>{presenter ? 'Presenter sign-off' : signerName}</Title>
+      <Title>{signDocumentTitle(talk.kind, talk.title)}</Title>
+      <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', minHeight: 48 }}>
+        {presenter ? 'Presenter sign-off' : signerName}
+      </Text>
       <Muted>
         {talk.title} · version {talk.version_no}
       </Muted>

@@ -86,6 +86,8 @@ export type TalkListItem = {
   question_count: number | null;
   mine_signed: boolean;
   mine_question: boolean;
+  /** Assigned operatives who have not signed the current RAMS. Null unless the caller is the owner or a contracts manager. */
+  unsigned: { person_id: string; person_name: string }[] | null;
 };
 
 export type TalkPersonRow = {
@@ -164,6 +166,24 @@ export type TalkBadge = {
 
 export function signedCountLabel(signed: number, total: number): string {
   return `${signed} of ${total} signed`;
+}
+
+export function talkTypeLabel(kind: TalkKind): string {
+  if (kind === 'induction') return 'Induction';
+  if (kind === 'rams') return 'RAMS';
+  return 'Toolbox talk';
+}
+
+export function signDocumentTitle(kind: TalkKind, title: string): string {
+  return `Sign ${talkTypeLabel(kind)}: ${title.trim()}`;
+}
+
+export function registerPdfTitle(kind: TalkKind, title: string): string {
+  return `${talkTypeLabel(kind)} sign-off register: ${title.trim()}`;
+}
+
+export function ownSignStatus(signed: boolean): string {
+  return signed ? 'You have signed' : 'You have not signed';
 }
 
 export function readAndSignLabel(count: number): string {

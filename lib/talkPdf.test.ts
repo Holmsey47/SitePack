@@ -81,6 +81,16 @@ test('a heading stays with the next row and a row is not split', () => {
   );
 });
 
+test('a RAMS register is titled with the document name', async () => {
+  const input = register();
+  input.kind = 'rams';
+  input.delivery = 'phone';
+  input.title = 'Edge protection';
+  const text = decodedPdfText((await buildTalkPdf(input)).bytes);
+  assert.match(text, /RAMS sign-off register: Edge protection/);
+  assert.equal(text.includes('Toolbox talk sign-off register'), false);
+});
+
 test('the register prints the stored sentence, markers, presenter, and page footer', async () => {
   const input = register();
   const { bytes, footers } = await buildTalkPdf(input);
@@ -100,6 +110,7 @@ test('the register prints the stored sentence, markers, presenter, and page foot
   assert.match(text, /Explained verbally/);
   assert.match(text, /Interpreter used/);
   assert.match(text, /Signed on a shared device/);
+  assert.match(text, /Toolbox talk sign-off register: Fire exits/);
   assert.match(text, /I gave this talk to the people listed\./);
   assert.match(text, /I was at the toolbox talk 'Fire exits'/);
   assert.equal(/compliant/i.test(text), false);
