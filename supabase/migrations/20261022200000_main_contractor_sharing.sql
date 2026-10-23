@@ -600,10 +600,11 @@ create policy site_talk_versions_select
     )
   );
 
--- A table-level select cannot be narrowed by revoking one column. Grant every
--- column except the image. Security-definer talk functions still read it for
--- the host. Guests have no policy on this table: names, times, and meaning
--- come only from shared_induction_register, which does not return the image.
+-- A table-level select cannot be narrowed by revoking one column, so the image
+-- is its own grant. Guests have no policy on this table: can_access_site stays
+-- false for the other firm, and a direct select returns no rows and no image.
+-- The host owner, the contracts manager, and the signer still read the image.
+-- A guest's names, times, and meaning come only from shared_induction_register.
 revoke select on table public.site_talk_signatures from public, anon, authenticated;
 grant select (
   id,
@@ -623,6 +624,7 @@ grant select (
   content_hash,
   created_at
 ) on table public.site_talk_signatures to authenticated;
+grant select (signature_png) on table public.site_talk_signatures to authenticated;
 
 drop policy if exists site_talk_signatures_select on public.site_talk_signatures;
 create policy site_talk_signatures_select

@@ -650,29 +650,24 @@ begin
     );
     execute 'set local role authenticated';
 
-    if has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select') then
-      raise exception 'FAIL: % still has signature_png', v_role;
+    if not has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select') then
+      raise exception 'FAIL: signature_png is not granted, so a policy leak would not show up';
     end if;
 
-    begin
-      perform signature_png from public.site_talk_signatures;
-      raise exception 'FAIL: % read signature_png', v_role;
-    exception
-      when insufficient_privilege then
-        null;
-      when others then
-        raise exception 'FAIL: % signature_png select -> %', v_role, sqlerrm;
-    end;
+    -- The image column is granted. These roles still get no row, so the image
+    -- stays behind the host policy rather than a missing column privilege.
+    select coalesce(string_agg(s.signature_png, ''), '') into v_text
+    from public.site_talk_signatures s;
+    if v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0 then
+      raise exception 'FAIL: % direct select returned a signature image', v_role;
+    end if;
 
-    begin
-      perform to_jsonb(s) from public.site_talk_signatures s;
-      raise exception 'FAIL: % read a signature row as jsonb', v_role;
-    exception
-      when insufficient_privilege then
-        null;
-      when others then
-        raise exception 'FAIL: % signature jsonb -> %', v_role, sqlerrm;
-    end;
+    select coalesce(string_agg(to_jsonb(s)::text, ''), '') into v_text
+    from public.site_talk_signatures s;
+    if v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0
+       or position('"signature_png"' in v_text) > 0 then
+      raise exception 'FAIL: % direct select returned a signature row', v_role;
+    end if;
 
     if exists (select 1 from public.site_talk_signatures) then
       raise exception 'FAIL: % direct select returned signature rows', v_role;
