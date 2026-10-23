@@ -380,8 +380,11 @@ values (
   'corrected',
   public.correct_attendance(
     (select (v->>'entry_id')::uuid from probe where k = 'a-out'),
-    now() - interval '8 hours',
-    now() - interval '1 hour',
+    -- Before yesterday 22:00 London, so this closed shift is not a later shift
+    -- when the overnight sign-out attaches. now() minus 8 hours crosses that
+    -- line after 06:00 London.
+    now() - interval '30 hours',
+    now() - interval '26 hours',
     'Left at four, not when the phone synced'
   )
 );
