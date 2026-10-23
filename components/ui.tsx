@@ -73,8 +73,8 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.btn,
-        minHeight != null && { minHeight },
         variant === 'primary' && styles.btnPrimary,
+        minHeight != null && { minHeight: Math.max(minHeight, variant === 'primary' ? 56 : 48) },
         variant === 'secondary' && styles.btnSecondary,
         variant === 'ghost' && styles.btnGhost,
         variant === 'danger' && styles.btnDanger,
@@ -164,7 +164,7 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
   const body = <View style={styles.card}>{children}</View>;
   if (!onPress) return body;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.85 }}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.85 }}>
       {body}
     </Pressable>
   );
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
   },
-  btnPrimary: { backgroundColor: theme.current },
+  btnPrimary: { backgroundColor: theme.current, minHeight: 56 },
   btnSecondary: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.line },
   btnGhost: { backgroundColor: 'transparent' },
   btnDanger: { backgroundColor: theme.danger },

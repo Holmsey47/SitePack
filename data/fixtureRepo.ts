@@ -41,6 +41,21 @@ import {
 } from '@/data/joinCodes';
 import type { JoinCodeCreated, JoinCodeRow, JoinWithCodeInput, JoinerRow, PasswordResetIssued } from '@/data/types';
 import { pdfObjectUrl } from '@/lib/pdf';
+import type { CreateVariationInput, VariationDetail, VariationList } from '@/data/variations';
+import {
+  fixtureCreateVariation,
+  fixtureListVariations,
+  fixturePhotoUrl,
+  fixtureReviseVariation,
+  fixtureSendVariation,
+  fixtureSetVariationValue,
+  fixtureSignVariation,
+  fixtureUpdateDraft,
+  fixtureUploadPhoto,
+  fixtureVariationDetail,
+  seedFixtureVariations,
+  type FixtureVariationBucket,
+} from '@/data/fixtureVariations';
 
 type GroupRecord = {
   id: string;
@@ -112,6 +127,7 @@ type Store = {
   banned: string[];
   companyName: string;
   codeSerial: number;
+  variations: FixtureVariationBucket;
 };
 
 const now = () => new Date().toISOString();
@@ -394,6 +410,13 @@ function seed(): Store {
     banned: [],
     companyName: 'Ashfield Finishes',
     codeSerial: 0,
+    variations: seedFixtureVariations({
+      companyId: IDS.company,
+      oakId: IDS.oak,
+      warehouseId: IDS.warehouse,
+      amyId: IDS.amy,
+      cmId: IDS.cm,
+    }),
   };
 }
 
@@ -1009,6 +1032,66 @@ export const fixtureRepo: SitePackRepo = {
 
   async companyName() {
     return store.companyName;
+  },
+
+  async listVariations(siteId): Promise<VariationList> {
+    const actor = meOrThrow();
+    const site = store.sites.find((row) => row.id === siteId);
+    return fixtureListVariations(store.variations, actor, siteId, site?.company_id, canAccessSite(actor, siteId));
+  },
+
+  async getVariation(variationId): Promise<VariationDetail | null> {
+    const actor = meOrThrow();
+    return fixtureVariationDetail(
+      store.variations,
+      actor,
+      variationId,
+      (siteId) => canAccessSite(actor, siteId),
+      (siteId) => store.sites.find((row) => row.id === siteId)?.company_id
+    );
+  },
+
+  async createVariation(input: CreateVariationInput) {
+    const actor = meOrThrow();
+    const site = store.sites.find((row) => row.id === input.siteId);
+    return fixtureCreateVariation(store.variations, actor, input, site?.company_id, canAccessSite(actor, input.siteId));
+  },
+
+  async updateVariationDraft(versionId, input) {
+    const actor = meOrThrow();
+    fixtureUpdateDraft(store.variations, actor, versionId, input, (siteId) => canAccessSite(actor, siteId));
+  },
+
+  async setVariationValue(versionId, valuePence) {
+    const actor = meOrThrow();
+    fixtureSetVariationValue(store.variations, actor, versionId, valuePence, (siteId) => canAccessSite(actor, siteId));
+  },
+
+  async signVariation(versionId, input) {
+    const actor = meOrThrow();
+    fixtureSignVariation(store.variations, actor, versionId, input, (siteId) => canAccessSite(actor, siteId));
+  },
+
+  async sendVariation(versionId) {
+    const actor = meOrThrow();
+    fixtureSendVariation(store.variations, actor, versionId, (siteId) => canAccessSite(actor, siteId));
+  },
+
+  async reviseVariation(versionId) {
+    const actor = meOrThrow();
+    return fixtureReviseVariation(store.variations, actor, versionId, (siteId) => canAccessSite(actor, siteId));
+  },
+
+  async uploadSitePhoto(params) {
+    meOrThrow();
+    return fixtureUploadPhoto(store.variations, params.companyId, params.siteId, params.bytes, params.contentType);
+  },
+
+  async signSitePhotoUrl(storagePath) {
+    meOrThrow();
+    const signed = fixturePhotoUrl(store.variations, storagePath);
+    if (!signed) throw new Error('not_found');
+    return signed;
   },
 
   async createJoinCode(input): Promise<JoinCodeCreated> {
