@@ -16,11 +16,12 @@ import { canManageSite } from '@/data/repo';
 import { revisionCurrentLine } from '@/data/walk';
 import { setUploadBackGuard } from '@/lib/backRegistry';
 import { theme } from '@/lib/theme';
+import { readPickedBytes } from '@/lib/uploadBytes';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Text, View } from 'react-native';
+import { Modal, Platform, Text, View } from 'react-native';
 
 export default function UploadScreen() {
   const { siteId, replace } = useLocalSearchParams<{ siteId: string; replace?: string }>();
@@ -96,15 +97,13 @@ export default function UploadScreen() {
     });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
-    setFileName(asset.name);
-    if (asset.file) {
-      const buf = new Uint8Array(await asset.file.arrayBuffer());
-      setBytes(buf);
-      return;
-    }
-    if (asset.uri) {
-      const response = await fetch(asset.uri);
-      setBytes(new Uint8Array(await response.arrayBuffer()));
+    try {
+      const next = await readPickedBytes(asset, Platform.OS);
+      setBytes(next);
+      setFileName(asset.name);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that PDF.');
     }
   }
 
