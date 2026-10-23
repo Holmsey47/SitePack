@@ -16,6 +16,7 @@ import {
 } from '@/data/variations';
 import { formatUkDateTime } from '@/lib/format';
 import { buildVariationPdf } from '@/lib/variationPdf';
+import { SAVING_LABEL } from '@/lib/offlineSave';
 import { variationConfirmation, variationHandoverSummary, variationPdfAmountLine, variationScreenAmount } from '@/lib/variationWording';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
@@ -23,7 +24,7 @@ import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { createElement, useCallback, useEffect, useState } from 'react';
+import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Platform, Text, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
@@ -54,6 +55,8 @@ export default function VariationDetailScreen() {
   const [amount, setAmount] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reviseLock = useRef(false);
+  const [revising, setRevising] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -334,16 +337,22 @@ export default function VariationDetailScreen() {
           ) : null}
           {manager ? (
           <Button
-            label="Edit as new version"
+            label={revising ? SAVING_LABEL : 'Edit as new version'}
             variant="secondary"
             minHeight={48}
+            disabled={revising}
             onPress={() => {
-              setBusy(true);
+              if (reviseLock.current) return;
+              reviseLock.current = true;
+              setRevising(true);
               void repo
                 .reviseVariation(current.version_id)
                 .then(() => load())
-                .catch((err: unknown) => setError(variationError(err instanceof Error ? err.message : 'unknown')))
-                .finally(() => setBusy(false));
+                .catch((err: unknown) => {
+                  reviseLock.current = false;
+                  setRevising(false);
+                  setError(variationError(err instanceof Error ? err.message : 'unknown'));
+                });
             }}
           />
           ) : null}

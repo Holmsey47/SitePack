@@ -4,11 +4,12 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { snagError } from '@/data/snags';
+import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhase } from '@/lib/offlineSave';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { theme } from '@/lib/theme';
-import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
+import { deviceIsOnline, persistThenSendSnag } from '@/lib/snagQueue';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 export default function NewSnagScreen() {
@@ -22,7 +23,10 @@ export default function NewSnagScreen() {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [clientId] = useState(newId);
+  const saveLock = useRef(false);
+  const [phase, setPhase] = useState<SavePhase>('idle');
+  const control = saveControl(phase, 'Save snag');
 
   useEffect(() => {
     if (!siteId) return;
@@ -58,12 +62,14 @@ export default function NewSnagScreen() {
       setError('Sign in again before raising a snag.');
       return;
     }
-    setSaving(true);
+    if (!claimSaveTap(saveLock)) return;
+    setPhase('saving');
     setError('');
+    setNotice('');
     const raisedAt = new Date().toISOString();
     const item = {
       kind: 'create' as const,
-      localId: newId(),
+      localId: clientId,
       ownerId: person.auth_user_id,
       siteId,
       companyId: person.company_id,
@@ -76,15 +82,17 @@ export default function NewSnagScreen() {
     try {
       const result = await persistThenSendSnag(item, await deviceIsOnline(), sendQueuedSnag);
       if (result === 'queued') {
-        setNotice(SAVED_ON_PHONE);
+        setPhase('saved');
+        setNotice(SAVED_OFFLINE);
+        router.back();
         return;
       }
+      setPhase('saved');
       router.back();
     } catch (err) {
-      setNotice(SAVED_ON_PHONE);
+      releaseSaveTap(saveLock);
+      setPhase('error');
       setError(snagError(err instanceof Error ? err.message : 'unknown'));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -120,7 +128,7 @@ export default function NewSnagScreen() {
         <PhotoPicker count={photos.length} multiple onAdd={addPhotos} onError={setError} />
       </View>
       <ErrorText>{error}</ErrorText>
-      <Button label="Save snag" minHeight={56} loading={saving} onPress={() => void onSave()} />
+      <Button label={control.label} minHeight={56} disabled={!control.enabled} onPress={() => void onSave()} />
     </Screen>
   );
 }

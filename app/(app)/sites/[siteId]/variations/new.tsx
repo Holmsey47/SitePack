@@ -3,11 +3,12 @@ import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newId } from '@/data/newId';
 import { canSetVariationValue, parsePounds, variationError } from '@/data/variations';
+import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhase } from '@/lib/offlineSave';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { theme } from '@/lib/theme';
 import { deviceIsOnline, persistThenSend, SAVED_ON_PHONE } from '@/lib/variationQueue';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 export default function NewVariationScreen() {
@@ -22,7 +23,10 @@ export default function NewVariationScreen() {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [clientId] = useState(newId);
+  const saveLock = useRef(false);
+  const [phase, setPhase] = useState<SavePhase>('idle');
+  const control = saveControl(phase, 'Save variation');
   const manager = person ? canSetVariationValue(person.role) : false;
 
   function addPhotos(picked: PickedPhoto[]) {
@@ -53,10 +57,12 @@ export default function NewVariationScreen() {
         return;
       }
     }
-    setSaving(true);
+    if (!claimSaveTap(saveLock)) return;
+    setPhase('saving');
     setError('');
+    setNotice('');
     const item = {
-      localId: newId(),
+      localId: clientId,
       siteId,
       companyId: person.company_id,
       title: title.trim(),
@@ -72,15 +78,17 @@ export default function NewVariationScreen() {
     try {
       const result = await persistThenSend(item, await deviceIsOnline(), sendQueuedVariation);
       if (result === 'queued') {
-        setNotice(SAVED_ON_PHONE);
+        setPhase('saved');
+        setNotice(SAVED_OFFLINE);
+        router.back();
         return;
       }
+      setPhase('saved');
       router.back();
     } catch (err) {
-      setNotice(SAVED_ON_PHONE);
+      releaseSaveTap(saveLock);
+      setPhase('error');
       setError(variationError(err instanceof Error ? err.message : 'unknown'));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -129,7 +137,7 @@ export default function NewVariationScreen() {
         <PhotoPicker count={photos.length} multiple onAdd={addPhotos} onError={setError} />
       </View>
       <ErrorText>{error}</ErrorText>
-      <Button label="Save variation" minHeight={56} loading={saving} onPress={() => void onSave()} />
+      <Button label={control.label} minHeight={56} disabled={!control.enabled} onPress={() => void onSave()} />
     </Screen>
   );
 }

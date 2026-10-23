@@ -1,4 +1,5 @@
 import { isRetryableSnagFailure, snagFailureCode, snagFailureFrom } from '@/data/snagFailure';
+import { createSaveGate, enqueueOnce } from '@/lib/offlineSave';
 
 export { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 export { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
@@ -438,21 +439,15 @@ export function setSnagQueueForTests(store: SnagQueueStore | null) {
   active = store;
 }
 
+const snagSaveGate = createSaveGate();
+
 export async function persistThenSendSnag(
   item: QueuedSnag,
   online: boolean,
   send: (item: QueuedSnag) => Promise<void>,
   queue: SnagQueueStore = getSnagQueue()
 ): Promise<'sent' | 'queued'> {
-  await queue.put(item);
-  if (!online) return 'queued';
-  try {
-    await send(item);
-    await queue.remove(item.localId);
-    return 'sent';
-  } catch {
-    return 'queued';
-  }
+  return enqueueOnce(snagSaveGate, item, online, send, queue);
 }
 
 function dropUploadedPaths(item: QueuedSnag): QueuedSnag {

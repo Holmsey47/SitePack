@@ -1,3 +1,5 @@
+import { createSaveGate, enqueueOnce } from '@/lib/offlineSave';
+
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
 export type QueuedPhoto = {
@@ -303,21 +305,15 @@ export async function deviceIsOnline(): Promise<boolean> {
   return true;
 }
 
+const variationSaveGate = createSaveGate();
+
 export async function persistThenSend(
   item: QueuedVariation,
   online: boolean,
   send: (item: QueuedVariation) => Promise<void>,
   queue: VariationQueueStore = getVariationQueue()
 ): Promise<'sent' | 'queued'> {
-  await queue.put(item);
-  if (!online) return 'queued';
-  try {
-    await send(item);
-    await queue.remove(item.localId);
-    return 'sent';
-  } catch {
-    return 'queued';
-  }
+  return enqueueOnce(variationSaveGate, item, online, send, queue);
 }
 
 /** Send this user's queued variations. Drop anyone else's without a network call. */
