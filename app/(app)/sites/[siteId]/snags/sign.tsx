@@ -217,7 +217,7 @@ export default function SnagSignScreen() {
           sendQueuedSnag
         );
         setLocalSign({
-          confirmation: snagConfirmation(internalCompany, 'internal'),
+          confirmation: snagConfirmation(internalCompany, 'internal', shownCovered.length),
           name: person.display_name?.trim() || 'Someone on site',
           role: snagRoleLabel(person.role),
           company: internalCompany.trim(),
@@ -274,7 +274,7 @@ export default function SnagSignScreen() {
       if (!online) {
         await persistThenSendSnag(item, false, sendQueuedSnag);
         setLocalSign({
-          confirmation: snagConfirmation(contractorCompany, 'contractor'),
+          confirmation: snagConfirmation(contractorCompany, 'contractor', shownCovered.length),
           name: signerName.trim(),
           role: signerRole.trim(),
           company: contractorCompany.trim(),
@@ -357,7 +357,7 @@ export default function SnagSignScreen() {
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
               <Muted>This is an internal check. It is not sign-off by the main contractor.</Muted>
               <Field label="Company" value={internalCompany} onChangeText={setInternalCompany} autoCapitalize="words" maxLength={120} />
-              <Muted>{snagConfirmation(internalCompany, 'internal')}</Muted>
+              <Muted>{snagConfirmation(internalCompany, 'internal', fixed.length)}</Muted>
               <Button
                 label="Sign internal check"
                 minHeight={56}
@@ -378,7 +378,7 @@ export default function SnagSignScreen() {
               autoCapitalize="words"
               maxLength={120}
             />
-            <Muted>{snagConfirmation(contractorCompany, 'contractor')}</Muted>
+            <Muted>{snagConfirmation(contractorCompany, 'contractor', fixed.length)}</Muted>
             <SignaturePad key={padKey} disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
             <Button
               label="Sign off snags put right"

@@ -90,6 +90,7 @@ export function snagPhotoMissing(index: number, total: number, kind: 'before' | 
 
 function pdfText(value: string): string {
   return value
+    .replace(/£/g, '')
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
@@ -577,12 +578,12 @@ function drawSheetFooter(sheet: PDFPage, reportId: string, company: string, page
 
 function footerLabel(reportId: string, company: string, page: number, total: number, font: Face): string {
   let name = pdfText(company);
-  const tail = ` · page ${page} of ${total}`;
-  const head = `${pdfText(reportId)} · `;
-  while (name.length > 4 && font.widthOfTextAtSize(head + name + tail, 9) > CONTENT_W) {
+  const reference = pdfText(reportId);
+  const tail = ` · ${reference} · Page ${page} of ${total}`;
+  while (name.length > 4 && font.widthOfTextAtSize(name + tail, 9) > CONTENT_W) {
     name = name.slice(0, -2);
   }
-  return `${head}${name}${tail}`;
+  return `${name}${tail}`;
 }
 
 export function signatureStaysWithSnag(trace: SnagPdfTrace[], snagSeq: number): boolean {

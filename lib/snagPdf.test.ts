@@ -167,7 +167,7 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.match(text, /Ashfield Finishes/);
   assert.match(text, /Signed 22 Oct 2026, 2:05pm/);
   assert.match(text, /SR-22Oct2026/);
-  assert.match(text, /page 1 of /);
+  assert.match(text, /Page 1 of /);
   assert.match(text, /Before · Photo 1 of 1/);
   assert.match(text, /Before · Photo 1 of 2/);
   assert.match(text, /After · Photo 2 of 2/);
@@ -228,8 +228,8 @@ test('a photo that cannot be loaded is named in the report', async () => {
 
 test('contractor and internal sign-off PDFs print the stored sentence, outstanding snags, and the disclaimer', async () => {
   const when = '2026-10-22T13:05:00.000Z';
-  const stored = snagConfirmation('Northbuild', 'contractor');
-  const internal = snagConfirmation('Ashfield Finishes', 'internal');
+  const stored = snagConfirmation('Northbuild', 'contractor', 1);
+  const internal = snagConfirmation('Ashfield Finishes', 'internal', 1);
   const covered: SnagPdfSnag = {
     snagSeq: 5,
     note: 'Crack above the lintel',
@@ -261,12 +261,13 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   const contractorText = decodedPdfText(contractor.bytes);
   assert.match(contractorText, /Snag sign-off/);
   assert.equal(contractorText.includes('Internal check'), false);
-  assert.match(contractorText, /I confirm the snags listed above have been put right to my satisfaction, on behalf of/);
+  assert.match(contractorText, /I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of/);
   assert.match(contractorText, /Northbuild\./);
   assert.match(contractorText, /Outstanding \(not signed off\): 1/);
   assert.match(contractorText, /S-2 · Skirting not fixed in the hall · Ground/);
   assert.match(contractorText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
-  assert.match(contractorText, /page 1 of /);
+  assert.match(contractorText, /SO-22Oct2026 · Page 1 of /);
+  assert.equal(contractorText.includes('£'), false);
   assert.equal(contractor.trace.filter((item) => item.kind === 'footer').length, (await PDFDocument.load(contractor.bytes)).getPageCount());
 
   const internalPdf = await buildSnagSignoffPdf({
@@ -286,8 +287,8 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   });
   const internalText = decodedPdfText(internalPdf.bytes);
   assert.match(internalText, /Internal check/);
-  assert.match(internalText, /I've checked the snags listed above and I'm satisfied they've been put right\./);
-  assert.match(internalText, /This is an internal/);
+  assert.match(internalText, /I've checked the 1 snags marked complete above and I'm satisfied they've been put right\./);
+  assert.match(internalText, /internal check for Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /not sign-off by the main contractor\./);
   assert.match(internalText, /No snags are outstanding\./);
@@ -322,7 +323,7 @@ test('the signer block stays on the same page as the last photo', async () => {
     companyName: 'Ashfield Finishes',
     siteName: 'Plot 12 - Oak Estate',
     generatedAt: when,
-    confirmationText: snagConfirmation('Northbuild', 'contractor'),
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
     signerName: 'José Marín',
     signerRole: 'Site manager',
     signerCompany: 'Northbuild',
@@ -352,7 +353,7 @@ test('the signer block stays on the same page as the last photo', async () => {
   assert.equal(short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
   assert.equal((await PDFDocument.load(short.bytes)).getPageCount(), 1);
   assert.match(decodedPdfText(short.bytes), /No snags are outstanding/);
-  assert.match(decodedPdfText(short.bytes), /listed above/);
+  assert.match(decodedPdfText(short.bytes), /I confirm the 1 snags marked complete above/);
 
   const tall = await buildSnagSignoffPdf({
     ...base,
@@ -415,7 +416,7 @@ test('outstanding snags continue onto later pages and stay above the footer', as
       companyName: 'Ashfield Finishes',
       siteName: 'Plot 12 - Oak Estate',
       generatedAt: when,
-      confirmationText: snagConfirmation('Northbuild', 'contractor'),
+      confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
       signerName: 'Dave Moran',
       signerRole: 'Site manager',
       signerCompany: 'Northbuild',
@@ -463,7 +464,14 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     const signLow = Math.min(...signature.map((item) => item.baseline ?? 0));
     assert.ok(outLow > signHigh, `${count} outstanding is not above the signature`);
     assert.ok(noteLow < signLow, `${count} disclaimer is not under the signature`);
-    assert.match(text, /listed above/);
+    assert.match(text, /I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of/);
+    assert.match(text, /Northbuild\. Snags listed as outstanding are not signed off\./);
+    assert.equal(text.includes('£'), false);
+    const referenceHits = text.match(/SO-22Oct2026/g) ?? [];
+    assert.equal(referenceHits.length, pages, `${count} report reference is not on every page`);
+    for (let page = 1; page <= pages; page += 1) {
+      assert.match(text, new RegExp(`SO-22Oct2026 · Page ${page} of ${pages}`));
+    }
     assert.match(text, /This sign-off records the snags listed only/);
   }
 });
