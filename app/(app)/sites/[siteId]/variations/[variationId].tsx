@@ -5,7 +5,6 @@ import { repo } from '@/data/index';
 import {
   canSeeVariationValue,
   canSetVariationValue,
-  formatPounds,
   isVariationLocked,
   parsePounds,
   variationAmountEditorOpen,
@@ -17,7 +16,7 @@ import {
 } from '@/data/variations';
 import { formatUkDateTime } from '@/lib/format';
 import { buildVariationPdf } from '@/lib/variationPdf';
-import { variationConfirmation, variationHandoverSummary } from '@/lib/variationWording';
+import { variationConfirmation, variationHandoverSummary, variationPdfAmountLine, variationScreenAmount } from '@/lib/variationWording';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
 import { theme } from '@/lib/theme';
@@ -133,6 +132,17 @@ export default function VariationDetailScreen() {
       levelArea: current.level_area,
       quantityText: current.quantity_text,
       valuePence: seeValue ? current.signature?.shown_value_pence ?? null : null,
+      amountLine: variationPdfAmountLine(
+        variationScreenAmount({
+          seeValue,
+          companyName: company,
+          status: current.status,
+          valuePence: current.value_pence,
+          confirmationText: current.signature?.confirmation_text ?? null,
+          shownValuePence: current.signature?.shown_value_pence ?? null,
+          hasSignature: current.signature != null,
+        }).line
+      ),
       whenIso: current.signature?.signed_at ?? current.locked_at ?? current.created_at,
       signerName: current.signature?.signer_name ?? null,
       signerRole: current.signature?.signer_role ?? null,
@@ -209,6 +219,15 @@ export default function VariationDetailScreen() {
   }
 
   const locked = isVariationLocked(current.status);
+  const shownAmount = variationScreenAmount({
+    seeValue,
+    companyName: company,
+    status: current.status,
+    valuePence: current.value_pence,
+    confirmationText: current.signature?.confirmation_text ?? null,
+    shownValuePence: current.signature?.shown_value_pence ?? null,
+    hasSignature: current.signature != null,
+  });
 
   return (
     <Screen>
@@ -224,7 +243,8 @@ export default function VariationDetailScreen() {
       {current.description ? <Muted>{current.description}</Muted> : null}
       {current.level_area ? <Muted>Level or area · {current.level_area}</Muted> : null}
       {current.quantity_text ? <Muted>Quantity or hours · {current.quantity_text}</Muted> : null}
-      {seeValue && current.value_pence != null ? <Muted>Amount · {formatPounds(current.value_pence)}</Muted> : null}
+      {shownAmount.line ? <Muted>{shownAmount.line}</Muted> : null}
+      {shownAmount.hint ? <Muted>{shownAmount.hint}</Muted> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {current.photos.map((photo) =>
           photo.signed_url ? (

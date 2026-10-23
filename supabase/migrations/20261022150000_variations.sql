@@ -192,6 +192,29 @@ $fn$;
 revoke all on function private.visible_shown_pence(uuid) from public, anon, authenticated;
 grant execute on function private.visible_shown_pence(uuid) to authenticated;
 
+-- True when this version is signed or sent and its signature has no £ snapshot.
+-- The boolean carries no amount, so every role that can see the variation may read it.
+create or replace function private.variation_signed_without_price(p_version_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $fn$
+  select exists (
+    select 1
+    from public.variation_versions v
+    left join public.variation_signatures s on s.version_id = v.id
+    where v.id = p_version_id
+      and private.can_access_site(v.site_id)
+      and v.status in ('Signed', 'Sent')
+      and s.shown_value_pence is null
+  );
+$fn$;
+
+revoke all on function private.variation_signed_without_price(uuid) from public, anon, authenticated;
+grant execute on function private.variation_signed_without_price(uuid) to authenticated;
+
 create or replace function private.variation_content_same(
   p_old public.variation_versions,
   p_new public.variation_versions
@@ -997,6 +1020,8 @@ begin
           select count(*) from public.variation_photos p where p.version_id = ver.id
         ),
         'value_pence', private.visible_variation_pence(ver.id),
+        'shown_value_pence', private.visible_shown_pence(ver.id),
+        'signed_without_price', private.variation_signed_without_price(ver.id),
         'created_at', ver.created_at
       ) as item
     from public.variations v

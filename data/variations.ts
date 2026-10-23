@@ -14,6 +14,10 @@ export type VariationSummary = {
   status: VariationStatus;
   photo_count: number;
   value_pence: number | null;
+  /** Snapshot the signer saw. Null for an operative, and null when the sign-off had no price. */
+  shown_value_pence: number | null;
+  /** Signed or sent, and the signature row has no £ snapshot. Carries no amount. */
+  signed_without_price: boolean;
   created_at: string;
 };
 
@@ -107,12 +111,16 @@ export function canSeeVariationValue(role: Role): boolean {
   return OPERATIVES_SEE_VARIATION_VALUE || role === 'owner' || role === 'cm';
 }
 
-export function formatPounds(pence: number): string {
+export function formatPoundsAmount(pence: number): string {
   const negative = pence < 0;
   const abs = Math.abs(pence);
   const pounds = Math.floor(abs / 100);
   const rest = String(abs % 100).padStart(2, '0');
-  return `${negative ? '-' : ''}£${pounds.toLocaleString('en-GB')}.${rest} + VAT`;
+  return `${negative ? '-' : ''}£${pounds.toLocaleString('en-GB')}.${rest}`;
+}
+
+export function formatPounds(pence: number): string {
+  return `${formatPoundsAmount(pence)} + VAT`;
 }
 
 /** The £ field stays off the screen while the phone is handed over. */

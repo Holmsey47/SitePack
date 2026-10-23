@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { formatPounds, variationAmountEditorOpen } from '../data/variations.ts';
-import { variationConfirmation, variationHandoverSummary, variationLockLine } from './variationWording.ts';
+import {
+  VARIATION_RESIGN_HINT,
+  variationConfirmation,
+  variationDetailAmount,
+  variationHandoverSummary,
+  variationListAmount,
+  variationLockLine,
+  variationOfficeAmountLine,
+  variationScreenAmount,
+} from './variationWording.ts';
 
 const WITH_AMOUNT = 'I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown.';
 const WITHOUT_AMOUNT = 'I confirm I instructed this extra work on behalf of Northbuild. The price is still to be agreed.';
@@ -40,15 +49,98 @@ test('the handover summary formats the amount ex VAT and a single photo', () => 
   );
 });
 
+test('a priced sign-off hides the pounds from an operative and marks an unsigned price for a manager', () => {
+  assert.equal(
+    variationOfficeAmountLine('Ashfield Finishes'),
+    'Amount: agreed with the office. Ask Ashfield Finishes for the priced copy.'
+  );
+  assert.equal(variationOfficeAmountLine('  '), 'Amount: agreed with the office. Ask the office for the priced copy.');
+  assert.equal(variationOfficeAmountLine(null), 'Amount: agreed with the office. Ask the office for the priced copy.');
+  const stored = variationConfirmation('Northbuild', true);
+  const operative = variationScreenAmount({
+    seeValue: false,
+    companyName: 'Ashfield Finishes',
+    status: 'Signed',
+    valuePence: null,
+    confirmationText: stored,
+    shownValuePence: null,
+    hasSignature: true,
+  });
+  assert.equal(operative.line, variationOfficeAmountLine('Ashfield Finishes'));
+  assert.equal(operative.hint, null);
+  assert.equal(operative.line?.includes('£'), false);
+  assert.equal(stored, 'I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown.');
+  const draft = variationDetailAmount({
+    seeValue: false,
+    valuePence: null,
+    shownValuePence: null,
+    signedWithoutPrice: false,
+    signed: false,
+    companyName: 'Ashfield Finishes',
+  });
+  assert.equal(draft.line, null);
+  const manager = variationScreenAmount({
+    seeValue: true,
+    companyName: 'Ashfield Finishes',
+    status: 'Signed',
+    valuePence: 14550,
+    confirmationText: variationConfirmation('Northbuild', false),
+    shownValuePence: null,
+    hasSignature: true,
+  });
+  assert.equal(manager.line, 'Amount · £145.50 + VAT, not yet agreed. Signed before a price was set.');
+  assert.equal(manager.hint, VARIATION_RESIGN_HINT);
+  assert.equal(VARIATION_RESIGN_HINT, 'To get it signed at this price: Edit as new version, then hand over.');
+  const list = variationListAmount(
+    { status: 'Signed', value_pence: 14550, shown_value_pence: null, signed_without_price: true },
+    true
+  );
+  assert.equal(list, '£145.50 · not agreed');
+  assert.equal(list?.includes('+ VAT'), false);
+  const agreed = variationScreenAmount({
+    seeValue: true,
+    companyName: 'Ashfield Finishes',
+    status: 'Signed',
+    valuePence: 14550,
+    confirmationText: stored,
+    shownValuePence: 14550,
+    hasSignature: true,
+  });
+  assert.equal(agreed.line, 'Amount · £145.50 + VAT');
+  assert.equal(agreed.hint, null);
+  assert.equal(agreed.line?.includes('not yet agreed'), false);
+  assert.equal(
+    variationListAmount(
+      { status: 'Signed', value_pence: 14550, shown_value_pence: 14550, signed_without_price: false },
+      true
+    ),
+    '£145.50 + VAT'
+  );
+  assert.equal(
+    variationListAmount(
+      { status: 'Signed', value_pence: 14550, shown_value_pence: null, signed_without_price: true },
+      false
+    ),
+    null
+  );
+});
+
 test('handover hides the amount editor, and the screen and PDF share the wording module', () => {
   assert.equal(variationAmountEditorOpen(false, true, true), false);
   assert.equal(variationAmountEditorOpen(false, true, false), true);
   assert.equal(variationAmountEditorOpen(true, true, false), false);
   assert.equal(variationAmountEditorOpen(false, false, false), false);
   const screen = fs.readFileSync('app/(app)/sites/[siteId]/variations/[variationId].tsx', 'utf8');
+  const list = fs.readFileSync('app/(app)/sites/[siteId]/variations/index.tsx', 'utf8');
   const pdf = fs.readFileSync('lib/variationPdf.ts', 'utf8');
   const wording = fs.readFileSync('lib/variationWording.ts', 'utf8');
   assert.match(screen, /variationConfirmation\(/);
+  assert.match(screen, /variationScreenAmount\(/);
+  assert.match(screen, /variationPdfAmountLine\(/);
+  assert.match(screen, /minHeight=\{48\}/);
+  assert.match(screen, /minHeight=\{56\}/);
+  assert.match(list, /variationListAmount\(/);
+  assert.match(list, /minHeight=\{56\}/);
   assert.match(screen, /disabled=\{!signerCompany\.trim\(\)\}/);
   assert.match(screen, /variationHandoverSummary\(/);
   assert.match(screen, /variationAmountEditorOpen\(/);
