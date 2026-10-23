@@ -15,11 +15,11 @@ export const VARIATION_LOCK_LINE =
 export function variationConfirmation(company: string, hasAmount: boolean): string {
   const shown = company.trim() || 'your company';
   const sentence = hasAmount ? VARIATION_CONFIRM_WITH_AMOUNT : VARIATION_CONFIRM_WITHOUT_AMOUNT;
-  return sentence.replace('[Company]', shown);
+  return sentence.replace('[Company]', () => shown);
 }
 
 export function variationLockLine(signedUk: string): string {
-  return VARIATION_LOCK_LINE.replace('[Time]', signedUk);
+  return VARIATION_LOCK_LINE.replace('[Time]', () => signedUk);
 }
 
 /** Operative copy where a priced sign-off would have shown the pounds. */

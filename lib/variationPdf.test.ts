@@ -464,6 +464,34 @@ test('an operative PDF of a priced sign-off shows the office line and the stored
   assert.equal(text.includes('180.00'), false);
 });
 
+test('a company name with replacement tokens is copied verbatim into the sentence and the PDF', async () => {
+  for (const name of ['A$&B', "Smith $' Co"]) {
+    const sentence = variationConfirmation(name, true);
+    assert.equal(sentence, `I confirm I instructed this extra work on behalf of ${name} and agree the amount shown.`);
+    const bytes = await buildVariationPdf({
+      voSeq: 2,
+      versionNo: 1,
+      companyName: 'Ashfield Finishes',
+      siteName: 'Plot 12 – Oak Estate',
+      title: 'Additional mastic',
+      description: '',
+      levelArea: null,
+      quantityText: null,
+      valuePence: null,
+      whenIso: '2026-10-22T13:05:00.000Z',
+      signerName: 'Dave Moran',
+      signerRole: 'Site manager',
+      signerCompany: name,
+      confirmationText: sentence,
+      photos: [],
+      signaturePng: signature,
+    });
+    const text = pdfText(bytes);
+    assert.equal(text.includes(sentence), true);
+    assert.equal(text.includes(name), true);
+  }
+});
+
 test('the signature block shows the typed name, role and company beside the drawing', async () => {
   const bytes = await buildVariationPdf({
     voSeq: 7,
