@@ -211,7 +211,7 @@ export default function SnagsScreen() {
             {notice.photos.length > 0 ? (
               <Button label="Save photo" variant="secondary" minHeight={48} onPress={() => void saveNoticePhotos(notice)} />
             ) : null}
-            {notice.photos.length > 0 && notice.retryItem ? (
+            {notice.retryItem ? (
               <Button label="Try again" variant="secondary" minHeight={48} onPress={() => void retryNotice(notice)} />
             ) : null}
             <Button label="Dismiss" variant="secondary" minHeight={48} onPress={() => void dismissNotice(notice.id)} />

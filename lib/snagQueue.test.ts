@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { PostgrestError } from '@supabase/postgrest-js';
+import { snagRpcError, snagStorageError } from '../data/snagFailure.ts';
 import {
   flushSnagQueue,
   isRetryableSnagFailure,
@@ -273,6 +275,11 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
   const screen = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
   assert.match(screen, /Save photo/);
   assert.match(screen, /Try again/);
+  assert.match(screen, /notice\.retryItem \?/);
+  assert.doesNotMatch(screen, /notice\.photos\.length > 0 && notice\.retryItem/);
+  const signScreen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
+  assert.match(signScreen, /function clearSignFields\(\)/);
+  assert.match(signScreen, /setSignature\(null\)/);
 });
 
 test('a create retry reuses uploaded paths and drops orphans from a lost response', async () => {
@@ -318,4 +325,112 @@ test('a create retry reuses uploaded paths and drops orphans from a lost respons
   const orphans = memorySnagQueue();
   await sendQueuedSnag(item([2], 'user-a', 'other'), sender, orphans);
   assert.deepEqual(removed, ['fresh-2.jpg']);
+});
+
+test('real network, 503, and storage unknown stay queued, and a business code does not', async () => {
+  const shapes = [
+    new TypeError('Failed to fetch'),
+    new TypeError('Network request failed'),
+    Object.assign(new PostgrestError({ message: 'Service Unavailable', details: '', hint: '', code: 'PGRST000' }), { status: 503 }),
+  ];
+  for (const shape of shapes) {
+    let thrown: unknown;
+    try {
+      throw snagRpcError(shape);
+    } catch (err) {
+      thrown = err;
+    }
+    assert.equal(isRetryableSnagFailure(thrown), true, shape instanceof Error ? shape.message : 'shape');
+    assert.equal(isRetryableSnagFailure(shape), true);
+  }
+  let stored: unknown;
+  try {
+    throw snagStorageError(new Error('unknown'));
+  } catch (err) {
+    stored = err;
+  }
+  assert.equal(isRetryableSnagFailure(stored), true);
+  assert.equal(isRetryableSnagFailure(new Error('unknown')), true);
+  let business: unknown;
+  try {
+    throw snagRpcError(new PostgrestError({ message: 'not_authorized', details: '', hint: '', code: 'P0001' }));
+  } catch (err) {
+    business = err;
+  }
+  assert.equal(isRetryableSnagFailure(business), false);
+  assert.equal(business instanceof Error ? business.message : '', 'not_authorized');
+
+  const queue = memorySnagQueue();
+  await queue.put({
+    kind: 'sign',
+    localId: 'sign-net',
+    ownerId: 'user-a',
+    siteId: 'site',
+    signedAt: '2026-10-22T13:05:00.000Z',
+    mode: 'contractor',
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signaturePng: 'data:image/png;base64,aaaa',
+    coveredIds: ['fixed-1'],
+    outstandingIds: [],
+  });
+  const now = Date.parse('2026-10-22T12:00:00.000Z');
+  await flushSnagQueue(queue, async () => {
+    throw snagRpcError(new TypeError('Failed to fetch'));
+  }, 'user-a', () => now);
+  const waiting = await queue.list();
+  assert.equal(waiting.length, 1);
+  assert.equal(waiting[0]?.kind === 'sign' ? waiting[0].signaturePng : '', 'data:image/png;base64,aaaa');
+  assert.equal((await queue.listNotices()).length, 0);
+
+  await flushSnagQueue(queue, async () => {
+    throw snagRpcError(new PostgrestError({ message: 'not_authorized', details: '', hint: '', code: 'P0001' }));
+  }, 'user-a', () => now + 2000);
+  assert.equal((await queue.list()).length, 0);
+  const notice = (await queue.listNotices())[0];
+  assert.equal(notice?.message, 'This sign-off was not saved');
+  assert.equal(notice?.retryItem?.kind, 'sign');
+  assert.equal(notice?.retryItem?.kind === 'sign' ? notice.retryItem.signaturePng : '', 'data:image/png;base64,aaaa');
+});
+
+test('a path refusal re-uploads, and a queued fix changes the list-changed notice', async () => {
+  const queue = memorySnagQueue();
+  const queued = item([7]);
+  queued.uploadedPhotos = [{ storagePath: 'bad/path.jpg', contentType: 'image/jpeg', fileSizeBytes: 7 }];
+  await queue.put(queued);
+  await queue.put({
+    kind: 'fix',
+    localId: 'fix-waiting',
+    ownerId: 'user-a',
+    siteId: 'site',
+    companyId: 'company',
+    snagId: 'snag-2',
+    photos: [{ id: 'p2', contentType: 'image/jpeg', bytes: Uint8Array.from([3]) }],
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    attempts: 1,
+    retryAt: '2026-10-22T12:00:05.000Z',
+  });
+  await queue.put({
+    kind: 'sign',
+    localId: 'sign-stale',
+    ownerId: 'user-a',
+    siteId: 'site',
+    signedAt: '2026-10-22T13:05:00.000Z',
+    mode: 'internal',
+    signerCompany: 'Ashfield Finishes',
+    coveredIds: ['shown-fixed'],
+    outstandingIds: ['shown-open'],
+  });
+  const now = Date.parse('2026-10-22T12:00:00.000Z');
+  await flushSnagQueue(queue, async (row) => {
+    if (row.localId === 'local-1') throw new Error('invalid_path');
+    if (row.kind === 'sign') throw new Error('snag_list_changed');
+  }, 'user-a', () => now);
+  const notices = await queue.listNotices();
+  const pathNotice = notices.find((notice) => notice.retryItem?.localId === 'local-1');
+  assert.equal(pathNotice?.retryItem?.kind === 'create' ? pathNotice.retryItem.uploadedPhotos : 'no', undefined);
+  const changed = notices.find((notice) => notice.retryItem?.localId === 'sign-stale');
+  assert.equal(changed?.message, "A fix you made is still sending. Wait until it's sent, then sign again.");
+  assert.equal((await queue.list()).some((row) => row.localId === 'fix-waiting'), true);
 });

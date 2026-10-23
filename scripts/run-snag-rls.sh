@@ -37,10 +37,34 @@ for migration in supabase/migrations/*.sql; do
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 alter default privileges in schema public grant execute on functions to anon;
 alter default privileges in schema private grant execute on functions to anon;
+drop table if exists public._snag_funcs_before;
+create table public._snag_funcs_before as
+select n.nspname, p.proname
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'private');
 SQL
   fi
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
 done
 
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+drop table if exists public._snag_funcs_migration;
+create table public._snag_funcs_migration (
+  nspname text not null,
+  proname text not null,
+  primary key (nspname, proname)
+);
+SQL
+awk '
+  $0 ~ /create or replace function (public|private)\./ {
+    if (match($0, /(public|private)\.[a-z0-9_]+/)) {
+      name = substr($0, RSTART, RLENGTH)
+      split(name, parts, ".")
+      print "insert into public._snag_funcs_migration (nspname, proname) values ('\''" parts[1] "'\'', '\''" parts[2] "'\'') on conflict do nothing;"
+    }
+  }
+' supabase/migrations/20261022170000_snags.sql | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/snags-rls.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public._snag_funcs_before; drop table if exists public._snag_funcs_migration;'
 echo "snag RLS ok"

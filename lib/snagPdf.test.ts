@@ -293,11 +293,31 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   assert.match(internalText, /This sign-off records the snags listed only\. It isn't a completion certificate\./);
 });
 
-test('a tall first photo stays with the header on page 1 of a contractor sign-off', async () => {
+function signerSharesLastPhoto(trace: Array<{ page: number; kind: string; snagSeq?: number }>, lastSeq: number): boolean {
+  const signerPage = trace.find((item) => item.kind === 'signature' && item.snagSeq === undefined)?.page;
+  const photoPage = trace.find((item) => item.kind === 'photo' && item.snagSeq === lastSeq)?.page;
+  return signerPage !== undefined && signerPage === photoPage;
+}
+
+test('the signer block stays on the same page as the last photo', async () => {
   const when = '2026-10-22T13:05:00.000Z';
-  const { trace } = await buildSnagSignoffPdf({
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const snag = (seq: number, bytes: Uint8Array, note: string): SnagPdfSnag => ({
+    snagSeq: seq,
+    note,
+    levelArea: 'Ground',
+    tradeLabel: 'dryliner',
+    status: 'Fixed',
+    raisedByName: 'Amy Keane',
+    raisedAt: '2026-10-22T08:15:00.000Z',
+    fixedAt: '2026-10-22T11:40:00.000Z',
+    photos: [{ bytes, contentType: 'image/jpeg', kind: 'before' }],
+    signature: null,
+  });
+  const base = {
     reportId: 'SO-22Oct2026',
-    kind: 'contractor',
+    kind: 'contractor' as const,
     companyName: 'Ashfield Finishes',
     siteName: 'Plot 12 - Oak Estate',
     generatedAt: when,
@@ -306,24 +326,45 @@ test('a tall first photo stays with the header on page 1 of a contractor sign-of
     signerRole: 'Site manager',
     signerCompany: 'Northbuild',
     signedAt: when,
-    signaturePng: dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]])),
-    covered: [
-      {
-        snagSeq: 1,
-        note: 'Bead missing at the window reveal',
-        levelArea: 'Ground',
-        tradeLabel: 'dryliner',
-        status: 'Fixed',
-        raisedByName: 'Amy Keane',
-        raisedAt: '2026-10-22T08:15:00.000Z',
-        fixedAt: '2026-10-22T11:40:00.000Z',
-        photos: [{ bytes: snagJpegBytes('beforeTall'), contentType: 'image/jpeg', kind: 'before' }],
-        signature: null,
-      },
-    ],
+    signaturePng,
+  };
+  const short = await buildSnagSignoffPdf({
+    ...base,
+    covered: [snag(1, snagJpegBytes('beforeWide'), 'Bead missing at the window reveal')],
     outstanding: [],
   });
-  assert.equal(trace.find((item) => item.kind === 'header')?.page, 1);
-  assert.equal(trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, 1);
-  assert.equal(trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
+  assert.equal(signerSharesLastPhoto(short.trace, 1), true);
+  assert.equal(short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
+
+  const tall = await buildSnagSignoffPdf({
+    ...base,
+    covered: [snag(1, snagJpegBytes('beforeTall'), 'Bead missing at the window reveal')],
+    outstanding: [],
+  });
+  assert.equal(tall.trace.find((item) => item.kind === 'header')?.page, 1);
+  assert.equal(tall.trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, 1);
+  assert.equal(tall.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
+  assert.equal(signerSharesLastPhoto(tall.trace, 1), true);
+
+  const notes = [
+    'Bead missing at the window reveal',
+    'Skirting not fixed in the hall',
+    'Joint tape lifting by the door',
+    'Socket box proud of the board',
+    'Crack above the lintel',
+    'Door will not close on the latch',
+  ];
+  const many = await buildSnagSignoffPdf({
+    ...base,
+    covered: notes.map((note, index) =>
+      snag(index + 1, index === 5 ? snagJpegBytes('beforeTall') : snagJpegBytes('beforeWide'), note)
+    ),
+    outstanding: [
+      { snagSeq: 7, note: 'Hole in the plaster by the riser', levelArea: 'First' },
+      { snagSeq: 8, note: 'Stain on the ceiling', levelArea: 'Second' },
+      { snagSeq: 9, note: 'Board joint open in the corridor', levelArea: 'Ground' },
+      { snagSeq: 10, note: 'Tidy the offcuts by the stairs', levelArea: 'Second' },
+    ],
+  });
+  assert.equal(signerSharesLastPhoto(many.trace, 6), true);
 });

@@ -47,17 +47,15 @@ import type {
   Role,
   Site,
 } from '@/data/types';
+import { snagRpcError, snagStorageError } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
   data: T | null,
-  error: { message: string; details?: string | null; code?: string | null } | null,
+  error: { message: string; details?: string | null; code?: string | null; status?: number } | null,
   fallback?: string
 ): T {
-  if (error) {
-    const mapped = rpcErrorCode(error);
-    throw new Error(mapped === 'unknown' ? error.message : mapped);
-  }
+  if (error) throw snagRpcError(error);
   if (data == null) throw new Error(fallback ?? 'not_found');
   return data;
 }
@@ -889,7 +887,7 @@ export const supabaseRepo: SitePackRepo = {
       contentType: params.contentType,
       upsert: false,
     });
-    if (error) throw new Error(rpcErrorCode(error));
+    if (error) throw snagStorageError(error);
     return { storagePath, fileSizeBytes: params.bytes.byteLength, contentType: params.contentType };
   },
 

@@ -63,7 +63,17 @@ export default function SnagSignScreen() {
   const [signerName, setSignerName] = useState('');
   const [signerRole, setSignerRole] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
+  const [padKey, setPadKey] = useState(0);
   const [record, setRecord] = useState<SnagSignoff | null>(null);
+
+  function clearSignFields() {
+    setInternalCompany('');
+    setContractorCompany('');
+    setSignerName('');
+    setSignerRole('');
+    setSignature(null);
+    setPadKey((key) => key + 1);
+  }
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -179,6 +189,7 @@ export default function SnagSignScreen() {
         outstandingIds: shownOutstanding,
       });
       setRecord(signed);
+      clearSignFields();
       await pdfFor(signed);
       await load();
     } catch (err) {
@@ -229,6 +240,7 @@ export default function SnagSignScreen() {
         outstandingIds: shownOutstanding,
       });
       setRecord(signed);
+      clearSignFields();
       await pdfFor(signed);
       await load();
     } catch (err) {
@@ -281,7 +293,7 @@ export default function SnagSignScreen() {
           maxLength={120}
         />
         <Muted>{snagConfirmation(contractorCompany, 'contractor')}</Muted>
-        <SignaturePad disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
+          <SignaturePad key={padKey} disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
         <Button
           label="Sign off snags put right"
           minHeight={56}

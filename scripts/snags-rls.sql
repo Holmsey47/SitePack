@@ -73,60 +73,50 @@ $$;
 create temp table probe (k text primary key, v jsonb);
 grant all on table probe to authenticated;
 
--- Every function this migration creates has "snag" in its name. A catalog scan
--- covers a new one without listing signatures, so a missed revoke fails here.
+-- The runner snapshots pg_proc before this migration and parses every
+-- CREATE FUNCTION name into public._snag_funcs_migration. Invoker functions
+-- are included. A new function cannot slip past by its name.
 select pg_temp.ok(
-  (
-    select count(*)
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public', 'private')
-      and p.proname ~ 'snag'
-  ) = 23
+  (select count(*) from public._snag_funcs_migration) >= 1
+  and not exists (
+    select 1
+    from public._snag_funcs_migration m
+    where not exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = m.nspname
+        and p.proname = m.proname
+    )
+  )
   and not exists (
     select 1
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'private')
-      and p.proname ~ 'snag'
-      and (
-        has_function_privilege('anon', p.oid, 'execute')
-        or has_function_privilege('public', p.oid, 'execute')
-      )
-  ),
-  'anon and public cannot execute any snag function'
-);
-
-select pg_temp.ok(
-  (
-    select count(*)
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public', 'private')
-      and p.proname ~ 'snag'
-      and p.prosecdef
-  ) >= 1
-  and not exists (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public', 'private')
-      and p.proname ~ 'snag'
-      and p.prosecdef
       and not exists (
-        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) cfg
-        where cfg like 'search_path=%'
+        select 1 from public._snag_funcs_before b
+        where b.nspname = n.nspname and b.proname = p.proname
+      )
+      and not exists (
+        select 1 from public._snag_funcs_migration m
+        where m.nspname = n.nspname and m.proname = p.proname
       )
   )
   and not exists (
     select 1
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname in ('list_snags', 'snag_detail', 'snag_report')
-      and p.prosecdef
+    join public._snag_funcs_migration m
+      on m.nspname = n.nspname and m.proname = p.proname
+    where has_function_privilege('anon', p.oid, 'execute')
+      or has_function_privilege('public', p.oid, 'execute')
+      or not exists (
+        select 1 from unnest(coalesce(p.proconfig, array[]::text[])) cfg
+        where cfg = 'search_path=""'
+      )
   ),
-  'every security definer snag function pins search_path'
+  'every function the snag migration creates revokes anon and pins search_path to empty'
 );
 
 select pg_temp.ok(

@@ -1,4 +1,7 @@
+import { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
+
 export { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
+export { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
 
 export type QueuedPhoto = {
   id: string;
@@ -81,25 +84,15 @@ const DB_NAME = 'sitepack-snags';
 
 const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
 
-/** Network failures and 5xx stay queued. A business code or any 4xx is permanent. */
-export function isRetryableSnagFailure(err: unknown): boolean {
-  const status = typeof err === 'object' && err !== null && 'status' in err ? Number((err as { status?: unknown }).status) : Number.NaN;
-  if (status >= 500 && status <= 599) return true;
-  if (status >= 400 && status <= 499) return false;
-  const message = err instanceof Error ? err.message : '';
-  if (/^5\d\d$/.test(message)) return true;
-  if (/^4\d\d$/.test(message)) return false;
-  if (message === 'network' || message === 'Failed to fetch' || message === 'Network request failed' || message === 'timeout') return true;
-  if (err instanceof TypeError) return true;
-  return false;
-}
-
 export function snagRetryDelayMs(attempts: number): number {
   const index = Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1;
   return RETRY_DELAYS_MS[index] ?? 60_000;
 }
 
-export function rejectedSnagNotice(kind: QueuedSnag['kind'], code: string): string {
+export function rejectedSnagNotice(kind: QueuedSnag['kind'], code: string, fixStillSending = false): string {
+  if (kind === 'sign' && code === 'snag_list_changed' && fixStillSending) {
+    return "A fix you made is still sending. Wait until it's sent, then sign again.";
+  }
   if (kind === 'sign' && code === 'snag_list_changed') {
     return 'The snag list changed before this sign-off was sent. Please sign again.';
   }
@@ -449,6 +442,13 @@ export async function persistThenSendSnag(
   }
 }
 
+function dropUploadedPaths(item: QueuedSnag): QueuedSnag {
+  if (item.kind === 'sign') return item;
+  const next = { ...item };
+  delete next.uploadedPhotos;
+  return next;
+}
+
 function queuedAt(item: QueuedSnag): string {
   if (item.kind === 'create') return item.raisedAt;
   if (item.kind === 'fix') return item.fixedAt;
@@ -497,14 +497,17 @@ export async function flushSnagQueue(
         await queue.put({ ...current, attempts, retryAt: new Date(nowMs() + snagRetryDelayMs(attempts)).toISOString() });
         continue;
       }
-      const code = err instanceof Error ? err.message : 'unknown';
+      const code = snagFailureCode(err);
+      const retrySource = code === 'invalid_path' ? dropUploadedPaths(current) : current;
+      const pending = await queue.list();
+      const fixStillSending = pending.some((row) => row.ownerId === item.ownerId && row.siteId === item.siteId && row.kind === 'fix');
       const notice: SnagNotice = {
         id: `reject:${item.ownerId}:${item.localId}`,
         ownerId: item.ownerId,
         siteId: item.siteId,
-        message: rejectedSnagNotice(item.kind, code),
-        photos: current.kind === 'sign' ? [] : current.photos.map(copyPhoto),
-        retryItem: copyItem({ ...current, attempts: 0, retryAt: undefined }),
+        message: rejectedSnagNotice(item.kind, code, fixStillSending),
+        photos: retrySource.kind === 'sign' ? [] : retrySource.photos.map(copyPhoto),
+        retryItem: copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
       };
       await queue.putNotice(notice);
       await queue.remove(item.localId);
