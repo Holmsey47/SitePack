@@ -20,7 +20,7 @@ import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from 
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -196,6 +196,10 @@ export default function SitePackScreen() {
     );
   }
 
+  if (person && site.company_id !== person.company_id) {
+    return <Redirect href={`/sites/${siteId}/shared`} />;
+  }
+
   return (
     <Screen>
       {person?.role === 'operative' ? (
@@ -293,6 +297,13 @@ export default function SitePackScreen() {
             onPress={() => router.push(`/sites/${siteId}/invite-code`)}
           />
           <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
+          {person?.role === 'owner' ? (
+            <Button
+              label="Share with main contractor"
+              minHeight={56}
+              onPress={() => router.push(`/sites/${siteId}/share`)}
+            />
+          ) : null}
         </View>
       ) : null}
       {manage && newJoiners > 0 ? (

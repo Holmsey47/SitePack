@@ -1,7 +1,8 @@
 import type { TalkDelivery, TalkKind } from '@/lib/talkMeaning';
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { anyNeedsUnicode, embedBodyFonts } from '@/lib/pdfFonts';
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -63,23 +64,26 @@ export function talkPdfFilename(siteName: string, title: string): string {
 }
 
 export function talkFooter(siteName: string, companyName: string, page: number, total: number, font: PDFFont): string {
-  let site = pdfText(siteName);
-  const company = pdfText(companyName);
+  let site = pdfText(siteName, font);
+  const company = pdfText(companyName, font);
   const tail = ` · ${company} · page ${page} of ${total}`;
   while (site.length > 4 && font.widthOfTextAtSize(site + tail, 9) > CONTENT_W) site = site.slice(0, -2);
   return `${site}${tail}`;
 }
 
-function pdfText(value: string): string {
-  return value
+function pdfText(value: string, face?: { name: string }): string {
+  const mapped = value
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[^\x0A\x0D\x20-\x7E]/g, '');
+    .replace(/[“”]/g, '"');
+  if (face && !/Helvetica/i.test(face.name)) {
+    return mapped.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  }
+  return mapped.replace(/[^\x0A\x0D\x20-\x7E]/g, '');
 }
 
 function wrap(text: string, face: PDFFont, size: number, max: number): string[] {
-  const words = pdfText(text).split(/\s+/).filter(Boolean);
+  const words = pdfText(text, face).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = '';
   for (const word of words.length > 0 ? words : ['']) {
@@ -217,8 +221,16 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
 export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Uint8Array; footers: string[] }> {
   const doc = await PDFDocument.create();
   doc.setTitle(`Register ${pdfText(input.title)}`);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const unicode = anyNeedsUnicode([
+    input.companyName,
+    input.siteName,
+    input.title,
+    input.presenterName,
+    input.presenterRole,
+    ...input.notSigned.flatMap((row) => [row.name, row.question]),
+    ...input.signed.flatMap((row) => [row.name, row.question, row.meaning]),
+  ]);
+  const { regular: font, bold } = await embedBodyFonts(doc, unicode);
   const blocks = buildBlocks(input, font, bold);
   const packed = packBlocks(blocks, CONTENT_H);
   const pages = packed.length > 0 ? packed : [blocks.filter((block) => block.kind === 'intro')];
@@ -231,7 +243,7 @@ export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Ui
     for (const block of group) {
       for (const line of block.lines) {
         const face = line.bold ? bold : font;
-        sheet.drawText(pdfText(line.text), { x: MARGIN, y: y - line.size, size: line.size, font: face, color: rgb(0.1, 0.1, 0.1) });
+        sheet.drawText(pdfText(line.text, face), { x: MARGIN, y: y - line.size, size: line.size, font: face, color: rgb(0.1, 0.1, 0.1) });
         y -= lineHeight(line);
       }
       if (block.png) {

@@ -47,6 +47,19 @@ import type {
   TalkListItem,
   TalkVersionRef,
 } from '@/data/talks';
+import type {
+  ShareDrawingUrl,
+  ShareInviteCreated,
+  ShareSections,
+  SharedDrawing,
+  SharedInductionRow,
+  SharedSignInRow,
+  SharedSiteCard,
+  SharedSiteView,
+  SharedSnag,
+  SharedVariation,
+  SiteShareList,
+} from '@/data/sharing';
 
 export type SignInResult = {
   person: Person;
@@ -185,6 +198,23 @@ export type SitePackRepo = {
   inductionSignInGaps(siteId: string): Promise<InductionGap[] | null>;
   myTalkBadges(): Promise<TalkBadge[]>;
   uploadTalkPdf(input: { companyId: string; siteId: string; bytes: Uint8Array }): Promise<{ storagePath: string }>;
+  createSiteShareInvite(input: {
+    siteId: string;
+    guestCompanyName: string;
+    sections: ShareSections;
+  }): Promise<ShareInviteCreated>;
+  listSiteShares(siteId: string): Promise<SiteShareList>;
+  setSiteShareSections(shareId: string, sections: ShareSections): Promise<void>;
+  revokeSiteShare(shareId: string): Promise<void>;
+  redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string }>;
+  mySharedSites(): Promise<SharedSiteCard[]>;
+  sharedSiteView(siteId: string): Promise<SharedSiteView>;
+  sharedDrawings(siteId: string): Promise<SharedDrawing[]>;
+  sharedDrawingUrl(drawingId: string): Promise<ShareDrawingUrl>;
+  sharedVariations(siteId: string): Promise<SharedVariation[]>;
+  sharedSnags(siteId: string): Promise<SharedSnag[]>;
+  sharedSignInRegister(siteId: string): Promise<SharedSignInRow[]>;
+  sharedInductionRegister(siteId: string): Promise<SharedInductionRow[]>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -261,6 +291,15 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'version_locked',
     'closed',
     'not_found',
+    'other_firm',
+    'code_expired',
+    'code_used',
+    'code_revoked',
+    'share_revoked',
+    'own_firm',
+    'already_shared',
+    'section_off',
+    'not_shared',
   ]) {
     if (text.includes(known)) return known;
   }

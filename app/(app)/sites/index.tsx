@@ -7,8 +7,10 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing }
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { TalkBadge } from '@/data/talks';
+import { rememberSharedSiteIds, type SharedSiteCard } from '@/data/sharing';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
+import { forgetSharedSite } from '@/lib/forgetShare';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
@@ -38,6 +40,35 @@ export default function SitesScreen() {
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
   const [notices, setNotices] = useState<SeenNotice[]>([]);
   const [talkBadges, setTalkBadges] = useState<TalkBadge[]>([]);
+  const [sharedSites, setSharedSites] = useState<SharedSiteCard[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person) return;
+      let active = true;
+      repo
+        .mySharedSites()
+        .then(async (next) => {
+          if (!active) return;
+          const storage = readStorage();
+          if (storage) {
+            const dropped = rememberSharedSiteIds(
+              storage,
+              next.map((row) => row.site_id)
+            );
+            for (const id of dropped) await forgetSharedSite(id);
+          }
+          if (!active) return;
+          setSharedSites(next);
+        })
+        .catch(() => {
+          if (active) setSharedSites([]);
+        });
+      return () => {
+        active = false;
+      };
+    }, [person])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -184,6 +215,7 @@ export default function SitesScreen() {
         </View>
         {resetNotice}
         <FixtureOfflineSwitch />
+        <SharedWithCompany rows={sharedSites} onOpen={(id) => router.push(`/sites/${id}/shared`)} />
         {error ? <ErrorText>{error}</ErrorText> : null}
         {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
@@ -242,6 +274,7 @@ export default function SitesScreen() {
       </View>
       {resetNotice}
       <FixtureOfflineSwitch />
+      <SharedWithCompany rows={sharedSites} onOpen={(id) => router.push(`/sites/${id}/shared`)} />
       {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -314,6 +347,32 @@ export default function SitesScreen() {
           ))
         : null}
     </Screen>
+  );
+}
+
+function readStorage(): { getItem(key: string): string | null; setItem(key: string, value: string): void } | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function SharedWithCompany({ rows, onOpen }: { rows: SharedSiteCard[]; onOpen: (siteId: string) => void }) {
+  if (rows.length === 0) return null;
+  return (
+    <View style={{ gap: 12 }}>
+      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SHARED WITH YOUR COMPANY</Text>
+      {rows.map((row) => (
+        <Card key={row.share_id} onPress={() => onOpen(row.site_id)}>
+          <View style={{ minHeight: 48, justifyContent: 'center', gap: 4 }}>
+            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.site_name}</Text>
+            <Muted>{row.host_company_name}</Muted>
+            <Muted>Contracts manager: {row.cm_contact_name || 'the host company'}</Muted>
+          </View>
+        </Card>
+      ))}
+    </View>
   );
 }
 

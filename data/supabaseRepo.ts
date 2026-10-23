@@ -63,6 +63,19 @@ import type {
   Role,
   Site,
 } from '@/data/types';
+import type {
+  ShareDrawingUrl,
+  ShareInviteCreated,
+  ShareSections,
+  SharedDrawing,
+  SharedInductionRow,
+  SharedSignInRow,
+  SharedSiteCard,
+  SharedSiteView,
+  SharedSnag,
+  SharedVariation,
+  SiteShareList,
+} from '@/data/sharing';
 import { getSupabase } from '@/lib/supabase';
 
 function unwrap<T>(
@@ -236,6 +249,54 @@ async function invokePublicFunction(name: string, body: Record<string, unknown>)
     throw new Error(String((data as { error: unknown }).error));
   }
   return data;
+}
+
+async function invokeShareFunction(name: string, body: Record<string, unknown>): Promise<unknown> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let code = '';
+    let status: number | undefined;
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      status = context.status;
+      try {
+        const payload = (await context.json()) as { error?: unknown };
+        if (typeof payload.error === 'string') code = payload.error;
+      } catch {
+        code = '';
+      }
+    }
+    const failure = new Error(code || error.message || 'network');
+    if (status != null) (failure as Error & { status?: number }).status = status;
+    throw failure;
+  }
+  if (data && typeof data === 'object' && 'error' in data && (data as { error?: unknown }).error) {
+    throw new Error(String((data as { error: unknown }).error));
+  }
+  return data;
+}
+
+async function shareRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await getSupabase().rpc(name, args);
+  if (error) {
+    const mapped = rpcErrorCode(error);
+    const failure = new Error(mapped === 'unknown' ? error.message : mapped);
+    const status = (error as { status?: number }).status;
+    if (typeof status === 'number') (failure as Error & { status?: number }).status = status;
+    throw failure;
+  }
+  return data as T;
+}
+
+function sectionArgs(sections: ShareSections) {
+  return {
+    p_drawings: sections.drawings,
+    p_variations: sections.variations,
+    p_snags: sections.snags,
+    p_sign_in: sections.sign_in,
+    p_inductions: sections.inductions,
+  };
 }
 
 async function signUrls(items: Array<ManifestItem & { storage_path?: string }>): Promise<ManifestItem[]> {
@@ -1208,6 +1269,71 @@ export const supabaseRepo: SitePackRepo = {
     });
     if (error) throw new Error(error.message);
     return { storagePath };
+  },
+
+  async createSiteShareInvite(input): Promise<ShareInviteCreated> {
+    return (await invokeShareFunction('issue-site-share', {
+      site_id: input.siteId,
+      guest_company_name: input.guestCompanyName,
+      drawings: input.sections.drawings,
+      variations: input.sections.variations,
+      snags: input.sections.snags,
+      sign_in: input.sections.sign_in,
+      inductions: input.sections.inductions,
+    })) as ShareInviteCreated;
+  },
+
+  async listSiteShares(siteId) {
+    return shareRpc<SiteShareList>('list_site_shares', { p_site_id: siteId });
+  },
+
+  async setSiteShareSections(shareId, sections) {
+    await shareRpc('set_site_share_sections', { p_share_id: shareId, ...sectionArgs(sections) });
+  },
+
+  async revokeSiteShare(shareId) {
+    await shareRpc('revoke_site_share', { p_share_id: shareId });
+  },
+
+  async redeemSiteShare(code) {
+    const row = (await invokeShareFunction('redeem-site-share', { code })) as {
+      share_id: string;
+      site_id: string;
+      site_name: string;
+    };
+    return { shareId: row.share_id, siteId: row.site_id, siteName: row.site_name };
+  },
+
+  async mySharedSites() {
+    return shareRpc<SharedSiteCard[]>('my_shared_sites', {});
+  },
+
+  async sharedSiteView(siteId) {
+    return shareRpc<SharedSiteView>('shared_site_view', { p_site_id: siteId });
+  },
+
+  async sharedDrawings(siteId) {
+    return shareRpc<SharedDrawing[]>('shared_drawings', { p_site_id: siteId });
+  },
+
+  async sharedDrawingUrl(drawingId): Promise<ShareDrawingUrl> {
+    return (await invokeShareFunction('share-drawing-url', { drawing_id: drawingId })) as ShareDrawingUrl;
+  },
+
+  async sharedVariations(siteId) {
+    return shareRpc<SharedVariation[]>('shared_variations', { p_site_id: siteId });
+  },
+
+  async sharedSnags(siteId) {
+    return shareRpc<SharedSnag[]>('shared_snags', { p_site_id: siteId });
+  },
+
+  async sharedSignInRegister(siteId) {
+    return shareRpc<SharedSignInRow[]>('shared_sign_in_register', { p_site_id: siteId });
+  },
+
+  async sharedInductionRegister(siteId) {
+    return shareRpc<SharedInductionRow[]>('shared_induction_register', { p_site_id: siteId });
   },
 };
 

@@ -1,7 +1,8 @@
 import { formatPounds, variationPdfFilename } from '@/data/variations';
 import { formatUkDateTime } from '@/lib/format';
 import { variationConfirmation, variationLockLine } from '@/lib/variationWording';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { anyNeedsUnicode, embedBodyFonts } from '@/lib/pdfFonts';
+import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 
 export { variationPdfFilename };
 
@@ -81,8 +82,19 @@ export function photoRowKind(pixels: Array<{ width: number; height: number }>, i
 export async function buildVariationPdf(input: VariationPdfInput): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(variationPdfFilename(input.voSeq).replace(/\.pdf$/, ''));
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const unicode = anyNeedsUnicode([
+    input.companyName,
+    input.siteName,
+    input.title,
+    input.description,
+    input.levelArea,
+    input.quantityText,
+    input.signerName,
+    input.signerRole,
+    input.signerCompany,
+    input.confirmationText,
+  ]);
+  const { regular: font, bold } = await embedBodyFonts(doc, unicode);
   let page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   let y = TOP;
   const half = (CONTENT_WIDTH - GAP) / 2;

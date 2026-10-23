@@ -1,3 +1,19 @@
+import {
+  fixtureCreateSiteShare,
+  fixtureListSiteShares,
+  fixtureMySharedSites,
+  fixtureRedeemSiteShare,
+  fixtureRevokeSiteShare,
+  fixtureSetSiteShareSections,
+  fixtureSharedDrawingUrl,
+  fixtureSharedDrawings,
+  fixtureSharedInductions,
+  fixtureSharedSignIn,
+  fixtureSharedSiteView,
+  fixtureSharedSnags,
+  fixtureSharedVariations,
+  resetShareFixture,
+} from '@/data/shareFixture';
 import { normalizeCreateSite } from '@/data/createSite';
 import { newId } from '@/data/newId';
 import { inviteSiteIds, previewName } from '@/data/walk';
@@ -1987,6 +2003,79 @@ export const fixtureRepo: SitePackRepo = {
     });
   },
 
+  async createSiteShareInvite(input) {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    const site = store.sites.find((row) => row.id === input.siteId);
+    if (!site || site.company_id !== person.company_id) throw new Error('not_authorized');
+    return fixtureCreateSiteShare({
+      siteId: site.id,
+      siteName: site.name,
+      guestCompanyName: input.guestCompanyName,
+      sections: input.sections,
+      hostCompanyName: store.companyName,
+    });
+  },
+
+  async listSiteShares(siteId) {
+    return fixtureListSiteShares(siteId);
+  },
+
+  async setSiteShareSections(shareId, sections) {
+    if (meOrThrow().role !== 'owner') throw new Error('not_authorized');
+    fixtureSetSiteShareSections(shareId, sections);
+  },
+
+  async revokeSiteShare(shareId) {
+    if (meOrThrow().role !== 'owner') throw new Error('not_authorized');
+    fixtureRevokeSiteShare(shareId);
+  },
+
+  async redeemSiteShare(code) {
+    meOrThrow();
+    return fixtureRedeemSiteShare(code);
+  },
+
+  async mySharedSites() {
+    meOrThrow();
+    return fixtureMySharedSites();
+  },
+
+  async sharedSiteView(siteId) {
+    meOrThrow();
+    return fixtureSharedSiteView(siteId);
+  },
+
+  async sharedDrawings(siteId) {
+    meOrThrow();
+    return fixtureSharedDrawings(siteId);
+  },
+
+  async sharedDrawingUrl() {
+    meOrThrow();
+    return fixtureSharedDrawingUrl();
+  },
+
+  async sharedVariations(siteId) {
+    meOrThrow();
+    return fixtureSharedVariations(siteId);
+  },
+
+  async sharedSnags(siteId) {
+    meOrThrow();
+    return fixtureSharedSnags(siteId);
+  },
+
+  async sharedSignInRegister(siteId) {
+    meOrThrow();
+    return fixtureSharedSignIn(siteId);
+  },
+
+  async sharedInductionRegister(siteId) {
+    meOrThrow();
+    return fixtureSharedInductions(siteId);
+  },
+
   async confirmDrawingSeen(drawingId, seenAt) {
     const person = meOrThrow();
     const drawing = store.drawings.find((row) => row.id === drawingId);
@@ -2044,6 +2133,7 @@ function assertGroupNameFree(companyId: string, name: string, exceptId?: string)
 export function resetFixtureStore() {
   store = seed();
   store.sessionPersonId = loadSessionId();
+  resetShareFixture();
 }
 
 if (typeof globalThis !== 'undefined') {

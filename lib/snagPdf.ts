@@ -1,7 +1,8 @@
 import { snagNumber } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { SNAG_SIGN_OFF_DISCLAIMER, outstandingHeading, outstandingLine } from '@/lib/snagWording';
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { anyNeedsUnicode, embedBodyFonts } from '@/lib/pdfFonts';
+import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -83,16 +84,19 @@ export function snagPhotoMissing(index: number): string {
   return `Photo ${index + 1} could not be loaded`;
 }
 
-function pdfText(value: string): string {
-  return value
+function pdfText(value: string, face?: { name: string }): string {
+  const mapped = value
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[^\x0A\x0D\x20-\x7E\u00A3\u00B7]/g, '');
+    .replace(/[“”]/g, '"');
+  if (face && !/Helvetica/i.test(face.name)) {
+    return mapped.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  }
+  return mapped.replace(/[^\x0A\x0D\x20-\x7E\u00A3\u00B7]/g, '');
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {
-  const words = pdfText(text).split(/\s+/).filter(Boolean);
+  const words = pdfText(text, face).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = '';
   for (const word of words.length > 0 ? words : ['']) {
@@ -183,9 +187,28 @@ async function drawReport(
   options: { disclaimer: boolean; bottom: number; title: string; signoff?: SnagSignoffPdfInput }
 ): Promise<{ bytes: Uint8Array; trace: SnagPdfTrace[] }> {
   const doc = await PDFDocument.create();
-  doc.setTitle(input.reportId);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  doc.setTitle(pdfText(input.reportId));
+  const unicode = anyNeedsUnicode([
+    input.reportId,
+    input.companyName,
+    input.siteName,
+    input.filterLabel,
+    ...input.snags.flatMap((snag) => [
+      snag.note,
+      snag.levelArea,
+      snag.tradeLabel,
+      snag.raisedByName,
+      snag.signature?.signerName,
+      snag.signature?.signerRole,
+      snag.signature?.signerCompany,
+    ]),
+    options.signoff?.signerName,
+    options.signoff?.signerRole,
+    options.signoff?.signerCompany,
+    options.signoff?.confirmationText,
+    ...(options.signoff?.outstanding.flatMap((row) => [row.note, row.levelArea]) ?? []),
+  ]);
+  const { regular: font, bold } = await embedBodyFonts(doc, unicode);
   const trace: SnagPdfTrace[] = [];
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = TOP;
@@ -254,7 +277,7 @@ async function drawReport(
       const x = MARGIN + index * ((CONTENT_W - gap) / 2 + gap);
       const imageTop = top - (height - itemH);
       page.drawImage(item.image, { x, y: imageTop - itemH, width, height: itemH });
-      page.drawText(pdfText(item.caption), { x, y: imageTop - itemH - 12, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
+      page.drawText(pdfText(item.caption, bold), { x, y: imageTop - itemH - 12, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
       mark('photo', { snagSeq, width, pair });
     });
     y = top - height - captionH - 4;
@@ -469,7 +492,7 @@ function drawSheetFooter(
   disclaimer: boolean
 ) {
   if (disclaimer) {
-    sheet.drawText(pdfText(SNAG_SIGN_OFF_DISCLAIMER), {
+    sheet.drawText(pdfText(SNAG_SIGN_OFF_DISCLAIMER, font), {
       x: MARGIN,
       y: 40,
       size: 8,
@@ -487,9 +510,9 @@ function drawSheetFooter(
 }
 
 function footerLabel(reportId: string, company: string, page: number, total: number, font: Face): string {
-  let name = pdfText(company);
+  let name = pdfText(company, font);
   const tail = ` · page ${page} of ${total}`;
-  const head = `${pdfText(reportId)} · `;
+  const head = `${pdfText(reportId, font)} · `;
   while (name.length > 4 && font.widthOfTextAtSize(head + name + tail, 9) > CONTENT_W) {
     name = name.slice(0, -2);
   }
