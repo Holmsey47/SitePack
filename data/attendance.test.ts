@@ -135,14 +135,25 @@ test('a correction then a fresh load shows the new total in the sheet and the CS
   const entryScreen = fs.readFileSync('app/(app)/sites/[siteId]/attendance/[entryId].tsx', 'utf8');
   assert.match(entryScreen, /card\.correction/);
   assert.match(entryScreen, /card\.reason/);
+  assert.match(entryScreen, /manage && entry && !saved/);
+  assert.match(entryScreen, /setSaved\(true\)/);
+  const signedInAt = entryScreen.indexOf('label="Signed in"');
+  const signedOutAt = entryScreen.indexOf('label="Signed out"');
+  const reasonAt = entryScreen.indexOf('label="Reason"');
+  const saveAt = entryScreen.indexOf('Save correction');
+  assert.ok(signedInAt > 0 && signedInAt < signedOutAt && signedOutAt < reasonAt && reasonAt < saveAt);
+  assert.equal(entryScreen.includes('tabIndex'), false);
   const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
-  assert.match(button, /forgotYesterday\(/);
+  assert.match(button, /forgotLineForVisit\(/);
   assert.match(button, /markForgotSeen\(/);
   assert.match(button, /attemptSiteSwitch\(/);
-  assert.match(button, /Sign out of \$\{notice\.openSiteName\} and sign in here/);
+  assert.match(button, /switchHere \? \([\s\S]*Sign out of \$\{switchHere\.openSiteName\} and sign in here/);
   assert.match(button, /disabled=\{busy \|\| !online\}/);
   assert.match(button, /SWITCH_NEEDS_SIGNAL/);
   assert.equal(SWITCH_NEEDS_SIGNAL, 'Needs signal');
+  const plainSignIn = button.indexOf("accessibilityLabel={shown === 'in' ? 'Sign out' : 'Sign in'}");
+  const switchButton = button.indexOf('Sign out of ${switchHere.openSiteName} and sign in here');
+  assert.ok(switchButton > 0 && plainSignIn > switchButton);
 });
 
 test('a day shift closes before 06:00 and a late sign-out is not labelled Corrected', async () => {
@@ -451,6 +462,16 @@ test('a sign-in failure after sign-out names the old site, and offline or a fail
   );
   assert.equal(offline.kind, 'offline');
   assert.deepEqual(calls, []);
+});
+
+test('a signed-out switch saves the notice on this phone', () => {
+  const button = fs.readFileSync('components/SiteSignButton.tsx', 'utf8');
+  const start = button.indexOf("result.kind === 'signed_out'");
+  const end = button.indexOf("result.kind === 'sign_out_failed'");
+  assert.ok(start > 0 && end > start);
+  const branch = button.slice(start, end);
+  assert.match(branch, /dismissNotice\(notice\.id\)/);
+  assert.match(branch, /putNotice\(\{[\s\S]*message: result\.notice/);
 });
 
 test('a correction reason drops control characters and an empty one is refused', async () => {

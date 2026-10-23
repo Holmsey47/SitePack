@@ -201,21 +201,35 @@ export function SeenRejectNotice({
   onPress?: () => void;
   onDismiss?: () => void;
 }) {
+  if (!onDismiss) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={message}
+        onPress={onPress}
+        style={({ pressed }) => [styles.seenReject, pressed && styles.btnPressed]}>
+        <Text style={styles.seenRejectText}>{message}</Text>
+        {onPress ? <Text style={styles.seenRejectOpen}>Open</Text> : null}
+      </Pressable>
+    );
+  }
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={message}
-      onPress={onPress}
-      style={({ pressed }) => [styles.seenReject, pressed && styles.btnPressed]}>
-      <Text style={styles.seenRejectText}>{message}</Text>
-      {onDismiss ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={onDismiss} style={styles.dismiss}>
-          <Text style={styles.dismissText}>Dismiss</Text>
+    <View style={styles.seenReject}>
+      {onPress ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={message}
+          onPress={onPress}
+          style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}>
+          <Text style={styles.seenRejectText}>{message}</Text>
         </Pressable>
       ) : (
-        <Text style={styles.seenRejectOpen}>Open</Text>
+        <Text style={styles.seenRejectText}>{message}</Text>
       )}
-    </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={onDismiss} style={styles.dismiss}>
+        <Text style={styles.dismissText}>Dismiss</Text>
+      </Pressable>
+    </View>
   );
 }
 

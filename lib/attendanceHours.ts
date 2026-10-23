@@ -270,6 +270,18 @@ export function forgotYesterday(
   return hit ? { entryId: hit.entryId, message: FORGOT_YESTERDAY_NOTICE } : null;
 }
 
+/** The yesterday line goes once they have a sign-in today. */
+export function forgotLineForVisit(
+  entries: { entryId: string; personId: string; inAt: string; forgot: boolean; corrected: boolean }[],
+  nowIso: string,
+  personId: string,
+  seen: ReadonlySet<string>,
+  signedInToday: boolean
+): { entryId: string; message: string } | null {
+  if (signedInToday) return null;
+  return forgotYesterday(entries, nowIso, personId, seen);
+}
+
 export function clientNowIso(): string {
   if (process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
     const pinned = (globalThis as { __SITEPACK_NOW?: string }).__SITEPACK_NOW;

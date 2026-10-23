@@ -362,6 +362,91 @@ async function main() {
       once(`select count(*) from public.site_attendance where person_id = '${op}'::uuid and out_at is null`)
     );
     ok(openCount === 1, 'two sign-ins at once leave one open shift and already_signed_in');
+
+    once(`
+      delete from public.site_attendance_audit where entry_id = '${entry}'::uuid;
+      delete from public.site_attendance where person_id = '${op}'::uuid;
+      insert into public.site_attendance (
+        id, site_id, company_id, person_id, person_name,
+        in_device_at, in_received_at, in_at, in_gap,
+        out_device_at, out_received_at, out_at, out_gap, forgot_sign_out
+      )
+      select
+        '${entry}', '${site}', '${firm}', '${op}', 'Race Op',
+        bounds.in_at, bounds.in_at, bounds.in_at, false,
+        bounds.out_at, bounds.out_at, bounds.out_at, false, true
+      from (
+        select
+          chosen.in_at,
+          greatest(
+            timezone('Europe/London', private.london_day(chosen.in_at) + time '23:59'),
+            chosen.in_at
+          ) as out_at
+        from (
+          select case
+            when (timezone('Europe/London', clock.received - interval '1 minute'))::time >= time '14:00'
+              then clock.received - interval '1 minute'
+            else timezone(
+              'Europe/London',
+              ((timezone('Europe/London', clock.received))::date - 1) + time '23:30'
+            )
+          end as in_at
+          from (select '${clock}'::timestamptz as received) clock
+        ) chosen
+      ) bounds;
+    `);
+    const prepared = once(`
+      select private.attendance_overnight(in_at, '${clock}'::timestamptz)::text
+        || '|' || out_at::text
+        || '|' || (late_out_at is null)::text
+      from public.site_attendance
+      where id = '${entry}'::uuid
+    `);
+    const [owns, closedAt, lateEmpty] = prepared.split('|');
+    ok(owns === 'true' && lateEmpty === 'true', 'the forgotten row is still inside the overnight hold');
+
+    await opA.exec(`
+      reset role;
+      begin;
+      select id from public.site_attendance where id = '${entry}'::uuid for update;
+      set role authenticated;
+    `);
+    const secondLate = opB.exec(`
+      do $$
+      begin
+        perform public.sign_out_site('${site}'::uuid, '${clock}'::timestamptz);
+        raise exception 'FAIL: second late sign-out saved';
+      exception
+        when others then
+          if sqlerrm = 'FAIL: second late sign-out saved' then
+            raise;
+          end if;
+          if sqlerrm <> 'not_signed_in' then
+            raise exception 'FAIL: late sign-out race %', sqlerrm;
+          end if;
+      end $$;
+    `);
+    await untilLocked(opBPid, secondLate);
+    await opA.exec(`
+      select public.sign_out_site('${site}'::uuid, '${clock}'::timestamptz);
+      commit;
+    `);
+    await secondLate;
+    const lateRows = Number(
+      once(`select count(*) from public.site_attendance where person_id = '${op}'::uuid and late_out_at is not null`)
+    );
+    const keptRows = Number(once(`select count(*) from public.site_attendance where person_id = '${op}'::uuid`));
+    const lateAudits = Number(
+      once(`
+        select count(*) from public.site_attendance_audit
+        where entry_id = '${entry}'::uuid
+          and reason = 'Late sign-out sent from the phone'
+      `)
+    );
+    const afterClose = once(`select out_at::text from public.site_attendance where id = '${entry}'::uuid`);
+    ok(keptRows === 1 && lateRows === 1, 'two late sign-outs at once leave one row and one late sign-out');
+    ok(lateAudits === 1, 'the losing late sign-out does not write a second audit');
+    ok(afterClose === closedAt, 'the hours stay on the single close and are not counted twice');
   } finally {
     for (const session of sessions) session.close();
     await new Promise((resolve) => setTimeout(resolve, 200));

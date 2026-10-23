@@ -313,3 +313,23 @@ test('José Müller and Łukasz Wójcik survive in the weekly PDF', async () => 
   assert.equal(text.includes('Jos Mller'), false);
   assert.equal(text.includes('Lukasz'), false);
 });
+
+test('a site name drops controls, line breaks, bidi, and zero-width characters', async () => {
+  const { pdfText } = await import('./snagPdf.ts');
+  const bidi = '\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200B\u200C\u200D\u200E\u200F\u2060\uFEFF';
+  const raw = `Jose\u0301\nPlot\u0007${bidi} 12 – Oak`;
+  assert.equal(pdfText(raw), 'José Plot 12 - Oak');
+  const rows = buildWeekSheet([], '2026-10-19', '2026-10-22T13:05:00.000Z');
+  const { bytes } = await buildAttendancePdf({
+    companyName: 'Ashfield Finishes',
+    siteName: raw,
+    weekStart: '2026-10-19',
+    generatedAt: '2026-10-22T13:05:00.000Z',
+    rows,
+  });
+  const text = decodedPdfText(bytes);
+  assert.equal(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/.test(text.replaceAll('\n', '')), false);
+  assert.match(text, /José Plot 12 - Oak/);
+  assert.equal(text.includes('\u202E'), false);
+  assert.equal(text.includes('\u200B'), false);
+});

@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { MySiteAttendance } from '@/data/attendance';
 import { attemptSiteSwitch, attendanceError, SWITCH_NEEDS_SIGNAL } from '@/data/attendance';
-import { clientNowIso, forgotYesterday, LATE_SIGN_OUT_NOTICE, LATE_SIGN_OUT_REASON } from '@/lib/attendanceHours';
+import { clientNowIso, forgotLineForVisit, LATE_SIGN_OUT_NOTICE, LATE_SIGN_OUT_REASON, londonDateKey } from '@/lib/attendanceHours';
 import { formatUkDateTime } from '@/lib/format';
 import {
   flushAttendanceQueue,
@@ -65,7 +65,12 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
     setNotices(notes);
     try {
       const mine = await repo.listMyAttendance(siteId);
-      const found = forgotYesterday(
+      const now = clientNowIso();
+      const today = londonDateKey(now);
+      const signedInToday =
+        mine.some((entry) => entry.person_id === ownerId && londonDateKey(entry.in_at) === today) ||
+        pending.some((item) => item.action === 'in' && londonDateKey(item.deviceAt) === today);
+      const found = forgotLineForVisit(
         mine.map((entry) => ({
           entryId: entry.entry_id,
           personId: entry.person_id,
@@ -73,13 +78,18 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
           forgot: entry.forgot_sign_out,
           corrected: (entry.audit ?? []).some((row) => row.reason !== LATE_SIGN_OUT_REASON),
         })),
-        clientNowIso(),
+        now,
         ownerId,
-        forgotSeenIds(userId)
+        forgotSeenIds(userId),
+        signedInToday
       );
-      if (found && live.current) {
-        markForgotSeen(userId, found.entryId);
-        setYesterday(found.message);
+      if (live.current) {
+        if (found) {
+          markForgotSeen(userId, found.entryId);
+          setYesterday(found.message);
+        } else if (signedInToday) {
+          setYesterday(null);
+        }
       }
     } catch {
       // The sign-in button still works if yesterday's list cannot be read.
@@ -107,6 +117,7 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
 
   const shown = stateAfterQueue(server?.state ?? 'out', queued);
   const since = server?.state === 'in' && shown === 'in' ? server.entry?.in_at : null;
+  const switchHere = notices.find((notice) => notice.openSiteId && notice.openSiteName);
 
   async function onPress() {
     if (busy) return;
@@ -191,37 +202,6 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
                 .then(() => setNotices((current) => current.filter((item) => item.id !== notice.id)));
             }}
           />
-          {notice.openSiteId && notice.openSiteName ? (
-            <View style={{ gap: 4 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Sign out of ${notice.openSiteName} and sign in here`}
-                accessibilityState={{ disabled: busy || !online }}
-                disabled={busy || !online}
-                onPress={() => void switchSite(notice)}
-                style={{
-                  minHeight: 48,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: theme.surface,
-                  borderWidth: 1,
-                  borderColor: theme.current,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  opacity: online ? 1 : 0.45,
-                }}>
-                <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
-                  {`Sign out of ${notice.openSiteName} and sign in here`}
-                </Text>
-              </Pressable>
-              {online ? null : (
-                <Text accessibilityRole="text" style={{ color: theme.muted, fontSize: 16 }}>
-                  {SWITCH_NEEDS_SIGNAL}
-                </Text>
-              )}
-            </View>
-          ) : null}
         </View>
       ))}
       {queued.some((item) => item.needsSignIn) ? (
@@ -251,24 +231,52 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
         </Text>
       ) : null}
       {error ? <Text style={{ color: theme.danger, fontSize: 16 }}>{error}</Text> : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={shown === 'in' ? 'Sign out' : 'Sign in'}
-        disabled={busy}
-        onPress={() => void onPress()}
-        style={{
-          minHeight: 56,
-          borderRadius: 14,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: shown === 'in' ? theme.open : theme.current,
-          paddingHorizontal: 18,
-          paddingVertical: 12,
-        }}>
-        <Text style={{ color: shown === 'in' ? theme.text : theme.currentInk, fontSize: 20, fontWeight: '800' }}>
-          {busy ? 'Saving…' : shown === 'in' ? 'Sign out' : 'Sign in'}
+      {switchHere && !online ? (
+        <Text accessibilityRole="text" style={{ color: theme.muted, fontSize: 16 }}>
+          {SWITCH_NEEDS_SIGNAL}
         </Text>
-      </Pressable>
+      ) : null}
+      {switchHere ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Sign out of ${switchHere.openSiteName} and sign in here`}
+          accessibilityState={{ disabled: busy || !online }}
+          disabled={busy || !online}
+          onPress={() => void switchSite(switchHere)}
+          style={{
+            minHeight: 56,
+            borderRadius: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: theme.current,
+            paddingHorizontal: 18,
+            paddingVertical: 12,
+            opacity: online ? 1 : 0.45,
+          }}>
+          <Text style={{ color: theme.currentInk, fontSize: 20, fontWeight: '800', textAlign: 'center' }}>
+            {busy ? 'Saving…' : `Sign out of ${switchHere.openSiteName} and sign in here`}
+          </Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={shown === 'in' ? 'Sign out' : 'Sign in'}
+          disabled={busy}
+          onPress={() => void onPress()}
+          style={{
+            minHeight: 56,
+            borderRadius: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: shown === 'in' ? theme.open : theme.current,
+            paddingHorizontal: 18,
+            paddingVertical: 12,
+          }}>
+          <Text style={{ color: shown === 'in' ? theme.text : theme.currentInk, fontSize: 20, fontWeight: '800' }}>
+            {busy ? 'Saving…' : shown === 'in' ? 'Sign out' : 'Sign in'}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }

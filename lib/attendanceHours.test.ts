@@ -12,6 +12,7 @@ import {
   FLAG_LATE,
   FORGOT_YESTERDAY_NOTICE,
   forgottenClose,
+  forgotLineForVisit,
   forgotYesterday,
   formatHours,
   graceCouldOwn,
@@ -357,6 +358,8 @@ test('the next-morning notice is only for the owner of yesterday’s forgotten s
     forgotYesterday([{ ...rows[0], inAt: londonWallIso('2026-10-22', 8, 0) }], now, 'amy', new Set()),
     null
   );
+  assert.equal(forgotLineForVisit(rows, now, 'amy', new Set(), true), null);
+  assert.equal(forgotLineForVisit(rows, now, 'amy', new Set(), false)?.message, FORGOT_YESTERDAY_NOTICE);
 });
 
 test('a clock gap is only more than 10 minutes', () => {

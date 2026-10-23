@@ -1,4 +1,5 @@
 import { preparedLine, weekRangeLabel, type WeekRow } from '@/lib/attendanceHours';
+import { pdfText } from '@/lib/snagPdf';
 import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
@@ -19,10 +20,6 @@ export type AttendancePdfInput = {
 };
 
 type Face = PDFFont;
-
-function pdfText(value: string): string {
-  return value.replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
-}
 
 function pdfFontBytes(encoded: string): Uint8Array {
   const binary = globalThis.atob(encoded);
