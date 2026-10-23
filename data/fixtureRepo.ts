@@ -7,6 +7,7 @@ import {
   START_WINDOW_MINUTES,
 } from '@/data/startCompany';
 import { assertLogoUpload, logoObjectPath } from '@/data/companyLogo';
+import { revisionFamilyIds, sheetKeyOf } from '@/data/drawingDelete';
 import { newId } from '@/data/newId';
 import { inviteSiteIds, previewName } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
@@ -569,7 +570,13 @@ function canAccessSite(person: Person, siteId: string): boolean {
   const site = store.sites.find((s) => s.id === siteId && s.company_id === person.company_id);
   if (!site) return false;
   if (person.role === 'owner') return true;
+  if (site.archived_at) return false;
   return store.assignments.some((a) => a.site_id === siteId && a.person_id === person.id);
+}
+
+function assertSiteWritable(siteId: string) {
+  const site = store.sites.find((row) => row.id === siteId);
+  if (site?.archived_at) throw new Error('site_archived');
 }
 
 function sharesAssignedSite(caller: Person, target: Person): boolean {
@@ -735,6 +742,7 @@ export const fixtureRepo: SitePackRepo = {
         : ids;
     return store.sites
       .filter((s) => siteIds.includes(s.id))
+      .filter((s) => person.role === 'owner' || !s.archived_at)
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((s) => withCounts(s, person));
   },
@@ -789,6 +797,7 @@ export const fixtureRepo: SitePackRepo = {
   async createRequest(input: CreateRequestInput) {
     const person = meOrThrow();
     if (!canAccessSite(person, input.siteId)) throw new Error('not_authorized');
+    assertSiteWritable(input.siteId);
     const row: DrawingRequest = {
       id: newId(),
       site_id: input.siteId,
@@ -878,7 +887,7 @@ export const fixtureRepo: SitePackRepo = {
     const sites =
       person.role === 'owner'
         ? store.sites.filter((s) => s.company_id === person.company_id)
-        : store.sites.filter((s) => canAccessSite(person, s.id) && person.role !== 'owner');
+        : store.sites.filter((s) => canAccessSite(person, s.id) && !s.archived_at && person.role !== 'owner');
     return sites
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -916,7 +925,45 @@ export const fixtureRepo: SitePackRepo = {
     if (person.role !== 'owner') throw new Error('not_authorized');
     const site = store.sites.find((row) => row.id === siteId && row.company_id === person.company_id);
     if (!site) throw new Error('site_not_found');
-    site.archived_at = archived ? now() : null;
+    site.archived_at = archived ? (site.archived_at ?? now()) : null;
+    site.archived_by = archived ? (site.archived_by ?? person.id) : null;
+  },
+
+  async deleteDrawing(drawingId) {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    const anchor = store.drawings.find((row) => row.id === drawingId);
+    const site = anchor
+      ? store.sites.find((row) => row.id === anchor.site_id && row.company_id === person.company_id)
+      : undefined;
+    if (!anchor || !site) throw new Error('drawing_not_found');
+    const family = new Set(
+      revisionFamilyIds(
+        anchor.id,
+        store.drawings.map((row) => ({
+          id: row.id,
+          siteId: row.site_id,
+          title: row.title,
+          sheetKey: sheetKeyOf(row.sheet_number),
+          supersedesId: row.supersedes_id,
+        })),
+      ),
+    );
+    const paths = store.drawings.filter((row) => family.has(row.id)).map((row) => row.storage_path);
+    for (const request of store.requests) {
+      if (request.fulfilled_drawing_id && family.has(request.fulfilled_drawing_id)) {
+        request.fulfilled_drawing_id = null;
+      }
+    }
+    store.drawingSeen = store.drawingSeen.filter((row) => !family.has(row.drawing_id));
+    store.drawingOpens = store.drawingOpens.filter((row) => !family.has(row.drawing_id));
+    store.drawings = store.drawings.filter((row) => !family.has(row.id));
+    return paths;
+  },
+
+  async sweepDrawingOrphans() {
+    const person = meOrThrow();
+    if (person.role !== 'owner') return;
   },
 
   async contractsManagerNames(siteId) {
@@ -944,6 +991,7 @@ export const fixtureRepo: SitePackRepo = {
   async addAssignment(siteId, personId) {
     const person = meOrThrow();
     if (person.role === 'operative' || !canAccessSite(person, siteId)) throw new Error('not_authorized');
+    assertSiteWritable(siteId);
     if (store.assignments.some((a) => a.site_id === siteId && a.person_id === personId)) return;
     store.assignments.push({
       id: newId(),
@@ -1051,6 +1099,7 @@ export const fixtureRepo: SitePackRepo = {
   async uploadDrawingFile({ companyId, siteId, drawingId, bytes, contentType }) {
     const person = meOrThrow();
     if (person.role === 'operative' || !canAccessSite(person, siteId)) throw new Error('not_authorized');
+    assertSiteWritable(siteId);
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;
     pdfObjectUrl(drawingId, 'Uploaded sheet', 'X', new Date().toISOString().slice(0, 10));
     return { storagePath, fileSizeBytes: bytes.byteLength || 1, contentType };
@@ -1061,6 +1110,7 @@ export const fixtureRepo: SitePackRepo = {
     if (person.role === 'operative' || !canAccessSite(person, input.siteId)) {
       throw new Error('not_authorized');
     }
+    assertSiteWritable(input.siteId);
     const key = sheetKey(input.sheetNumber);
     let old: Drawing | undefined;
     if (input.replaceDrawingId) {

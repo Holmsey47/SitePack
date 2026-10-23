@@ -51,6 +51,7 @@ import type {
 } from '@/data/types';
 import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
+import { pathsToClear } from '@/data/drawingDelete';
 import { uploadBytes } from '@/lib/uploadBytes';
 import { Platform } from 'react-native';
 
@@ -71,6 +72,20 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
   return throwSnagRpc(await getSupabase().rpc(name, args));
+}
+
+/** Rows are already gone. Clear orphan records only for objects the bucket dropped. */
+async function removeDrawingObjects(paths: string[]) {
+  if (paths.length === 0) return;
+  const supabase = getSupabase();
+  const { data, error } = await supabase.storage.from('drawings').remove(paths);
+  const removed = (data ?? []).map((row) => row.name).filter((path) => path.length > 0);
+  const { clear, pending } = pathsToClear(paths, removed, Boolean(error));
+  if (clear.length > 0) {
+    const cleared = await supabase.rpc('clear_drawing_orphans', { p_paths: clear });
+    if (cleared.error) throw new Error(rpcErrorCode(cleared.error.message));
+  }
+  if (pending.length > 0) throw new Error('storage_orphan');
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {
@@ -517,8 +532,32 @@ export const supabaseRepo: SitePackRepo = {
 
   async archiveSite(siteId, archived) {
     const supabase = getSupabase();
-    const { error } = await supabase.rpc('archive_site', { p_site_id: siteId, p_archived: archived });
+    const { error } = await supabase.rpc(archived ? 'archive_site' : 'restore_site', { p_site_id: siteId });
     if (error) throw new Error(rpcErrorCode(error.message));
+  },
+
+  async deleteDrawing(drawingId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('delete_drawing', { p_drawing_id: drawingId });
+    if (error) throw new Error(rpcErrorCode(error.message));
+    const paths = (Array.isArray(data) ? data : []).filter(
+      (path): path is string => typeof path === 'string' && path.length > 0,
+    );
+    await removeDrawingObjects(paths);
+    return paths;
+  },
+
+  async sweepDrawingOrphans() {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('list_drawing_orphans');
+    if (error || !Array.isArray(data)) return;
+    const paths = data.filter((path): path is string => typeof path === 'string' && path.length > 0);
+    if (paths.length === 0) return;
+    try {
+      await removeDrawingObjects(paths);
+    } catch {
+      return;
+    }
   },
 
   async companySitesPulse() {

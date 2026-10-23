@@ -11,6 +11,7 @@ import {
 import { displayLevel } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import { DELETE_DRAWING_CONFIRM } from '@/data/walk';
 import type { Drawing } from '@/data/types';
 import type { OfflinePackMeta } from '@/lib/offline';
 import {
@@ -57,6 +58,8 @@ export default function DrawingViewerScreen() {
   const [openedLocal, setOpenedLocal] = useState(false);
   const [seenNote, setSeenNote] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,6 +301,27 @@ export default function DrawingViewerScreen() {
     }
   }
 
+  async function onDelete() {
+    if (!drawing || person?.role !== 'owner') return;
+    setDeleting(true);
+    setError('');
+    try {
+      await repo.deleteDrawing(drawing.id);
+      router.replace(`/sites/${drawing.site_id}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (message === 'storage_orphan') {
+        setError('Removed for everyone. The file will be deleted the next time you open Company.');
+        setConfirmDelete(false);
+        setDrawing(null);
+      } else {
+        setError(message || 'Could not delete the drawing.');
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function onSave() {
     if (!uri || !drawing) return;
     setSaving(true);
@@ -435,6 +459,28 @@ export default function DrawingViewerScreen() {
             variant="secondary"
             onPress={() => router.push(`/sites/${siteId}/upload?replace=${drawing.id}`)}
           />
+        ) : null}
+        {person?.role === 'owner' && drawing ? (
+          confirmDelete ? (
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{DELETE_DRAWING_CONFIRM}</Text>
+              <Button
+                label="Delete drawing"
+                variant="danger"
+                minHeight={48}
+                loading={deleting}
+                onPress={() => void onDelete()}
+              />
+              <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(false)} />
+            </View>
+          ) : (
+            <Button
+              label="Delete drawing"
+              variant="danger"
+              minHeight={48}
+              onPress={() => setConfirmDelete(true)}
+            />
+          )
         ) : null}
         {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
         {error ? <Button label="Retry" variant="secondary" onPress={() => setRetrying((value) => !value)} /> : null}

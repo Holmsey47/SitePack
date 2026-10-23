@@ -7,7 +7,7 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing }
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
-import { archivedRows, contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
+import { contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
@@ -28,7 +28,6 @@ export default function SitesScreen() {
   const [query, setQuery] = useState('');
   const [staleOnly, setStaleOnly] = useState(false);
   const [openOnly, setOpenOnly] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
@@ -107,7 +106,6 @@ export default function SitesScreen() {
   }
 
   const working = useMemo(() => workingRows(rows), [rows]);
-  const archived = useMemo(() => archivedRows(rows), [rows]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return working.filter((row) => {
@@ -158,7 +156,7 @@ export default function SitesScreen() {
         {resetNotice}
         <FixtureOfflineSwitch />
         {error ? <ErrorText>{error}</ErrorText> : null}
-        {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
+        {loaded && !error && workingRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
         ) : (
           workingRows(mine).map((site) => (
@@ -190,19 +188,6 @@ export default function SitesScreen() {
             </Card>
           ))
         )}
-        {archivedRows(mine).length > 0 ? (
-          <Pressable onPress={() => setShowArchived((value) => !value)} style={{ paddingVertical: 8 }}>
-            <Text style={{ color: theme.text, fontWeight: '800' }}>{showArchived ? 'Hide archived' : 'Archived'}</Text>
-          </Pressable>
-        ) : null}
-        {showArchived
-          ? archivedRows(mine).map((site) => (
-              <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>
-                <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '700' }}>{site.name}</Text>
-                {site.address_line ? <Muted>{site.address_line}</Muted> : null}
-              </Card>
-            ))
-          : null}
       </Screen>
     );
   }
@@ -229,7 +214,7 @@ export default function SitesScreen() {
         </Pressable>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
-      {loaded && !error && filtered.length === 0 && (working.length > 0 || archived.length === 0) ? (
+      {loaded && !error && filtered.length === 0 ? (
         <EmptyState title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'} />
       ) : (
         filtered.map((row) => (
@@ -275,20 +260,6 @@ export default function SitesScreen() {
           </Card>
         ))
       )}
-      {archived.length > 0 ? (
-        <Pressable onPress={() => setShowArchived((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: theme.text, fontWeight: '800' }}>{showArchived ? 'Hide archived' : 'Archived'}</Text>
-        </Pressable>
-      ) : null}
-      {showArchived
-        ? archived.map((row) => (
-            <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
-              <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '700' }}>{row.name}</Text>
-              <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
-              <Muted>{operativesLine(row.operative_count)}</Muted>
-            </Card>
-          ))
-        : null}
     </Screen>
   );
 }
