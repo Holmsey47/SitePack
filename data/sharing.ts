@@ -188,10 +188,8 @@ export type SharedSignInRow = {
 export type SharedInductionRow = {
   person_name: string;
   company_name: string | null;
-  title: string;
-  meaning: string;
-  status: string;
   received_at: string;
+  status: string;
 };
 
 export type ShareDrawingUrl = {

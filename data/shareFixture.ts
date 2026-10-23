@@ -355,8 +355,6 @@ export function fixtureSharedInductions(siteId: string): SharedInductionRow[] {
     {
       person_name: 'Łukasz Wójcik',
       company_name: 'Host Build Ltd',
-      title: 'Site induction',
-      meaning: 'I have read the induction.',
       status: 'Signed',
       received_at: '2026-10-22T08:05:00.000Z',
     },

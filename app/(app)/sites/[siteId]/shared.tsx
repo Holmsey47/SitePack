@@ -252,11 +252,10 @@ export default function SharedSiteScreen() {
               ) : null}
               {!inductions.failed && inductions.rows.length === 0 ? <Muted>No induction signatures.</Muted> : null}
               {inductions.rows.map((row) => (
-                <Card key={`${row.title}|${row.person_name}|${row.received_at}`}>
+                <Card key={`${row.person_name}|${row.received_at}`}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
                   {row.company_name ? <Muted>{row.company_name}</Muted> : null}
-                  <Muted>{`${row.title} · ${row.status}`}</Muted>
-                  <Muted>{row.meaning}</Muted>
+                  <Muted>{`${row.status} · ${formatUkDateTime(row.received_at)}`}</Muted>
                 </Card>
               ))}
             </View>

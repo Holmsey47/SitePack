@@ -574,6 +574,8 @@ create policy site_talk_versions_select
 -- is its own grant. Guests have no policy on this table: can_access_site stays
 -- false for the other firm, and a direct select returns no rows and no image.
 -- The host owner, the contracts manager, and the signer still read the image.
+-- Questions, notes, talk_register, version body, pdf_path, and talks/ files stay on the
+-- host policies from the inductions migration. This migration does not add a guest branch.
 -- A guest's name, company, time, and induction status come only from shared_induction_register.
 revoke select on table public.site_talk_signatures from public, anon, authenticated;
 grant select (
@@ -1698,15 +1700,13 @@ begin
   end if;
   v_share_id := private.share_guard(p_site_id, 'inductions');
 
-  -- Name, company, time, and Signed status. No signature id, talk id, or person id.
+  -- Name, company, time, and Signed status. No title, meaning, signature, question, note, or file.
   select coalesce(jsonb_agg(jsonb_build_object(
     'person_name', sig.person_name,
     'company_name', c.name,
-    'title', t.title,
-    'meaning', sig.meaning,
-    'status', 'Signed',
-    'received_at', sig.received_at
-  ) order by t.title, sig.person_name, sig.received_at), '[]'::jsonb)
+    'received_at', sig.received_at,
+    'status', 'Signed'
+  ) order by sig.received_at, sig.person_name), '[]'::jsonb)
   into v_rows
   from public.site_talks t
   join public.site_talk_signatures sig on sig.talk_id = t.id

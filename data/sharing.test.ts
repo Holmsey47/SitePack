@@ -98,7 +98,8 @@ test('a guest view includes the sign-in and induction registers without contact 
   assert.equal(inductions[0]?.person_name, 'Łukasz Wójcik');
   assert.equal(inductions[0]?.company_name, 'Host Build Ltd');
   assert.equal(inductions[0]?.status, 'Signed');
-  assert.equal(inductions[0]?.title, 'Site induction');
+  assert.equal('title' in (inductions[0] ?? {}), false);
+  assert.equal('meaning' in (inductions[0] ?? {}), false);
   assert.equal('id' in (inductions[0] ?? {}), false);
   assert.equal('talk_id' in (inductions[0] ?? {}), false);
   const packed = JSON.stringify({ signIn, inductions, view });
@@ -133,7 +134,8 @@ test('the share screens show pending codes, both registers, a section retry, and
   assert.match(openShare, /history\.replaceState/);
   assert.match(openShare, /publicCodePath/);
   assert.match(openShare, /router\.replace\('\/share'\)/);
-  assert.match(shared, /key=\{`\$\{row\.title\}\|\$\{row\.person_name\}\|\$\{row\.received_at\}`\}/);
+  assert.match(shared, /key=\{`\$\{row\.person_name\}\|\$\{row\.received_at\}`\}/);
+  assert.equal(shared.includes('row.meaning'), false);
   assert.match(shared, /key=\{`\$\{row\.person_name\}\|\$\{row\.in_at\}`\}/);
   assert.equal(shared.includes('${row.talk_id}-${row.person_name}'), false);
   assert.equal(shared.includes('raised_by_name'), false);

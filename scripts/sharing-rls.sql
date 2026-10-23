@@ -261,7 +261,8 @@ insert into storage.objects (bucket_id, name)
 values
   ('drawings', :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111111.pdf'),
   ('drawings', :'firmx' || '/' || :'sitea' || '/requests/photo.jpg'),
-  ('drawings', :'firmx' || '/' || :'sitea' || '/talks/induction.pdf');
+  ('drawings', :'firmx' || '/' || :'sitea' || '/talks/induction.pdf'),
+  ('drawings', :'firmx' || '/' || :'sitea' || '/talks/TALKPDF-SECRET.pdf');
 
 insert into public.variations (id, site_id, company_id, vo_seq, created_by)
 values
@@ -328,11 +329,23 @@ values
     :'ownerx', 'Owner X', 'Owner', now(), :'ownerx'
   );
 
-insert into public.site_talk_versions (id, talk_id, site_id, company_id, version_no, body, content_hash, is_current, created_by)
+insert into public.site_talk_versions (
+  id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, content_hash, is_current, created_by
+)
 values
-  ('dd111111-1111-4111-8111-111111111111', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 2, 'Read this induction.', 'hash-induction', true, :'ownerx'),
-  ('dd111111-1111-4111-8111-111111111113', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1, 'OLD-INDUCTION-SECRET', 'hash-induction-old', false, :'ownerx'),
-  ('dd111111-1111-4111-8111-111111111112', 'cc111111-1111-4111-8111-111111111112', :'sitea', :'firmx', 1, 'TOOLBOX-SECRET body', 'hash-toolbox', true, :'ownerx');
+  (
+    'dd111111-1111-4111-8111-111111111111', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 2,
+    'Read this induction.', :'firmx' || '/' || :'sitea' || '/talks/TALKPDF-SECRET.pdf', 'application/pdf', 128,
+    'hash-induction', true, :'ownerx'
+  ),
+  (
+    'dd111111-1111-4111-8111-111111111113', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1,
+    'OLD-INDUCTION-SECRET', null, null, null, 'hash-induction-old', false, :'ownerx'
+  ),
+  (
+    'dd111111-1111-4111-8111-111111111112', 'cc111111-1111-4111-8111-111111111112', :'sitea', :'firmx', 1,
+    'TOOLBOX-SECRET body', null, null, null, 'hash-toolbox', true, :'ownerx'
+  );
 
 insert into public.site_talk_signatures (
   talk_id, version_id, site_id, company_id, person_id, person_name, captured_by, session_id,
@@ -352,6 +365,15 @@ values (
   'cc111111-1111-4111-8111-111111111111', 'dd111111-1111-4111-8111-111111111111', :'sitea', :'firmx',
   :'opx', 'Op Secret', 'QUESTION-SECRET', :'opx', 'session-1',
   false, now(), now()
+);
+
+insert into public.site_talk_notes (
+  talk_id, version_id, person_id, site_id, company_id,
+  explained_verbally, interpreter_used, noted_by
+)
+values (
+  'cc111111-1111-4111-8111-111111111111', 'dd111111-1111-4111-8111-111111111111', :'opx', :'sitea', :'firmx',
+  true, true, :'ownerx'
 );
 
 set session_replication_role = origin;
@@ -747,12 +769,16 @@ select pg_temp.ok(
   and (select count(*) from public.site_talk_questions) = 0
   and jsonb_array_length(public.shared_induction_register(:'sitea'::uuid)) = 1
   and pg_temp.keys_of(public.shared_induction_register(:'sitea'::uuid) -> 0)
-    = array['company_name', 'meaning', 'person_name', 'received_at', 'status', 'title']::text[]
+    = array['company_name', 'person_name', 'received_at', 'status']::text[]
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'company_name') = 'Firm X'
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'status') = 'Signed'
-  and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'title') = 'Site induction'
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'received_at') is not null
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%Site induction%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%I have read%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%Read this induction%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%TALKPDF-SECRET%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%talks/%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%SIGIMAGE-SECRET%')
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%signature_png%')
@@ -802,7 +828,9 @@ declare
     'site_attendance',
     'site_talks',
     'site_talk_versions',
-    'site_talk_signatures'
+    'site_talk_signatures',
+    'site_talk_questions',
+    'site_talk_notes'
   ];
   v_name text;
   v_expr text;
@@ -870,6 +898,158 @@ begin
   raise notice 'ok: guest_direct_reads: guest owner, cm, and operative read 0 rows from every shared table and storage';
 end
 $guest_direct_reads$;
+
+-- Probe guest_talk_host_only.
+-- Assertion: guest owner, cm, and operative get 0 rows from signatures (including
+-- signature_png), questions, notes, version body, pdf_path, and storage objects
+-- under */talks/*, and not_authorized or no execute from talk_register and site_talk_detail.
+do $guest_talk_host_only$
+declare
+  v_role uuid;
+  v_roles uuid[] := array[
+    'a2222222-2222-4222-8222-222222222221'::uuid,
+    'a2222222-2222-4222-8222-222222222222'::uuid,
+    'a2222222-2222-4222-8222-222222222223'::uuid
+  ];
+  v_site uuid := '51111111-1111-4111-8111-111111111111';
+  v_talk uuid := 'cc111111-1111-4111-8111-111111111111';
+  v_count bigint;
+  v_text text;
+  v_state text;
+  v_extra text;
+  v_pol text;
+begin
+  execute 'reset role';
+  if (select count(*) from public.site_talk_signatures where signature_png like 'SIGIMAGE-SECRET%') <> 1
+     or (select count(*) from public.site_talk_questions where body = 'QUESTION-SECRET') <> 1
+     or (select count(*) from public.site_talk_notes where explained_verbally and interpreter_used) <> 1
+     or (select count(*) from public.site_talk_versions where pdf_path like '%/talks/TALKPDF-SECRET.pdf' and body = 'Read this induction.') <> 1
+     or (select count(*) from storage.objects where name like '%/talks/%') < 1
+  then
+    raise exception 'FAIL: host talk secrets are missing, so a guest leak would not show up';
+  end if;
+
+  select n.nspname || '.' || p.proname
+  into v_extra
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where p.prosrc ilike '%talk_register(%'
+    and not (n.nspname = 'public' and p.proname = 'site_talk_detail')
+  limit 1;
+  if v_extra is not null then
+    raise exception 'FAIL: another function returns talk_register: %', v_extra;
+  end if;
+
+  foreach v_pol in array array[
+    'site_talk_signatures_select',
+    'site_talk_questions_select',
+    'site_talk_notes_select',
+    'site_talk_versions_select'
+  ]
+  loop
+    select coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')
+    into v_text
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and pol.polname = v_pol;
+    if v_text is null or v_text like '%can_view_shared%' then
+      raise exception 'FAIL: % is missing or has a guest branch', v_pol;
+    end if;
+  end loop;
+
+  foreach v_role in array v_roles loop
+    perform set_config('request.jwt.claim.sub', v_role::text, true);
+    perform set_config('request.jwt.claim.role', 'authenticated', true);
+    perform set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_role::text, 'role', 'authenticated')::text,
+      true
+    );
+    execute 'set local role authenticated';
+
+    select count(*) into v_count from public.site_talk_signatures;
+    select coalesce(max(s.signature_png), '') into v_text from public.site_talk_signatures s;
+    if v_count <> 0 or v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0 then
+      raise exception 'FAIL: % read signature rows', v_role;
+    end if;
+    select coalesce(max(to_jsonb(s)::text), '') into v_text from public.site_talk_signatures s;
+    if v_text <> '' or position('signature_png' in v_text) > 0 then
+      raise exception 'FAIL: % read a signature column', v_role;
+    end if;
+
+    select count(*) into v_count from public.site_talk_questions;
+    select coalesce(max(q.body), '') into v_text from public.site_talk_questions q;
+    if v_count <> 0 or position('QUESTION-SECRET' in v_text) > 0 then
+      raise exception 'FAIL: % read questions', v_role;
+    end if;
+
+    select count(*) into v_count from public.site_talk_notes;
+    if v_count <> 0 then
+      raise exception 'FAIL: % read notes', v_role;
+    end if;
+
+    select count(*) into v_count from public.site_talk_versions;
+    select coalesce(max(v.body), '') || coalesce(max(v.pdf_path), '') into v_text from public.site_talk_versions v;
+    if v_count <> 0 or position('Read this induction' in v_text) > 0 or position('TALKPDF-SECRET' in v_text) > 0 or position('/talks/' in v_text) > 0 then
+      raise exception 'FAIL: % read a version body or pdf_path', v_role;
+    end if;
+
+    select count(*) into v_count from storage.objects where name like '%/talks/%';
+    if v_count <> 0 then
+      raise exception 'FAIL: % read % talks storage objects', v_role, v_count;
+    end if;
+
+    begin
+      perform private.talk_register(v_talk);
+      raise exception 'FAIL: % talk_register returned rows', v_role;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if sqlerrm is distinct from 'not_authorized' or position('SIGIMAGE-SECRET' in sqlerrm) > 0 or position('QUESTION-SECRET' in sqlerrm) > 0 then
+          raise exception 'FAIL: % talk_register % %', v_role, v_state, sqlerrm;
+        end if;
+    end;
+
+    begin
+      perform public.site_talk_detail(v_talk);
+      raise exception 'FAIL: % site_talk_detail returned the register', v_role;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if (sqlerrm is distinct from 'not_authorized' and v_state is distinct from '42501')
+           or position('SIGIMAGE-SECRET' in sqlerrm) > 0
+           or position('QUESTION-SECRET' in sqlerrm) > 0
+           or position('TALKPDF-SECRET' in sqlerrm) > 0
+           or position('signature_png' in sqlerrm) > 0 then
+          raise exception 'FAIL: % site_talk_detail % %', v_role, v_state, sqlerrm;
+        end if;
+    end;
+
+    v_text := public.shared_induction_register(v_site)::text;
+    if position('Łukasz Wójcik' in v_text) = 0
+       or position('Firm X' in v_text) = 0
+       or position('"status": "Signed"' in v_text) = 0
+       or position('title' in v_text) > 0
+       or position('meaning' in v_text) > 0
+       or position('SIGIMAGE-SECRET' in v_text) > 0
+       or position('QUESTION-SECRET' in v_text) > 0
+       or position('TALKPDF-SECRET' in v_text) > 0
+       or position('Read this induction' in v_text) > 0
+       or position('/talks/' in v_text) > 0
+       or position('signature_png' in v_text) > 0 then
+      raise exception 'FAIL: % induction register is not name, company, time, and status: %', v_role, v_text;
+    end if;
+  end loop;
+
+  raise notice 'ok: guest_talk_host_only: guest owner, cm, and operative get 0 rows or not_authorized from signatures, questions, notes, talk_register, version body, pdf_path, and talks files';
+end
+$guest_talk_host_only$;
 
 -- Probe guest_signature_image.
 -- Assertion: guest owner, cm, and operative get no signature image from a direct select or any rpc.
