@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { ApiError, apiErrorFromTransport } from '../data/apiError.ts';
 import {
   adoptAttendanceOwner,
   ATTENDANCE_NOTICE_KEY,
   ATTENDANCE_OWNER_KEY,
   ATTENDANCE_QUEUE_KEY,
   flushAttendanceQueue,
+  isRetryableAttendanceFailure,
   memoryAttendanceQueue,
   persistThenSendAttendance,
   refusedTapNotice,
@@ -113,28 +115,101 @@ test('a refused queued tap is dropped and leaves an in-app notice', async () => 
   assert.match(notices[0]?.message ?? '', /not saved/);
 });
 
-test('an unexpected error backs off, moves on, and keeps the tap', async () => {
+test('a retryable sign-in holds the sign-out for that shift and another shift still sends', async () => {
   const queue = memoryAttendanceQueue();
-  const first = tap('user-a');
-  const second: QueuedTap = { ...tap('user-a', 'out'), localId: 'user-a-later', deviceAt: '2026-10-22T08:05:00.000Z' };
-  await queue.put(first);
-  await queue.put(second);
+  const signIn = tap('user-a');
+  const signOut: QueuedTap = { ...tap('user-a', 'out'), localId: 'user-a-out', deviceAt: '2026-10-22T08:05:00.000Z' };
+  const other: QueuedTap = { ...tap('user-a', 'out'), localId: 'other-site', siteId: 'site-b', deviceAt: '2026-10-22T08:06:00.000Z' };
+  await queue.put(signIn);
+  await queue.put(signOut);
+  await queue.put(other);
   const sent: string[] = [];
   await flushAttendanceQueue(queue, 'user-a', async (item) => {
-    if (item.localId === first.localId) throw new Error('timeout');
+    if (item.localId === signIn.localId) throw new TypeError('Failed to fetch');
     sent.push(item.localId);
   });
-  assert.deepEqual(sent, ['user-a-later']);
+  assert.deepEqual(sent, ['other-site']);
   const left = await queue.list();
-  assert.equal(left.length, 1);
-  assert.equal(left[0]?.localId, first.localId);
-  assert.equal((left[0]?.attempts ?? 0) > 0, true);
-  assert.equal(Number.isNaN(Date.parse(left[0]?.retryAt ?? '')), false);
+  assert.deepEqual(left.map((item) => item.localId).sort(), ['user-a-in', 'user-a-out']);
+  assert.equal((left.find((item) => item.localId === 'user-a-in')?.attempts ?? 0) > 0, true);
   let calls = 0;
   await flushAttendanceQueue(queue, 'user-a', async () => {
     calls += 1;
   });
   assert.equal(calls, 0);
+  assert.equal((await queue.list()).length, 2);
+});
+
+test('a sign-out is not sent while an earlier tap for that shift is still queued', async () => {
+  const queue = memoryAttendanceQueue();
+  const signIn = tap('user-a');
+  await persistThenSendAttendance(signIn, true, async () => {
+    throw new TypeError('Network request failed');
+  }, queue);
+  let calls = 0;
+  const signOut: QueuedTap = { ...tap('user-a', 'out'), localId: 'user-a-out', deviceAt: '2026-10-22T08:05:00.000Z' };
+  const result = await persistThenSendAttendance(signOut, true, async () => {
+    calls += 1;
+  }, queue);
+  assert.equal(result, 'queued');
+  assert.equal(calls, 0);
+  const sent: string[] = [];
+  await flushAttendanceQueue(queue, 'user-a', async (item) => {
+    sent.push(item.action);
+  });
+  assert.deepEqual(sent, []);
+});
+
+test('network, timeout, 408, 429, and 5xx retry; business codes and other 4xx do not', async () => {
+  const retryable = [
+    new TypeError('Failed to fetch'),
+    new TypeError('Network request failed'),
+    new Error('timeout'),
+    new ApiError({ kind: 'http', status: 408, message: '408' }),
+    new ApiError({ kind: 'http', status: 429, message: '429' }),
+    new ApiError({ kind: 'http', status: 503, message: '503' }),
+    new ApiError({ kind: 'http', status: 500, message: '500' }),
+    apiErrorFromTransport({ message: 'TypeError: Failed to fetch' }, 0),
+    apiErrorFromTransport({ message: 'TypeError: Network request failed' }, 0),
+    apiErrorFromTransport({ message: 'upstream connect error' }, 503),
+  ];
+  for (const err of retryable) {
+    assert.equal(isRetryableAttendanceFailure(err), true, err instanceof Error ? err.message : 'retry');
+    const queue = memoryAttendanceQueue();
+    const result = await persistThenSendAttendance({ ...tap('user-a'), localId: `retry-${retryable.indexOf(err)}` }, true, async () => {
+      throw err;
+    }, queue);
+    assert.equal(result, 'queued');
+    assert.equal((await queue.list()).length, 1);
+  }
+
+  const permanent = [
+    new ApiError({ kind: 'business', code: 'already_signed_in', message: 'already_signed_in', detail: 'Plot 12 – Oak Estate' }),
+    new ApiError({ kind: 'http', status: 401, message: '401' }),
+    new ApiError({ kind: 'http', status: 422, message: '422' }),
+    new Error('not_signed_in'),
+    apiErrorFromTransport({ message: 'JWT expired' }, 401),
+    apiErrorFromTransport({ message: 'already_signed_in', details: 'Plot 12 – Oak Estate' }, 400),
+  ];
+  for (const err of permanent) {
+    assert.equal(isRetryableAttendanceFailure(err), false, err instanceof Error ? err.message : 'permanent');
+  }
+  const fetchError = apiErrorFromTransport({ message: 'TypeError: Failed to fetch' }, 0);
+  assert.equal(fetchError.kind, 'network');
+  const down = apiErrorFromTransport({ message: 'upstream connect error' }, 503);
+  assert.equal(down.kind, 'http');
+  assert.equal(down.status, 503);
+  const named = apiErrorFromTransport({ message: 'already_signed_in', details: 'Plot 12 – Oak Estate' }, 400);
+  assert.equal(named.kind, 'business');
+  assert.equal(named.code, 'already_signed_in');
+  assert.equal(named.detail, 'Plot 12 – Oak Estate');
+  const queue = memoryAttendanceQueue();
+  const refused = await persistThenSendAttendance(tap('user-a'), true, async () => {
+    throw named;
+  }, queue);
+  assert.equal(refused, 'refused');
+  assert.equal((await queue.list()).length, 0);
+  assert.match((await queue.listNotices())[0]?.message ?? '', /Plot 12 – Oak Estate/);
 });
 
 test('a notice can be dismissed', async () => {

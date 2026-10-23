@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
+import { ApiError } from './apiError.ts';
+import { attendanceError, hourSpans } from './attendance.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
-import { londonWeekStart } from '../lib/attendanceHours.ts';
+import {
+  buildWeekSheet,
+  FLAG_CORRECTED,
+  FLAG_LATE,
+  londonWallIso,
+  londonWeekStart,
+  weekCsv,
+} from '../lib/attendanceHours.ts';
 
 test('an operative sees only their own hours and cannot correct them', async () => {
   resetFixtureStore();
@@ -68,4 +78,96 @@ test('a correction keeps the before and after and an operative does not receive 
   const seen = await fixtureRepo.attendanceEntry(closed.entry_id);
   assert.equal(seen?.in_at, inAt);
   assert.equal(seen?.audit, null);
+});
+
+test('a correction then a fresh load shows the new total in the sheet and the CSV', async () => {
+  resetFixtureStore();
+  process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const pin = (iso: string) => {
+    clock.__SITEPACK_NOW = iso;
+    return iso;
+  };
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 7, 0)));
+  await fixtureRepo.signOutSite(IDS.oak, pin(londonWallIso('2026-10-20', 23, 59)));
+  await fixtureRepo.signOut();
+
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const week = '2026-10-19';
+  const before = await fixtureRepo.weeklyAttendance(IDS.oak, week);
+  const beforeRows = buildWeekSheet(hourSpans(before?.entries ?? []), week, '2026-10-22T12:00:00.000Z');
+  assert.equal(beforeRows[0]?.total, '16h 59m');
+  const entry = before?.entries[0];
+  assert.ok(entry);
+  await fixtureRepo.correctAttendance(entry.entry_id, londonWallIso('2026-10-20', 7, 0), londonWallIso('2026-10-20', 16, 30), 'Left at half four');
+  const after = await fixtureRepo.weeklyAttendance(IDS.oak, week);
+  const afterRows = buildWeekSheet(hourSpans(after?.entries ?? []), week, '2026-10-22T12:00:00.000Z');
+  assert.equal(afterRows[0]?.total, '9h 30m');
+  assert.match(weekCsv(afterRows, 'Plot 12 – Oak Estate', week), /9h 30m,9\.50/);
+  delete clock.__SITEPACK_NOW;
+
+  const screen = fs.readFileSync('app/(app)/sites/[siteId]/attendance/week.tsx', 'utf8');
+  assert.match(screen, /useFocusEffect\(/);
+  assert.match(screen, /const fresh = await load\(\)/);
+  assert.match(screen, /weekCsv\(fresh\.rows/);
+  assert.match(screen, /rows: fresh\.rows/);
+  assert.equal(screen.includes('useEffect('), false);
+});
+
+test('a day shift closes before 06:00 and a late sign-out is not labelled Corrected', async () => {
+  resetFixtureStore();
+  process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  const clock = globalThis as { __SITEPACK_NOW?: string };
+  const pin = (iso: string) => {
+    clock.__SITEPACK_NOW = iso;
+    return iso;
+  };
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 7, 0)));
+  const early = pin(londonWallIso('2026-10-21', 5, 30));
+  await assert.rejects(() => fixtureRepo.signOutSite(IDS.oak, early), /not_signed_in/);
+  const history = await fixtureRepo.listMyAttendance(IDS.oak);
+  const closed = history[0];
+  assert.equal(closed?.forgot_sign_out, true);
+  assert.equal(closed?.late_sign_out, false);
+  assert.equal(closed?.out_at, londonWallIso('2026-10-20', 23, 59));
+  const next = await fixtureRepo.signInSite(IDS.oak, early);
+  assert.equal(next.state, 'in');
+  await fixtureRepo.signOutSite(IDS.oak, early);
+  await fixtureRepo.signOut();
+
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, pin(londonWallIso('2026-10-20', 22, 0)));
+  pin(londonWallIso('2026-10-21', 2, 0));
+  assert.equal((await fixtureRepo.mySiteAttendance(IDS.oak)).state, 'in');
+  const seven = pin(londonWallIso('2026-10-21', 7, 0));
+  const late = await fixtureRepo.signOutSite(IDS.oak, seven);
+  assert.equal(late.late_sign_out, true);
+  assert.equal(late.out_at, londonWallIso('2026-10-20', 23, 59));
+  await assert.rejects(() => fixtureRepo.signOutSite(IDS.oak, seven), /not_signed_in/);
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const sheet = await fixtureRepo.weeklyAttendance(IDS.oak, '2026-10-19');
+  const spans = hourSpans(sheet?.entries ?? []);
+  const lateSpan = spans.find((span) => span.late);
+  assert.ok(lateSpan);
+  assert.equal(lateSpan.corrected, false);
+  const [row] = buildWeekSheet(spans.filter((span) => span.late), '2026-10-19', seven);
+  assert.equal(row?.shifts[0]?.flags.includes(FLAG_LATE), true);
+  assert.equal(row?.shifts[0]?.flags.includes(FLAG_CORRECTED), false);
+  delete clock.__SITEPACK_NOW;
+});
+
+test('already signed in names the site he is still on', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.signInSite(IDS.oak, new Date().toISOString());
+  await assert.rejects(() => fixtureRepo.signInSite(IDS.riverside, new Date().toISOString()), (err: unknown) => {
+    assert.ok(err instanceof ApiError);
+    assert.equal(err.code, 'already_signed_in');
+    assert.equal(err.detail, 'Plot 12 – Oak Estate');
+    assert.equal(attendanceError(err), 'You are still signed in at Plot 12 – Oak Estate.');
+    return true;
+  });
 });

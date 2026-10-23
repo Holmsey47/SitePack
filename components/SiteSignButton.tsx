@@ -59,7 +59,7 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
       setServer(await repo.mySiteAttendance(siteId));
       setError('');
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     }
   }, [siteId, userId]);
 
@@ -92,7 +92,7 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
       await persistThenSendAttendance(item, online, sendTap);
       await load();
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     } finally {
       setBusy(false);
     }

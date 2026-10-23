@@ -1,3 +1,4 @@
+import { ApiError } from '@/data/apiError';
 import { newId } from '@/data/newId';
 import type { Role } from '@/data/types';
 import type { AttendanceAudit, AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
@@ -6,6 +7,7 @@ import {
   clientNowIso,
   clockGap,
   forgottenClose,
+  graceCouldOwn,
   isMondayKey,
   LATE_SIGN_OUT_REASON,
   londonDateKey,
@@ -152,12 +154,21 @@ export function fixtureSignIn(
   siteCompanyId: string | undefined,
   canAccess: boolean,
   deviceAt: string,
-  receivedAt = clientNowIso()
+  receivedAt = clientNowIso(),
+  siteNameOf: (siteId: string) => string | undefined = () => undefined
 ): AttendanceEntry {
   requireSite(actor, siteCompanyId, canAccess);
   const device = assertDeviceTime(deviceAt, new Date(receivedAt).getTime());
   closeForgotten(bucket, actor.company_id, receivedAt);
-  if (bucket.rows.some((row) => row.person_id === actor.id && !row.out_at)) throw new Error('already_signed_in');
+  const open = bucket.rows.find((row) => row.person_id === actor.id && !row.out_at);
+  if (open) {
+    throw new ApiError({
+      kind: 'business',
+      code: 'already_signed_in',
+      message: 'already_signed_in',
+      detail: siteNameOf(open.site_id),
+    });
+  }
   const row: Row = {
     id: newId(),
     site_id: siteId,
@@ -202,9 +213,9 @@ export function fixtureSignOut(
     return toEntry(bucket, actor, open);
   }
   const late = bucket.rows
-    .filter((item) => item.person_id === actor.id && item.site_id === siteId && item.forgot_sign_out && !item.late_out_at)
+    .filter((item) => item.person_id === actor.id && item.site_id === siteId && item.forgot_sign_out && graceCouldOwn(item.in_at, receivedAt))
     .sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
-  if (!late) throw new Error('not_signed_in');
+  if (!late || late.late_out_at) throw new Error('not_signed_in');
   const before = snapshot(late);
   late.late_out_device_at = device;
   late.late_out_received_at = receivedAt;

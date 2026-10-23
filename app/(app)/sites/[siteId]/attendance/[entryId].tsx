@@ -30,7 +30,7 @@ export default function AttendanceEntryScreen() {
       setSignedOut(londonLocalInput(next?.out_at));
       setError(next ? '' : 'That entry is not on your sites.');
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     }
   }, [entryId]);
 
@@ -51,7 +51,7 @@ export default function AttendanceEntryScreen() {
       setReason('');
       router.back();
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     } finally {
       setBusy(false);
     }

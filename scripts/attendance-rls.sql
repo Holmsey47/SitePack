@@ -153,6 +153,7 @@ select pg_temp.ok(
   and not has_function_privilege('anon', 'private.london_end(date)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_require_site(uuid)', 'execute')
   and not has_function_privilege('anon', 'private.close_forgotten_attendance()', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_overnight(timestamptz,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_audit_json(uuid)', 'execute')
   and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
   and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
@@ -247,6 +248,27 @@ select pg_temp.ok(
   ),
   'a second sign-in is refused'
 );
+
+do $open_site$
+declare
+  v_message text;
+  v_detail text;
+begin
+  begin
+    perform public.sign_in_site('51111111-1111-4111-8111-111111111111'::uuid, pg_catalog.now());
+    raise exception 'FAIL: second sign-in succeeded';
+  exception
+    when others then
+      if sqlerrm = 'FAIL: second sign-in succeeded' then
+        raise;
+      end if;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site A' then
+        raise exception 'FAIL: already_signed_in named % / %', v_message, v_detail;
+      end if;
+  end;
+end
+$open_site$;
 
 select pg_temp.ok(
   public.list_on_site_now(:'sitea'::uuid) is null
@@ -439,7 +461,11 @@ insert into probe (k, v)
 values
   ('night-in', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 2) + time '22:00'))),
   ('night-two', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '02:00'))),
-  ('night-seven', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '07:00')));
+  ('late-in', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '22:00'))),
+  ('late-seven', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '07:00'))),
+  ('day-in', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '07:00'))),
+  ('day-early', to_jsonb(timezone('Europe/London', private.london_day(pg_catalog.now()) + time '05:30'))),
+  ('old-in', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 3) + time '22:00')));
 
 select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'night-two'), true);
 
@@ -483,7 +509,7 @@ select pg_temp.ok(
   'a 22:00 sign-in signed out at 02:00 closes at 02:00'
 );
 
-select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'night-seven'), true);
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'late-seven'), true);
 
 insert into public.site_attendance (
   id, site_id, company_id, person_id, person_name,
@@ -494,9 +520,9 @@ insert into public.site_attendance (
   :'firmx'::uuid,
   :'opa'::uuid,
   'Operative A',
-  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
-  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
-  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
   false
 );
 
@@ -510,19 +536,69 @@ values (
   'seven',
   public.sign_out_site(
     :'sitea'::uuid,
-    (select (v #>> '{}')::timestamptz from probe where k = 'night-seven')
+    (select (v #>> '{}')::timestamptz from probe where k = 'late-seven')
   )
 );
 
 select public.close_forgotten_attendance();
 select public.close_forgotten_attendance();
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site('
+      || quote_literal(:'sitea')
+      || '::uuid, '
+      || quote_literal((select v #>> '{}' from probe where k = 'late-seven'))
+      || '::timestamptz)',
+    'not_signed_in'
+  ),
+  'a second late sign-out is refused'
+);
+
+reset role;
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap,
+  out_device_at, out_received_at, out_at, out_gap, forgot_sign_out
+) values (
+  '61111111-1111-4111-8111-111111111203',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opa'::uuid,
+  'Operative A',
+  (select (v #>> '{}')::timestamptz from probe where k = 'old-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'old-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'old-in'),
+  false,
+  (select (v #>> '{}')::timestamptz from probe where k = 'old-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'old-in'),
+  private.london_end(private.london_day((select (v #>> '{}')::timestamptz from probe where k = 'old-in'))),
+  false,
+  true
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.sign_out_site('
+      || quote_literal(:'sitea')
+      || '::uuid, '
+      || quote_literal((select v #>> '{}' from probe where k = 'late-seven'))
+      || '::timestamptz)',
+    'not_signed_in'
+  ),
+  'a sign-out days later does not attach to an older forgotten shift'
+);
+
 reset role;
 
 select pg_temp.ok(
   (
     select forgot_sign_out
-      and late_out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'night-seven')
+      and late_out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'late-seven')
       and late_out_device_at = late_out_at
       and late_out_received_at = late_out_at
       and out_at = private.london_end(private.london_day(in_at))
@@ -560,6 +636,112 @@ select pg_temp.ok(
 );
 
 reset role;
+
+select pg_temp.ok(
+  (
+    select late_out_at is null
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111203'
+  ),
+  'an older forgotten shift keeps no late sign-out'
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'day-early'), true);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111204',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opa'::uuid,
+  'Operative A',
+  (select (v #>> '{}')::timestamptz from probe where k = 'day-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'day-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'day-in'),
+  false
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'day-next',
+  public.sign_in_site(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::timestamptz from probe where k = 'day-early')
+  )
+);
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select forgot_sign_out
+      and out_at = private.london_end(private.london_day(in_at))
+      and late_out_at is null
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111204'
+  )
+  and (select (v->>'state') = 'in' from probe where k = 'day-next'),
+  'a day shift forgotten overnight is closed at 05:30 and the next sign-in works'
+);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111205',
+  :'siteb'::uuid,
+  :'firmx'::uuid,
+  :'opb'::uuid,
+  'Operative B',
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'late-in'),
+  false
+);
+
+select pg_temp.jwt(:'opb'::uuid);
+set local role authenticated;
+
+do $held$
+declare
+  v_message text;
+  v_detail text;
+begin
+  begin
+    perform public.sign_in_site(
+      '51111111-1111-4111-8111-111111111112'::uuid,
+      (select (v #>> '{}')::timestamptz from probe where k = 'day-early')
+    );
+    raise exception 'FAIL: evening shift was not held';
+  exception
+    when others then
+      if sqlerrm = 'FAIL: evening shift was not held' then
+        raise;
+      end if;
+      get stacked diagnostics v_message = message_text, v_detail = pg_exception_detail;
+      if v_message <> 'already_signed_in' or v_detail <> 'Site B' then
+        raise exception 'FAIL: held shift named % / %', v_message, v_detail;
+      end if;
+  end;
+end
+$held$;
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select out_at is null and not forgot_sign_out
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111205'
+  ),
+  'a 22:00 shift is still open at 05:30'
+);
+
 select set_config('sitepack.attendance_now', '', true);
 set local role anon;
 
@@ -586,11 +768,12 @@ declare
     'private.london_end(date ''2026-10-19'')',
     'private.attendance_require_site(''51111111-1111-4111-8111-111111111111''::uuid)',
     'private.close_forgotten_attendance()',
+    'private.attendance_overnight(now(), now())',
     'private.attendance_audit_json(''51111111-1111-4111-8111-111111111111''::uuid)',
     'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)'
   ];
 begin
-  if array_length(calls, 1) <> 21 then
+  if array_length(calls, 1) <> 22 then
     raise exception 'FAIL: anon probe list drifted';
   end if;
   foreach call in array calls loop
@@ -602,7 +785,7 @@ begin
         null;
     end;
   end loop;
-  raise notice 'ok: anon cannot call the 9 public and 12 private attendance functions';
+  raise notice 'ok: anon cannot call the 9 public and 13 private attendance functions';
 end
 $anon$;
 

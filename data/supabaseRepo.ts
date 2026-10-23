@@ -4,6 +4,7 @@ import { inviteSiteIds } from '@/data/walk';
 import { inviteFailureMessage } from '@/data/inviteError';
 import { groupCount } from '@/data/peopleGroups';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
+import { ApiError, apiErrorFromTransport } from '@/data/apiError';
 import { rpcErrorCode } from '@/data/repo';
 import type {
   CreateVariationInput,
@@ -53,13 +54,14 @@ import { getSupabase } from '@/lib/supabase';
 function unwrap<T>(
   data: T | null,
   error: { message: string; details?: string | null; code?: string | null } | null,
-  fallback?: string
+  fallback?: string,
+  status?: number
 ): T {
-  if (error) {
-    const mapped = rpcErrorCode(error);
-    throw new Error(mapped === 'unknown' ? error.message : mapped);
+  if (error) throw apiErrorFromTransport(error, status);
+  if (data == null) {
+    const code = fallback ?? 'not_found';
+    throw new ApiError({ kind: 'business', code, message: code });
   }
-  if (data == null) throw new Error(fallback ?? 'not_found');
   return data;
 }
 
@@ -69,8 +71,8 @@ function maybe<T>(data: T | null, error: { message: string } | null): T | null {
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
-  const { data, error } = await getSupabase().rpc(name, args);
-  return unwrap(data, error);
+  const { data, error, status } = await getSupabase().rpc(name, args);
+  return unwrap(data, error, undefined, status);
 }
 
 async function withPhotoUrls(version: VariationVersion): Promise<VariationVersion> {

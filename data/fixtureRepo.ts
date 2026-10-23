@@ -1263,7 +1263,16 @@ export const fixtureRepo: SitePackRepo = {
   async signInSite(siteId, deviceAt) {
     const person = meOrThrow();
     const site = store.sites.find((row) => row.id === siteId);
-    return fixtureSignIn(store.attendance, snagActor(person), siteId, site?.company_id, canAccessSite(person, siteId), deviceAt);
+    return fixtureSignIn(
+      store.attendance,
+      snagActor(person),
+      siteId,
+      site?.company_id,
+      canAccessSite(person, siteId),
+      deviceAt,
+      undefined,
+      (id) => store.sites.find((row) => row.id === id)?.name
+    );
   },
 
   async signOutSite(siteId, deviceAt) {

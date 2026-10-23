@@ -1,4 +1,6 @@
+import { ApiError } from '@/data/apiError';
 import type { Role } from '@/data/types';
+import { clockGap, LATE_SIGN_OUT_REASON, type HourSpan } from '@/lib/attendanceHours';
 
 export type AttendanceState = 'in' | 'out';
 
@@ -51,10 +53,32 @@ export function canManageHours(role: Role): boolean {
   return role === 'owner' || role === 'cm';
 }
 
-export function attendanceError(code: string): string {
+export function hourSpans(entries: AttendanceEntry[]): HourSpan[] {
+  return entries.map((entry) => {
+    const audits = entry.audit ?? [];
+    return {
+      personId: entry.person_id,
+      personName: entry.person_name,
+      inAt: entry.in_at,
+      outAt: entry.out_at,
+      forgot: entry.forgot_sign_out,
+      gap: Boolean(
+        entry.in_gap ||
+          entry.out_gap ||
+          (entry.late_out_device_at && entry.late_out_received_at && clockGap(entry.late_out_device_at, entry.late_out_received_at))
+      ),
+      late: entry.late_sign_out || audits.some((row) => row.reason === LATE_SIGN_OUT_REASON),
+      corrected: audits.some((row) => row.reason !== LATE_SIGN_OUT_REASON),
+    };
+  });
+}
+
+export function attendanceError(err: unknown): string {
+  const detail = err instanceof ApiError ? err.detail : undefined;
+  const code = err instanceof ApiError ? (err.code ?? err.message) : typeof err === 'string' ? err : err instanceof Error ? err.message : 'unknown';
   switch (code) {
     case 'already_signed_in':
-      return 'You are already signed in.';
+      return detail ? `You are still signed in at ${detail}.` : 'You are already signed in.';
     case 'not_signed_in':
       return 'You are not signed in on this site.';
     case 'not_authorized':

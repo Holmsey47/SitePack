@@ -5,12 +5,19 @@ const LONDON = 'Europe/London';
 /** More than 10 minutes between the phone and the server. */
 export const CLOCK_GAP_MS = 10 * 60 * 1000;
 
-/** An open shift from the previous London day stays open until this hour the next day. */
+/** An overnight shift from the previous London day stays open until this hour the next morning. */
 export const OVERNIGHT_GRACE_HOUR = 6;
+
+/** Signed in at or after this London hour. A day shift is not held overnight. */
+export const OVERNIGHT_START_HOUR = 14;
+
+/** (24 - start) + grace, so a 14:00 sign-in reaches exactly 06:00. */
+export const OVERNIGHT_HOLD_HOURS = 24 - OVERNIGHT_START_HOUR + OVERNIGHT_GRACE_HOUR;
 
 export const FLAG_FORGOT = 'Not signed out';
 export const FLAG_GAP = 'Phone time was more than 10 minutes out';
 export const FLAG_CORRECTED = 'Corrected';
+export const FLAG_LATE = 'Late sign-out';
 
 export const LATE_SIGN_OUT_NOTICE = 'Your shift was closed at 23:59. Your sign-out time has been sent to the manager.';
 export const LATE_SIGN_OUT_REASON = 'Late sign-out sent from the phone';
@@ -43,6 +50,7 @@ export type HourSpan = {
   forgot: boolean;
   gap?: boolean;
   corrected?: boolean;
+  late?: boolean;
 };
 
 function bag(date: Date, timeZone: string): Record<string, string> {
@@ -141,17 +149,39 @@ export function assertDeviceTime(deviceIso: string, receivedMs: number): string 
   return new Date(at).toISOString();
 }
 
+function londonMinutes(iso: string): number {
+  const part = bag(new Date(iso), LONDON);
+  let hour = Number(part.hour);
+  if (hour === 24) hour = 0;
+  return hour * 60 + Number(part.minute);
+}
+
+const HOLD_MS = OVERNIGHT_HOLD_HOURS * 60 * 60 * 1000;
+
+/** Evening start, still inside the hold. This is the shift a late sign-out may attach to. */
+export function graceCouldOwn(inAt: string, nowIso: string): boolean {
+  const start = new Date(inAt).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(start) || Number.isNaN(now)) return false;
+  return londonMinutes(inAt) >= OVERNIGHT_START_HOUR * 60 && now >= start && now - start < HOLD_MS;
+}
+
+/** The open shift is still inside the morning grace, so it is not closed yet. */
+export function graceHolds(inAt: string, nowIso: string): boolean {
+  if (!graceCouldOwn(inAt, nowIso)) return false;
+  const graceEnds = londonWallMs(addDays(londonDateKey(inAt), 1), OVERNIGHT_GRACE_HOUR, 0);
+  return new Date(nowIso).getTime() < graceEnds;
+}
+
 /**
- * An open row from a previous London day closes at 23:59 that day
- * once OVERNIGHT_GRACE_HOUR has passed the next morning.
- * The same input twice stays closed at that instant.
+ * A previous London day closes at 23:59 that day unless the shift is still
+ * inside the overnight grace. The same input twice stays closed at that instant.
  */
 export function forgottenClose(inAt: string, outAt: string | null, nowIso: string): { outAt: string; forgot: boolean } | null {
   if (outAt) return null;
   const inDay = londonDateKey(inAt);
   if (inDay >= londonDateKey(nowIso)) return null;
-  const graceEnds = londonWallMs(addDays(inDay, 1), OVERNIGHT_GRACE_HOUR, 0);
-  if (new Date(nowIso).getTime() < graceEnds) return null;
+  if (graceHolds(inAt, nowIso)) return null;
   return { outAt: londonCloseIso(inAt), forgot: true };
 }
 
@@ -236,6 +266,7 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
     const flags: string[] = [];
     if (resolved.forgot || span.forgot) flags.push(FLAG_FORGOT);
     if (span.gap) flags.push(FLAG_GAP);
+    if (span.late) flags.push(FLAG_LATE);
     if (span.corrected) flags.push(FLAG_CORRECTED);
     row.shifts.push({ flags });
     days.forEach((day, index) => {
@@ -255,7 +286,7 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
 
 function csvCell(value: string): string {
   let text = value;
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }

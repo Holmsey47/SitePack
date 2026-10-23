@@ -28,7 +28,7 @@ export default function AttendanceScreen() {
       setMine(history);
       setError('');
     } catch (err) {
-      setError(attendanceError(err instanceof Error ? err.message : 'unknown'));
+      setError(attendanceError(err));
     }
   }, [manage, siteId]);
 
