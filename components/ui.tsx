@@ -191,11 +191,16 @@ export function NewRevBadge({ sheet, revision }: { sheet: string; revision: stri
   );
 }
 
-/** A queued seen tap the server refused. A label, not a control. */
-export function SeenRejectNotice({ message }: { message: string }) {
+/** A queued tap the server refused, or a late sign-out. Dismiss hides it on this phone. */
+export function SeenRejectNotice({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
   return (
     <View style={styles.seenReject} accessibilityRole="text" accessibilityLabel={message}>
       <Text style={styles.seenRejectText}>{message}</Text>
+      {onDismiss ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={onDismiss} style={styles.dismiss}>
+          <Text style={styles.dismissText}>Dismiss</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -379,6 +384,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24 },
+  dismiss: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' },
+  dismissText: { color: theme.current, fontSize: 17, fontWeight: '800' },
   seenChip: {
     minHeight: 48,
     minWidth: 48,

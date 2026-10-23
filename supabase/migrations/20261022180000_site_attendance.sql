@@ -2,7 +2,9 @@
 -- Hours only. This migration does not store money, statutory deductions, or storage keys.
 -- Device time is kept. received_at is the server clock for that request.
 -- Hours use the server time. A gap of more than 10 minutes is flagged.
--- An open row from a previous Europe/London day closes at 23:59, flagged not signed out.
+-- An open row from a previous Europe/London day stays open until 06:00 London
+-- the next day (one constant below). After that it closes at 23:59, flagged not signed out.
+-- A later sign-out is kept as a late sign-out for a manager, not rejected.
 -- Owner and contracts manager can correct an entry. The reason is required.
 -- The audit keeps the before and after. Operatives receive a null audit.
 -- On site now and the weekly sheet return null unless the caller is an owner or contracts manager.
@@ -29,6 +31,9 @@ create table public.site_attendance (
   out_at timestamptz,
   out_gap boolean,
   forgot_sign_out boolean not null default false,
+  late_out_device_at timestamptz,
+  late_out_received_at timestamptz,
+  late_out_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint site_attendance_name_len check (char_length(btrim(person_name)) between 1 and 120),
@@ -36,6 +41,15 @@ create table public.site_attendance (
   constraint site_attendance_out_pair check (
     (out_at is null and out_received_at is null and out_gap is null and forgot_sign_out = false)
     or (out_at is not null and out_received_at is not null and out_gap is not null)
+  ),
+  constraint site_attendance_late_pair check (
+    (late_out_at is null and late_out_device_at is null and late_out_received_at is null)
+    or (
+      forgot_sign_out
+      and late_out_at is not null
+      and late_out_device_at is not null
+      and late_out_received_at is not null
+    )
   )
 );
 
@@ -67,6 +81,9 @@ comment on column public.site_attendance.in_gap is
 
 comment on column public.site_attendance.forgot_sign_out is
   'True when the row was closed at 23:59 Europe/London because nobody signed out.';
+
+comment on column public.site_attendance.late_out_at is
+  'Server time of a sign-out that arrived after the 23:59 close. Hours stay on out_at until a manager corrects them.';
 
 create table public.site_attendance_audit (
   id uuid primary key default gen_random_uuid(),
@@ -118,16 +135,37 @@ $fn$;
 
 revoke all on function private.attendance_person_label(text) from public, anon, authenticated;
 
+-- The API roles cannot move this clock. The owner session can pin it for the local probe.
+create or replace function private.attendance_now()
+returns timestamptz
+language sql
+stable
+set search_path = ''
+as $fn$
+  select case
+    when session_user = current_user then coalesce(
+      nullif(pg_catalog.current_setting('sitepack.attendance_now', true), '')::timestamptz,
+      pg_catalog.now()
+    )
+    else pg_catalog.now()
+  end;
+$fn$;
+
+revoke all on function private.attendance_now() from public, anon, authenticated;
+
 create or replace function private.attendance_device_time(p_at timestamptz)
 returns timestamptz
 language plpgsql
 stable
 set search_path = ''
 as $fn$
+declare
+  v_now timestamptz;
 begin
+  v_now := private.attendance_now();
   if p_at is null
-     or p_at > pg_catalog.now() + interval '24 hours'
-     or p_at < pg_catalog.now() - interval '30 days' then
+     or p_at > v_now + interval '24 hours'
+     or p_at < v_now - interval '30 days' then
     raise exception 'invalid_time';
   end if;
   return p_at;
@@ -220,7 +258,9 @@ $fn$;
 
 revoke all on function private.attendance_require_site(uuid) from public, anon, authenticated;
 
--- Idempotent. Closes open rows whose London day is already over, at 23:59 that day.
+-- Idempotent. An open row from an earlier London day stays open until 06:00
+-- Europe/London the next day, then closes at 23:59 that start day.
+-- Overnight grace window. Single constant: 06:00.
 create or replace function private.close_forgotten_attendance()
 returns integer
 language plpgsql
@@ -230,21 +270,28 @@ as $fn$
 declare
   v_company uuid;
   v_count integer;
+  v_now timestamptz;
 begin
   select a.company_id into v_company from private.attendance_actor() a;
   if v_company is null then
     raise exception 'not_authorized';
   end if;
 
+  v_now := private.attendance_now();
+
   update public.site_attendance entry
   set out_at = greatest(private.london_end(private.london_day(entry.in_at)), entry.in_at),
-      out_received_at = pg_catalog.now(),
+      out_received_at = v_now,
       out_gap = false,
       forgot_sign_out = true,
-      updated_at = pg_catalog.now()
+      updated_at = v_now
   where entry.company_id = v_company
     and entry.out_at is null
-    and private.london_day(entry.in_at) < private.london_day(pg_catalog.now());
+    and private.london_day(entry.in_at) < private.london_day(v_now)
+    and v_now >= timezone(
+      'Europe/London',
+      (private.london_day(entry.in_at) + 1) + time '06:00'
+    );
 
   get diagnostics v_count = row_count;
   return v_count;
@@ -346,6 +393,10 @@ as $fn$
     'out_at', e.out_at,
     'out_gap', e.out_gap,
     'forgot_sign_out', e.forgot_sign_out,
+    'late_sign_out', e.late_out_at is not null,
+    'late_out_device_at', e.late_out_device_at,
+    'late_out_received_at', e.late_out_received_at,
+    'late_out_at', e.late_out_at,
     'state', case when e.out_at is null then 'in' else 'out' end,
     'audit', private.attendance_audit_json(e.id)
   )
@@ -383,9 +434,9 @@ declare
   v_id uuid;
 begin
   select * into v_actor from private.attendance_require_site(p_site_id);
-  perform private.close_forgotten_attendance();
+  v_received := private.attendance_now();
   v_device := private.attendance_device_time(p_device_at);
-  v_received := pg_catalog.now();
+  perform private.close_forgotten_attendance();
 
   if exists (
     select 1
@@ -420,46 +471,86 @@ declare
   v_actor record;
   v_device timestamptz;
   v_received timestamptz;
-  v_id uuid;
+  v_row public.site_attendance;
+  v_before jsonb;
+  v_after jsonb;
 begin
   select * into v_actor from private.attendance_require_site(p_site_id);
-  perform private.close_forgotten_attendance();
+  v_received := private.attendance_now();
   v_device := private.attendance_device_time(p_device_at);
-  v_received := pg_catalog.now();
+  perform private.close_forgotten_attendance();
 
-  select a.id into v_id
+  select a.* into v_row
   from public.site_attendance a
   where a.person_id = v_actor.person_id
     and a.site_id = p_site_id
     and a.out_at is null;
 
-  if v_id is null then
-    -- The close above may have finished yesterday's open row. Return it.
-    -- Raising here would roll that close back with the rest of this function.
-    select a.id into v_id
-    from public.site_attendance a
-    where a.person_id = v_actor.person_id
-      and a.site_id = p_site_id
-      and a.forgot_sign_out
-      and a.updated_at = v_received
-    order by a.in_at desc
-    limit 1;
+  if v_row.id is not null then
+    update public.site_attendance
+    set out_device_at = v_device,
+        out_received_at = v_received,
+        out_at = v_received,
+        out_gap = private.attendance_gap(v_device, v_received),
+        updated_at = v_received
+    where id = v_row.id;
 
-    if v_id is null then
-      raise exception 'not_signed_in';
-    end if;
-    return private.attendance_json(v_id);
+    return private.attendance_json(v_row.id);
   end if;
 
-  update public.site_attendance
-  set out_device_at = v_device,
-      out_received_at = v_received,
-      out_at = v_received,
-      out_gap = private.attendance_gap(v_device, v_received),
-      updated_at = v_received
-  where id = v_id;
+  -- Already closed at 23:59. Keep the tap for a manager instead of failing.
+  select a.* into v_row
+  from public.site_attendance a
+  where a.person_id = v_actor.person_id
+    and a.site_id = p_site_id
+    and a.forgot_sign_out
+    and a.late_out_at is null
+  order by a.in_at desc
+  limit 1;
 
-  return private.attendance_json(v_id);
+  if v_row.id is null then
+    raise exception 'not_signed_in';
+  end if;
+
+  v_before := jsonb_build_object(
+    'in_at', v_row.in_at,
+    'out_at', v_row.out_at,
+    'in_device_at', v_row.in_device_at,
+    'in_received_at', v_row.in_received_at,
+    'out_device_at', v_row.out_device_at,
+    'out_received_at', v_row.out_received_at,
+    'forgot_sign_out', v_row.forgot_sign_out,
+    'in_gap', v_row.in_gap,
+    'out_gap', v_row.out_gap,
+    'late_out_at', v_row.late_out_at,
+    'late_out_device_at', v_row.late_out_device_at,
+    'late_out_received_at', v_row.late_out_received_at
+  );
+
+  update public.site_attendance
+  set late_out_device_at = v_device,
+      late_out_received_at = v_received,
+      late_out_at = v_received,
+      updated_at = v_received
+  where id = v_row.id;
+
+  v_after := v_before || jsonb_build_object(
+    'late_out_at', v_received,
+    'late_out_device_at', v_device,
+    'late_out_received_at', v_received
+  );
+
+  insert into public.site_attendance_audit (
+    entry_id, site_id, company_id, corrected_by, corrected_by_name, reason, before_entry, after_entry
+  ) values (
+    v_row.id, v_row.site_id, v_row.company_id, v_actor.person_id,
+    private.attendance_person_label(v_actor.display_name),
+    'Late sign-out sent from the phone',
+    v_before,
+    v_after
+  );
+
+  return private.attendance_json(v_row.id);
 end;
 $fn$;
 
@@ -497,8 +588,8 @@ begin
     raise exception 'invalid_input';
   end if;
 
-  if p_in_at < pg_catalog.now() - interval '2 years'
-     or p_out_at > pg_catalog.now() + interval '24 hours' then
+  if p_in_at < private.attendance_now() - interval '2 years'
+     or p_out_at > private.attendance_now() + interval '24 hours' then
     raise exception 'invalid_time';
   end if;
 
@@ -511,7 +602,10 @@ begin
     'out_received_at', v_row.out_received_at,
     'forgot_sign_out', v_row.forgot_sign_out,
     'in_gap', v_row.in_gap,
-    'out_gap', v_row.out_gap
+    'out_gap', v_row.out_gap,
+    'late_out_at', v_row.late_out_at,
+    'late_out_device_at', v_row.late_out_device_at,
+    'late_out_received_at', v_row.late_out_received_at
   );
 
   update public.site_attendance
@@ -531,7 +625,10 @@ begin
     'out_received_at', coalesce(v_row.out_received_at, pg_catalog.now()),
     'forgot_sign_out', v_row.forgot_sign_out,
     'in_gap', v_row.in_gap,
-    'out_gap', coalesce(v_row.out_gap, false)
+    'out_gap', coalesce(v_row.out_gap, false),
+    'late_out_at', v_row.late_out_at,
+    'late_out_device_at', v_row.late_out_device_at,
+    'late_out_received_at', v_row.late_out_received_at
   );
 
   insert into public.site_attendance_audit (

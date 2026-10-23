@@ -25,6 +25,10 @@ export type AttendanceEntry = {
   out_at: string | null;
   out_gap: boolean | null;
   forgot_sign_out: boolean;
+  late_sign_out: boolean;
+  late_out_device_at: string | null;
+  late_out_received_at: string | null;
+  late_out_at: string | null;
   state: AttendanceState;
   audit: AttendanceAudit[] | null;
 };

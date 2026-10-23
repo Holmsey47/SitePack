@@ -1,7 +1,16 @@
 import { newId } from '@/data/newId';
 import type { Role } from '@/data/types';
 import type { AttendanceAudit, AttendanceEntry, MySiteAttendance, OnSiteNow, WeeklyAttendance } from '@/data/attendance';
-import { assertDeviceTime, clockGap, forgottenClose, isMondayKey, londonDateKey, londonWeekStart } from '@/lib/attendanceHours';
+import {
+  assertDeviceTime,
+  clientNowIso,
+  clockGap,
+  forgottenClose,
+  isMondayKey,
+  LATE_SIGN_OUT_REASON,
+  londonDateKey,
+  londonWeekStart,
+} from '@/lib/attendanceHours';
 
 type Actor = { id: string; role: Role; company_id: string; display_name: string };
 
@@ -20,6 +29,9 @@ type Row = {
   out_at: string | null;
   out_gap: boolean | null;
   forgot_sign_out: boolean;
+  late_out_device_at: string | null;
+  late_out_received_at: string | null;
+  late_out_at: string | null;
 };
 
 type AuditRow = {
@@ -74,6 +86,9 @@ function snapshot(row: Row): Record<string, unknown> {
     forgot_sign_out: row.forgot_sign_out,
     in_gap: row.in_gap,
     out_gap: row.out_gap,
+    late_out_at: row.late_out_at,
+    late_out_device_at: row.late_out_device_at,
+    late_out_received_at: row.late_out_received_at,
   };
 }
 
@@ -106,6 +121,10 @@ function toEntry(bucket: FixtureAttendanceBucket, actor: Actor, row: Row): Atten
     out_at: row.out_at,
     out_gap: row.out_gap,
     forgot_sign_out: row.forgot_sign_out,
+    late_sign_out: row.late_out_at != null,
+    late_out_device_at: row.late_out_device_at,
+    late_out_received_at: row.late_out_received_at,
+    late_out_at: row.late_out_at,
     state: row.out_at ? 'out' : 'in',
     audit: auditsFor(bucket, actor, row.id),
   };
@@ -133,11 +152,11 @@ export function fixtureSignIn(
   siteCompanyId: string | undefined,
   canAccess: boolean,
   deviceAt: string,
-  receivedAt = new Date().toISOString()
+  receivedAt = clientNowIso()
 ): AttendanceEntry {
   requireSite(actor, siteCompanyId, canAccess);
-  closeForgotten(bucket, actor.company_id, receivedAt);
   const device = assertDeviceTime(deviceAt, new Date(receivedAt).getTime());
+  closeForgotten(bucket, actor.company_id, receivedAt);
   if (bucket.rows.some((row) => row.person_id === actor.id && !row.out_at)) throw new Error('already_signed_in');
   const row: Row = {
     id: newId(),
@@ -154,6 +173,9 @@ export function fixtureSignIn(
     out_at: null,
     out_gap: null,
     forgot_sign_out: false,
+    late_out_device_at: null,
+    late_out_received_at: null,
+    late_out_at: null,
   };
   bucket.rows.push(row);
   return toEntry(bucket, actor, row);
@@ -166,20 +188,40 @@ export function fixtureSignOut(
   siteCompanyId: string | undefined,
   canAccess: boolean,
   deviceAt: string,
-  receivedAt = new Date().toISOString()
+  receivedAt = clientNowIso()
 ): AttendanceEntry {
   requireSite(actor, siteCompanyId, canAccess);
-  const open = bucket.rows.find((item) => item.person_id === actor.id && item.site_id === siteId && !item.out_at);
-  closeForgotten(bucket, actor.company_id, receivedAt);
-  if (open?.forgot_sign_out) return toEntry(bucket, actor, open);
   const device = assertDeviceTime(deviceAt, new Date(receivedAt).getTime());
-  const row = bucket.rows.find((item) => item.person_id === actor.id && item.site_id === siteId && !item.out_at);
-  if (!row) throw new Error('not_signed_in');
-  row.out_device_at = device;
-  row.out_received_at = receivedAt;
-  row.out_at = receivedAt;
-  row.out_gap = clockGap(device, receivedAt);
-  return toEntry(bucket, actor, row);
+  closeForgotten(bucket, actor.company_id, receivedAt);
+  const open = bucket.rows.find((item) => item.person_id === actor.id && item.site_id === siteId && !item.out_at);
+  if (open) {
+    open.out_device_at = device;
+    open.out_received_at = receivedAt;
+    open.out_at = receivedAt;
+    open.out_gap = clockGap(device, receivedAt);
+    return toEntry(bucket, actor, open);
+  }
+  const late = bucket.rows
+    .filter((item) => item.person_id === actor.id && item.site_id === siteId && item.forgot_sign_out && !item.late_out_at)
+    .sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
+  if (!late) throw new Error('not_signed_in');
+  const before = snapshot(late);
+  late.late_out_device_at = device;
+  late.late_out_received_at = receivedAt;
+  late.late_out_at = receivedAt;
+  bucket.audit.push({
+    id: newId(),
+    entry_id: late.id,
+    site_id: late.site_id,
+    company_id: late.company_id,
+    corrected_by: actor.id,
+    corrected_by_name: label(actor.display_name),
+    reason: LATE_SIGN_OUT_REASON,
+    before_entry: before,
+    after_entry: snapshot(late),
+    created_at: receivedAt,
+  });
+  return toEntry(bucket, actor, late);
 }
 
 export function fixtureMySiteAttendance(
@@ -188,7 +230,7 @@ export function fixtureMySiteAttendance(
   siteId: string,
   siteCompanyId: string | undefined,
   canAccess: boolean,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): MySiteAttendance {
   requireSite(actor, siteCompanyId, canAccess);
   closeForgotten(bucket, actor.company_id, nowIso);
@@ -202,7 +244,7 @@ export function fixtureListMine(
   siteId: string,
   siteCompanyId: string | undefined,
   canAccess: boolean,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): AttendanceEntry[] {
   requireSite(actor, siteCompanyId, canAccess);
   closeForgotten(bucket, actor.company_id, nowIso);
@@ -218,7 +260,7 @@ export function fixtureOnSiteNow(
   siteId: string,
   siteCompanyId: string | undefined,
   canAccess: boolean,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): OnSiteNow | null {
   requireSite(actor, siteCompanyId, canAccess);
   closeForgotten(bucket, actor.company_id, nowIso);
@@ -245,7 +287,7 @@ export function fixtureWeekly(
   siteCompanyId: string | undefined,
   canAccess: boolean,
   weekStart: string,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): WeeklyAttendance | null {
   requireSite(actor, siteCompanyId, canAccess);
   if (!isMondayKey(weekStart)) throw new Error('invalid_input');
@@ -273,7 +315,7 @@ export function fixtureAttendanceEntry(
   actor: Actor,
   entryId: string,
   canAccess: (siteId: string) => boolean,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): AttendanceEntry | null {
   closeForgotten(bucket, actor.company_id, nowIso);
   const row = bucket.rows.find((item) => item.id === entryId);
@@ -289,7 +331,7 @@ export function fixtureCorrect(
   outAt: string,
   reason: string,
   canAccess: (siteId: string) => boolean,
-  nowIso = new Date().toISOString()
+  nowIso = clientNowIso()
 ): AttendanceEntry {
   if (!manager(actor)) throw new Error('not_authorized');
   const trimmed = reason.trim();
@@ -320,6 +362,6 @@ export function fixtureCorrect(
   return toEntry(bucket, actor, row);
 }
 
-export function currentWeekStart(nowIso = new Date().toISOString()): string {
+export function currentWeekStart(nowIso = clientNowIso()): string {
   return londonWeekStart(nowIso);
 }

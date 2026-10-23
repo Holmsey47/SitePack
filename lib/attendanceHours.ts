@@ -5,11 +5,25 @@ const LONDON = 'Europe/London';
 /** More than 10 minutes between the phone and the server. */
 export const CLOCK_GAP_MS = 10 * 60 * 1000;
 
+/** An open shift from the previous London day stays open until this hour the next day. */
+export const OVERNIGHT_GRACE_HOUR = 6;
+
+export const FLAG_FORGOT = 'Not signed out';
+export const FLAG_GAP = 'Phone time was more than 10 minutes out';
+export const FLAG_CORRECTED = 'Corrected';
+
+export const LATE_SIGN_OUT_NOTICE = 'Your shift was closed at 23:59. Your sign-out time has been sent to the manager.';
+export const LATE_SIGN_OUT_REASON = 'Late sign-out sent from the phone';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAST_MS = 30 * DAY_MS;
 const FUTURE_MS = DAY_MS;
 
 export const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+
+export type WeekShift = {
+  flags: string[];
+};
 
 export type WeekRow = {
   personId: string;
@@ -18,6 +32,7 @@ export type WeekRow = {
   dayMs: number[];
   total: string;
   totalMs: number;
+  shifts: WeekShift[];
 };
 
 export type HourSpan = {
@@ -26,6 +41,8 @@ export type HourSpan = {
   inAt: string;
   outAt: string | null;
   forgot: boolean;
+  gap?: boolean;
+  corrected?: boolean;
 };
 
 function bag(date: Date, timeZone: string): Record<string, string> {
@@ -125,20 +142,42 @@ export function assertDeviceTime(deviceIso: string, receivedMs: number): string 
 }
 
 /**
- * An open row from a previous London day closes at 23:59 that day.
+ * An open row from a previous London day closes at 23:59 that day
+ * once OVERNIGHT_GRACE_HOUR has passed the next morning.
  * The same input twice stays closed at that instant.
  */
 export function forgottenClose(inAt: string, outAt: string | null, nowIso: string): { outAt: string; forgot: boolean } | null {
   if (outAt) return null;
-  if (londonDateKey(inAt) >= londonDateKey(nowIso)) return null;
+  const inDay = londonDateKey(inAt);
+  if (inDay >= londonDateKey(nowIso)) return null;
+  const graceEnds = londonWallMs(addDays(inDay, 1), OVERNIGHT_GRACE_HOUR, 0);
+  if (new Date(nowIso).getTime() < graceEnds) return null;
   return { outAt: londonCloseIso(inAt), forgot: true };
 }
 
+/** Drop the seconds before any hours are added together. */
+export function floorMinuteMs(ms: number): number {
+  if (ms <= 0) return 0;
+  return Math.floor(ms / 60000) * 60000;
+}
+
 export function formatHours(ms: number): string {
-  const minutes = Math.max(0, Math.round(ms / 60000));
+  const minutes = Math.floor(floorMinuteMs(ms) / 60000);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return `${hours}h ${String(rest).padStart(2, '0')}m`;
+}
+
+export function decimalHours(ms: number): string {
+  return (floorMinuteMs(ms) / 3600000).toFixed(2);
+}
+
+export function clientNowIso(): string {
+  if (process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
+    const pinned = (globalThis as { __SITEPACK_NOW?: string }).__SITEPACK_NOW;
+    if (typeof pinned === 'string' && pinned.length > 0) return pinned;
+  }
+  return new Date().toISOString();
 }
 
 export function isMondayKey(dayKey: string): boolean {
@@ -190,11 +229,17 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
         dayMs: days.map(() => 0),
         total: formatHours(0),
         totalMs: 0,
+        shifts: [],
       };
       byPerson.set(span.personId, row);
     }
+    const flags: string[] = [];
+    if (resolved.forgot || span.forgot) flags.push(FLAG_FORGOT);
+    if (span.gap) flags.push(FLAG_GAP);
+    if (span.corrected) flags.push(FLAG_CORRECTED);
+    row.shifts.push({ flags });
     days.forEach((day, index) => {
-      const ms = hoursOnLondonDay(span.inAt, resolved.outAt, day);
+      const ms = floorMinuteMs(hoursOnLondonDay(span.inAt, resolved.outAt, day));
       row.dayMs[index] = (row.dayMs[index] ?? 0) + ms;
     });
   }
@@ -209,14 +254,28 @@ export function buildWeekSheet(spans: HourSpan[], weekStart: string, nowIso: str
 }
 
 function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  let text = value;
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
 }
 
-export function weekCsv(rows: WeekRow[]): string {
-  const header = ['Person', ...WEEK_DAYS, 'Total'].join(',');
-  const lines = rows.map((row) => [csvCell(row.personName), ...row.days, row.total].join(','));
-  return [header, ...lines].join('\n');
+function rowFlags(row: WeekRow): string {
+  const seen: string[] = [];
+  for (const shift of row.shifts) {
+    for (const flag of shift.flags) {
+      if (!seen.includes(flag)) seen.push(flag);
+    }
+  }
+  return seen.join('; ');
+}
+
+export function weekCsv(rows: WeekRow[], siteName: string, weekStart: string): string {
+  const header = ['Site', 'Week', 'Person', ...WEEK_DAYS, 'Total', 'Decimal hours', 'Flags'];
+  const lines = rows.map((row) =>
+    [siteName, weekStart, row.personName, ...row.days, row.total, decimalHours(row.totalMs), rowFlags(row)].map(csvCell).join(',')
+  );
+  return [header.map(csvCell).join(','), ...lines].join('\n');
 }
 
 export function weekRangeLabel(weekStart: string): string {

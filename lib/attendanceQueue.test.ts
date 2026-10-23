@@ -113,6 +113,37 @@ test('a refused queued tap is dropped and leaves an in-app notice', async () => 
   assert.match(notices[0]?.message ?? '', /not saved/);
 });
 
+test('an unexpected error backs off, moves on, and keeps the tap', async () => {
+  const queue = memoryAttendanceQueue();
+  const first = tap('user-a');
+  const second: QueuedTap = { ...tap('user-a', 'out'), localId: 'user-a-later', deviceAt: '2026-10-22T08:05:00.000Z' };
+  await queue.put(first);
+  await queue.put(second);
+  const sent: string[] = [];
+  await flushAttendanceQueue(queue, 'user-a', async (item) => {
+    if (item.localId === first.localId) throw new Error('timeout');
+    sent.push(item.localId);
+  });
+  assert.deepEqual(sent, ['user-a-later']);
+  const left = await queue.list();
+  assert.equal(left.length, 1);
+  assert.equal(left[0]?.localId, first.localId);
+  assert.equal((left[0]?.attempts ?? 0) > 0, true);
+  assert.equal(Number.isNaN(Date.parse(left[0]?.retryAt ?? '')), false);
+  let calls = 0;
+  await flushAttendanceQueue(queue, 'user-a', async () => {
+    calls += 1;
+  });
+  assert.equal(calls, 0);
+});
+
+test('a notice can be dismissed', async () => {
+  const queue = memoryAttendanceQueue();
+  await queue.putNotice({ id: 'n1', userId: 'user-a', siteId: 'site-a', message: 'Saved notice' });
+  await queue.dismissNotice('n1');
+  assert.equal((await queue.listNotices()).length, 0);
+});
+
 test('sign-out, owner change, and a rejected session wipe the attendance keys', () => {
   const auth = fs.readFileSync('context/AuthContext.tsx', 'utf8');
   const bind = auth.slice(auth.indexOf('async function bindCache'), auth.indexOf('function authTokenKey'));

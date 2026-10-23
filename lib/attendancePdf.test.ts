@@ -43,13 +43,24 @@ function decodedPdfText(bytes: Uint8Array): string {
 
 test('every hours page has the site, company, page count, and a UK time', async () => {
   const generatedAt = '2026-10-22T13:05:00.000Z';
-  const spans: HourSpan[] = Array.from({ length: 18 }, (_, index) => ({
-    personId: `person-${index}`,
-    personName: `Person ${index + 1} on the gang`,
-    inAt: '2026-10-20T08:00:00.000Z',
-    outAt: '2026-10-20T16:00:00.000Z',
-    forgot: false,
-  }));
+  const spans: HourSpan[] = [
+    ...Array.from({ length: 18 }, (_, index) => ({
+      personId: `person-${index}`,
+      personName: `Person ${index + 1} on the gang`,
+      inAt: '2026-10-20T08:00:00.000Z',
+      outAt: '2026-10-20T16:00:00.000Z',
+      forgot: false,
+    })),
+    {
+      personId: 'late',
+      personName: 'Late Sign Out',
+      inAt: '2026-10-21T20:00:00.000Z',
+      outAt: '2026-10-21T22:59:00.000Z',
+      forgot: true,
+      gap: true,
+      corrected: true,
+    },
+  ];
   const rows = buildWeekSheet(spans, '2026-10-19', '2026-10-22T18:00:00.000Z');
   const { bytes, footers } = await buildAttendancePdf({
     companyName: 'Ashfield Finishes',
@@ -71,4 +82,9 @@ test('every hours page has the site, company, page count, and a UK time', async 
     assert.match(text, new RegExp(`page ${page} of ${footers.length}`));
   }
   assert.equal(text.includes('£'), false);
+  assert.match(text, /Not signed out/);
+  assert.match(text, /Phone time was more than 10 minutes out/);
+  assert.match(text, /Corrected/);
+  assert.equal(text.includes('Mon 8h'), false);
+  assert.match(text, /\nMon\n/);
 });

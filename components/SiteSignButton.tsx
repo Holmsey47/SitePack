@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { MySiteAttendance } from '@/data/attendance';
 import { attendanceError } from '@/data/attendance';
+import { clientNowIso, LATE_SIGN_OUT_NOTICE } from '@/lib/attendanceHours';
 import { formatUkDateTime } from '@/lib/format';
 import {
   flushAttendanceQueue,
@@ -20,8 +21,19 @@ import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 async function sendTap(item: QueuedTap) {
-  if (item.action === 'in') await repo.signInSite(item.siteId, item.deviceAt);
-  else await repo.signOutSite(item.siteId, item.deviceAt);
+  if (item.action === 'in') {
+    await repo.signInSite(item.siteId, item.deviceAt);
+    return;
+  }
+  const entry = await repo.signOutSite(item.siteId, item.deviceAt);
+  if (entry.late_sign_out) {
+    await getAttendanceQueue().putNotice({
+      id: `late:${item.localId}`,
+      userId: item.userId,
+      siteId: item.siteId,
+      message: LATE_SIGN_OUT_NOTICE,
+    });
+  }
 }
 
 export function SiteSignButton({ siteId }: { siteId: string }) {
@@ -66,7 +78,7 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
     if (busy) return;
     setBusy(true);
     setError('');
-    const deviceAt = new Date().toISOString();
+    const deviceAt = clientNowIso();
     const action = shown === 'in' ? 'out' : 'in';
     const item: QueuedTap = {
       localId: `${action}:${siteId}:${deviceAt}`,
@@ -93,15 +105,26 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
       </Text>
       {since ? <Text style={{ color: theme.muted, fontSize: 16 }}>Signed in since {formatUkDateTime(since)}</Text> : null}
       {notices.map((notice) => (
-        <SeenRejectNotice key={notice.id} message={notice.message} />
+        <SeenRejectNotice
+          key={notice.id}
+          message={notice.message}
+          onDismiss={() => {
+            void getAttendanceQueue()
+              .dismissNotice(notice.id)
+              .then(() => setNotices((current) => current.filter((item) => item.id !== notice.id)));
+          }}
+        />
       ))}
       {queued.length > 0 ? (
         <Text
+          accessibilityRole="text"
           style={{
-            color: theme.currentInk,
-            backgroundColor: theme.current,
-            fontWeight: '800',
-            fontSize: 17,
+            color: theme.text,
+            backgroundColor: theme.surface,
+            borderWidth: 1,
+            borderColor: theme.line,
+            fontSize: 16,
+            lineHeight: 22,
             padding: 12,
             borderRadius: 12,
             overflow: 'hidden',
@@ -120,11 +143,11 @@ export function SiteSignButton({ siteId }: { siteId: string }) {
           borderRadius: 14,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: theme.current,
+          backgroundColor: shown === 'in' ? theme.open : theme.current,
           paddingHorizontal: 18,
           paddingVertical: 12,
         }}>
-        <Text style={{ color: theme.currentInk, fontSize: 20, fontWeight: '800' }}>
+        <Text style={{ color: shown === 'in' ? theme.text : theme.currentInk, fontSize: 20, fontWeight: '800' }}>
           {busy ? 'Saving…' : shown === 'in' ? 'Sign out' : 'Sign in'}
         </Text>
       </Pressable>

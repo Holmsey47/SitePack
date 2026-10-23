@@ -137,12 +137,25 @@ select pg_temp.ok(
   not has_function_privilege('anon', 'public.sign_in_site(uuid,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'public.sign_out_site(uuid,timestamptz)', 'execute')
   and not has_function_privilege('anon', 'public.correct_attendance(uuid,timestamptz,timestamptz,text)', 'execute')
+  and not has_function_privilege('anon', 'public.close_forgotten_attendance()', 'execute')
+  and not has_function_privilege('anon', 'public.my_site_attendance(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.list_my_attendance(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.list_on_site_now(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.weekly_attendance(uuid,date)', 'execute')
-  and not has_function_privilege('anon', 'public.close_forgotten_attendance()', 'execute')
-  and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
-  and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.attendance_entry(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_actor()', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_person_label(text)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_now()', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_device_time(timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_gap(timestamptz,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'private.london_day(timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'private.london_start(date)', 'execute')
+  and not has_function_privilege('anon', 'private.london_end(date)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_require_site(uuid)', 'execute')
   and not has_function_privilege('anon', 'private.close_forgotten_attendance()', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_audit_json(uuid)', 'execute')
+  and not has_function_privilege('anon', 'private.attendance_json(uuid)', 'execute')
+  and not has_function_privilege('public', 'public.sign_in_site(uuid,timestamptz)', 'execute')
   and not has_table_privilege('anon', 'public.site_attendance', 'select')
   and not has_table_privilege('anon', 'public.site_attendance_audit', 'select')
   and not has_table_privilege('authenticated', 'public.site_attendance', 'insert')
@@ -394,49 +407,6 @@ select pg_temp.ok(
 );
 
 reset role;
-
-update public.site_attendance
-set in_at = private.london_end(private.london_day(now())) - interval '36 hours',
-    in_received_at = private.london_end(private.london_day(now())) - interval '36 hours',
-    out_at = null,
-    out_device_at = null,
-    out_received_at = null,
-    out_gap = null,
-    forgot_sign_out = false
-where id = (select (v->>'entry_id')::uuid from probe where k = 'a-out');
-
-select pg_temp.jwt(:'opa'::uuid);
-set local role authenticated;
-
-insert into probe (k, v)
-values ('forgot', public.sign_out_site(:'sitea'::uuid, now()));
-
-select pg_temp.ok(
-  (select (v->>'forgot_sign_out')::boolean and v->>'state' = 'out' from probe where k = 'forgot'),
-  'a forgotten sign-out closes at 23:59 and the tap keeps that close'
-);
-
-reset role;
-
-select pg_temp.ok(
-  (select forgot_sign_out
-      and out_at = private.london_end(private.london_day(in_at))
-   from public.site_attendance
-   where id = (select (v->>'entry_id')::uuid from probe where k = 'a-out')),
-  'the forgotten row closes at 23:59 Europe/London'
-);
-
-select pg_temp.jwt(:'opa'::uuid);
-set local role authenticated;
-
-select public.close_forgotten_attendance();
-
-select pg_temp.ok(
-  (select count(*) from public.site_attendance where forgot_sign_out) = 1,
-  'closing forgotten rows again does not add a second close'
-);
-
-reset role;
 select pg_temp.jwt(:'ownery'::uuid);
 set local role authenticated;
 
@@ -464,48 +434,177 @@ select pg_temp.ok(
 );
 
 reset role;
+
+insert into probe (k, v)
+values
+  ('night-in', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 2) + time '22:00'))),
+  ('night-two', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '02:00'))),
+  ('night-seven', to_jsonb(timezone('Europe/London', (private.london_day(pg_catalog.now()) - 1) + time '07:00')));
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'night-two'), true);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111201',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opa'::uuid,
+  'Operative A',
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  false
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'two',
+  public.sign_out_site(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::timestamptz from probe where k = 'night-two')
+  )
+);
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'night-two')
+      and not forgot_sign_out
+      and late_out_at is null
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111201'
+  ),
+  'a 22:00 sign-in signed out at 02:00 closes at 02:00'
+);
+
+select set_config('sitepack.attendance_now', (select v #>> '{}' from probe where k = 'night-seven'), true);
+
+insert into public.site_attendance (
+  id, site_id, company_id, person_id, person_name,
+  in_device_at, in_received_at, in_at, in_gap
+) values (
+  '61111111-1111-4111-8111-111111111202',
+  :'sitea'::uuid,
+  :'firmx'::uuid,
+  :'opa'::uuid,
+  'Operative A',
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  (select (v #>> '{}')::timestamptz from probe where k = 'night-in'),
+  false
+);
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select public.close_forgotten_attendance();
+
+insert into probe (k, v)
+values (
+  'seven',
+  public.sign_out_site(
+    :'sitea'::uuid,
+    (select (v #>> '{}')::timestamptz from probe where k = 'night-seven')
+  )
+);
+
+select public.close_forgotten_attendance();
+select public.close_forgotten_attendance();
+
+reset role;
+
+select pg_temp.ok(
+  (
+    select forgot_sign_out
+      and late_out_at = (select (p.v #>> '{}')::timestamptz from probe p where p.k = 'night-seven')
+      and late_out_device_at = late_out_at
+      and late_out_received_at = late_out_at
+      and out_at = private.london_end(private.london_day(in_at))
+      and (select (q.v->>'late_sign_out')::boolean from probe q where q.k = 'seven')
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111202'
+  ),
+  'a sign-out at 07:00 the next day is stored as a late sign-out'
+);
+
+select pg_temp.ok(
+  (
+    select count(*)
+    from public.site_attendance_audit
+    where entry_id = '61111111-1111-4111-8111-111111111202'
+      and reason = 'Late sign-out sent from the phone'
+  ) = 1
+  and (
+    select count(*)
+    from public.site_attendance
+    where id = '61111111-1111-4111-8111-111111111202'
+      and forgot_sign_out
+      and out_at = private.london_end(private.london_day(in_at))
+  ) = 1,
+  'closing forgotten rows again does not add a second close'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (public.attendance_entry('61111111-1111-4111-8111-111111111202') -> 'audit' -> 0 ->> 'reason')
+    = 'Late sign-out sent from the phone',
+  'a manager can see the late sign-out'
+);
+
+reset role;
+select set_config('sitepack.attendance_now', '', true);
 set local role anon;
 
-do $$
+do $anon$
+declare
+  call text;
+  calls text[] := array[
+    'public.sign_in_site(''51111111-1111-4111-8111-111111111111''::uuid, now())',
+    'public.sign_out_site(''51111111-1111-4111-8111-111111111111''::uuid, now())',
+    'public.correct_attendance(''51111111-1111-4111-8111-111111111111''::uuid, now(), now(), ''no'')',
+    'public.close_forgotten_attendance()',
+    'public.my_site_attendance(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'public.list_my_attendance(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'public.list_on_site_now(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'public.weekly_attendance(''51111111-1111-4111-8111-111111111111''::uuid, date ''2026-10-19'')',
+    'public.attendance_entry(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'private.attendance_actor()',
+    'private.attendance_person_label(''Ada'')',
+    'private.attendance_now()',
+    'private.attendance_device_time(now())',
+    'private.attendance_gap(now(), now())',
+    'private.london_day(now())',
+    'private.london_start(date ''2026-10-19'')',
+    'private.london_end(date ''2026-10-19'')',
+    'private.attendance_require_site(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'private.close_forgotten_attendance()',
+    'private.attendance_audit_json(''51111111-1111-4111-8111-111111111111''::uuid)',
+    'private.attendance_json(''51111111-1111-4111-8111-111111111111''::uuid)'
+  ];
 begin
-  perform public.sign_in_site('51111111-1111-4111-8111-111111111111'::uuid, now());
-  raise exception 'FAIL: anon called sign_in_site';
-exception
-  when insufficient_privilege then
-    raise notice 'ok: anon cannot call sign_in_site';
-end $$;
-
-do $$
-begin
-  perform public.list_on_site_now('51111111-1111-4111-8111-111111111111'::uuid);
-  raise exception 'FAIL: anon called list_on_site_now';
-exception
-  when insufficient_privilege then
-    raise notice 'ok: anon cannot call list_on_site_now';
-end $$;
-
-do $$
-begin
-  perform public.weekly_attendance('51111111-1111-4111-8111-111111111111'::uuid, date '2026-10-19');
-  raise exception 'FAIL: anon called weekly_attendance';
-exception
-  when insufficient_privilege then
-    raise notice 'ok: anon cannot call weekly_attendance';
-end $$;
-
-do $$
-begin
-  perform public.correct_attendance(
-    '51111111-1111-4111-8111-111111111111'::uuid,
-    now(),
-    now(),
-    'no'
-  );
-  raise exception 'FAIL: anon called correct_attendance';
-exception
-  when insufficient_privilege then
-    raise notice 'ok: anon cannot call correct_attendance';
-end $$;
+  if array_length(calls, 1) <> 21 then
+    raise exception 'FAIL: anon probe list drifted';
+  end if;
+  foreach call in array calls loop
+    begin
+      execute 'select ' || call;
+      raise exception 'FAIL: anon called %', call;
+    exception
+      when insufficient_privilege then
+        null;
+    end;
+  end loop;
+  raise notice 'ok: anon cannot call the 9 public and 12 private attendance functions';
+end
+$anon$;
 
 reset role;
 
