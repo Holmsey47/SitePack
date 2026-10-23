@@ -270,7 +270,28 @@ export function setVariationQueueForTests(store: VariationQueueStore | null) {
   active = store;
 }
 
+export function fixtureForceOffline(): boolean {
+  if (__DEV__ && process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
+    try {
+      return globalThis.localStorage?.getItem('sitepack.dev.forceOffline') === '1';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export function setFixtureForceOffline(offline: boolean): void {
+  if (__DEV__ && process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
+    const storage = globalThis.localStorage;
+    if (!storage) return;
+    if (offline) storage.setItem('sitepack.dev.forceOffline', '1');
+    else storage.removeItem('sitepack.dev.forceOffline');
+  }
+}
+
 export async function deviceIsOnline(): Promise<boolean> {
+  if (fixtureForceOffline()) return false;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
   try {
     const network = await import('expo-network');

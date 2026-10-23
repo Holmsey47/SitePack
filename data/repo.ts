@@ -23,6 +23,14 @@ import type {
   Site,
   SiteAssignment,
 } from '@/data/types';
+import type {
+  DrawingProof,
+  DrawingRoster,
+  NotSeenPerson,
+  SiteSeenGap,
+  SiteSeenSummary,
+  UnseenDrawing,
+} from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 
 export type SignInResult = {
@@ -124,6 +132,14 @@ export type SitePackRepo = {
     contentType: string;
   }): Promise<{ storagePath: string; fileSizeBytes: number; contentType: string }>;
   signSitePhotoUrl(storagePath: string): Promise<{ url: string; expiresAt: string }>;
+  listMyUnseenDrawings(): Promise<UnseenDrawing[]>;
+  myDrawingProof(drawingId: string): Promise<DrawingProof>;
+  siteDrawingSeen(siteId: string): Promise<SiteSeenSummary>;
+  siteNotSeen(siteId: string): Promise<NotSeenPerson[]>;
+  drawingSeenRoster(drawingId: string): Promise<DrawingRoster>;
+  managerDrawingGaps(): Promise<SiteSeenGap[]>;
+  recordDrawingOpen(drawingId: string): Promise<void>;
+  confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -187,6 +203,9 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'signature_required',
     'invalid_status',
     'invalid_input',
+    'not_opened',
+    'not_current',
+    'drawing_not_found',
   ]) {
     if (text.includes(known)) return known;
   }

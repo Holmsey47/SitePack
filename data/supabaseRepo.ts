@@ -14,6 +14,15 @@ import type {
   VariationVersion,
 } from '@/data/variations';
 import { PHOTO_URL_SECONDS } from '@/data/variations';
+import {
+  parseDrawingProof,
+  parseDrawingRoster,
+  parseNotSeenPeople,
+  parseSeenAt,
+  parseSiteSeenGaps,
+  parseSiteSeenSummary,
+  parseUnseenDrawings,
+} from '@/data/drawingSeen';
 import type {
   AddNoLoginOperativeInput,
   CompanyContact,
@@ -894,5 +903,41 @@ export const supabaseRepo: SitePackRepo = {
     const { data, error } = await supabase.storage.from('drawings').createSignedUrl(drawing.storage_path, 3600);
     if (error || !data?.signedUrl) throw new Error(error?.message ?? 'Could not sign drawing URL');
     return data.signedUrl;
+  },
+
+  async listMyUnseenDrawings() {
+    return parseUnseenDrawings(await rpcJson('my_unseen_drawings', {}));
+  },
+
+  async myDrawingProof(drawingId) {
+    return parseDrawingProof(await rpcJson('my_drawing_proof', { p_drawing_id: drawingId }));
+  },
+
+  async siteDrawingSeen(siteId) {
+    return parseSiteSeenSummary(await rpcJson('site_drawing_seen', { p_site_id: siteId }));
+  },
+
+  async siteNotSeen(siteId) {
+    return parseNotSeenPeople(await rpcJson('site_not_seen', { p_site_id: siteId }));
+  },
+
+  async drawingSeenRoster(drawingId) {
+    return parseDrawingRoster(await rpcJson('drawing_seen_roster', { p_drawing_id: drawingId }));
+  },
+
+  async managerDrawingGaps() {
+    return parseSiteSeenGaps(await rpcJson('manager_drawing_gaps', {}));
+  },
+
+  async recordDrawingOpen(drawingId) {
+    await rpcJson('record_drawing_open', { p_drawing_id: drawingId });
+  },
+
+  async confirmDrawingSeen(drawingId, seenAt) {
+    return {
+      seenAt: parseSeenAt(
+        await rpcJson('confirm_drawing_seen', { p_drawing_id: drawingId, p_seen_at: seenAt ?? null })
+      ),
+    };
   },
 };

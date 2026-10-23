@@ -1,7 +1,12 @@
-import { Card, ChoiceChip, EmptyState, Muted, RevBadge, Screen, Title } from '@/components/ui';
+import { Card, ChoiceChip, EmptyState, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
+import { useAuth } from '@/context/AuthContext';
+import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
 import { repo } from '@/data/index';
+import { canManageSite } from '@/data/repo';
 import type { Drawing } from '@/data/types';
+import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
+import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -28,7 +33,13 @@ export default function FolderScreen() {
   const folderName = readFolderParam(folderParam);
   const router = useRouter();
   const navigation = useNavigation();
+  const { person } = useAuth();
+  const manage = person ? canManageSite(person.role) : false;
   const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
+  const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
+  const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
   const [showOld, setShowOld] = useState(false);
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -38,9 +49,16 @@ export default function FolderScreen() {
     if (!siteId) return;
     const rows = await repo.listDrawings(siteId);
     setDrawings(rows);
+    const seen = await refreshDrawingSeen(manage, person?.auth_user_id).catch(() => null);
+    if (seen) {
+      setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
+      setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+      setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
+    }
+    setSeenSummary(manage ? await loadSiteSeenSummary(siteId) : null);
     setLoaded(true);
     navigation.setOptions({ title: folderName });
-  }, [folderName, navigation, siteId]);
+  }, [folderName, manage, navigation, person?.auth_user_id, siteId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -78,6 +96,17 @@ export default function FolderScreen() {
   return (
     <Screen>
       <Title>{folderName}</Title>
+      {seenNotices.map((notice) => (
+        <SeenRejectNotice
+          key={notice.id}
+          message={notice.message}
+          onPress={() => {
+            void openReplacedNotice(notice).then((path) => {
+              if (path) router.push(path);
+            });
+          }}
+        />
+      ))}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {filters ? (
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -113,19 +142,35 @@ export default function FolderScreen() {
           {visibleCurrent.length === 0 ? (
             <EmptyState title="No drawings in this folder" />
           ) : (
-            visibleCurrent.map((drawing) => (
-              <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
-                    {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                    <LevelLine level={drawing.level} />
-                    <Muted>{formatDate(drawing.dated)}</Muted>
-                  </View>
-                  <RevBadge revision={drawing.revision} current />
+            visibleCurrent.map((drawing) => {
+              const fresh = unseen.find((row) => row.drawing_id === drawing.id);
+              const count = seenSummary?.drawings.find((row) => row.drawing_id === drawing.id);
+              return (
+                <View key={drawing.id} style={{ gap: 8 }}>
+                  <Card onPress={() => openDrawing(drawing.id)}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <View style={{ flex: 1, gap: 8 }}>
+                        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
+                        {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+                        <LevelLine level={drawing.level} />
+                        <Muted>{formatDate(drawing.dated)}</Muted>
+                        {fresh && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
+                          <NewRevBadge sheet={sheetLabel(drawing)} revision={drawing.revision} />
+                        ) : null}
+                      </View>
+                      <RevBadge revision={drawing.revision} current />
+                    </View>
+                  </Card>
+                  {manage && count ? (
+                    <SeenCountChip
+                      seen={count.seen_count}
+                      total={seenSummary?.assigned_count ?? 0}
+                      onPress={() => router.push(`/sites/${siteId}/seen/${drawing.id}`)}
+                    />
+                  ) : null}
                 </View>
-              </Card>
-            ))
+              );
+            })
           )}
 
           {!activeLevel && superseded.length > 0 ? (

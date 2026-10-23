@@ -43,6 +43,18 @@ import type { JoinCodeCreated, JoinCodeRow, JoinWithCodeInput, JoinerRow, Passwo
 import { pdfObjectUrl } from '@/lib/pdf';
 import type { CreateVariationInput, VariationDetail, VariationList } from '@/data/variations';
 import {
+  buildRoster,
+  buildSiteSummary,
+  confirmSeen,
+  managerGaps,
+  notSeenByOperative,
+  recordOpen,
+  unseenForPerson,
+  type ProofOpen,
+  type ProofSeen,
+  type SeenAssignment,
+} from '@/data/drawingSeen';
+import {
   fixtureCreateVariation,
   fixtureListVariations,
   fixturePhotoUrl,
@@ -128,6 +140,8 @@ type Store = {
   companyName: string;
   codeSerial: number;
   variations: FixtureVariationBucket;
+  drawingOpens: ProofOpen[];
+  drawingSeen: ProofSeen[];
 };
 
 const now = () => new Date().toISOString();
@@ -410,6 +424,8 @@ function seed(): Store {
     banned: [],
     companyName: 'Ashfield Finishes',
     codeSerial: 0,
+    drawingOpens: [],
+    drawingSeen: [],
     variations: seedFixtureVariations({
       companyId: IDS.company,
       oakId: IDS.oak,
@@ -453,6 +469,34 @@ function noteFailure(bucket: string, subject: string) {
 
 function usernameLimited(username: string): boolean {
   return recentFailures('login_user', username, JOIN_IP_WINDOW_MINUTES) >= JOIN_USERNAME_FAILURE_LIMIT;
+}
+
+function seenAssignments(): SeenAssignment[] {
+  return store.assignments.flatMap((row) => {
+    const person = store.people.find((item) => item.id === row.person_id);
+    if (!person) return [];
+    return [{ site_id: row.site_id, person_id: row.person_id, role: person.role }];
+  });
+}
+
+/** Fixture-only. Marks the current sheet superseded and adds the next revision. */
+export function devSupersedeCurrent(drawingId: string): { id: string; revision: string } | null {
+  const old = store.drawings.find((row) => row.id === drawingId && row.is_current);
+  if (!old) return null;
+  const letter = old.revision.trim().slice(-1).toUpperCase();
+  const revision = letter >= 'A' && letter < 'Z' ? String.fromCharCode(letter.charCodeAt(0) + 1) : `${old.revision}2`;
+  old.is_current = false;
+  const created: Drawing = {
+    ...old,
+    id: newId(),
+    revision,
+    is_current: true,
+    supersedes_id: old.id,
+    created_at: now(),
+    updated_at: now(),
+  };
+  store.drawings.push(created);
+  return { id: created.id, revision };
 }
 
 function meOrThrow(): Person {
@@ -1491,6 +1535,88 @@ export const fixtureRepo: SitePackRepo = {
       removed += 1;
     }
     return { removed };
+  },
+
+  async listMyUnseenDrawings() {
+    const person = meOrThrow();
+    const names = new Map(store.sites.map((site) => [site.id, site.name]));
+    return unseenForPerson(person.id, store.drawings, seenAssignments(), store.drawingSeen, names);
+  },
+
+  async myDrawingProof(drawingId) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    const seen = store.drawingSeen.find(
+      (row) => row.drawing_id === drawing.id && row.person_id === person.id && row.revision === drawing.revision
+    );
+    return {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      revision: drawing.revision,
+      is_current: drawing.is_current,
+      assigned: store.assignments.some((row) => row.site_id === drawing.site_id && row.person_id === person.id),
+      opened: store.drawingOpens.some(
+        (row) => row.drawing_id === drawing.id && row.person_id === person.id && row.revision === drawing.revision
+      ),
+      seen_at: seen?.seen_at ?? null,
+    };
+  },
+
+  async siteDrawingSeen(siteId) {
+    const person = requireManager();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return buildSiteSummary(siteId, store.drawings, seenAssignments(), store.drawingSeen);
+  },
+
+  async drawingSeenRoster(drawingId) {
+    const person = requireManager();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing) throw new Error('drawing_not_found');
+    if (!canAccessSite(person, drawing.site_id)) throw new Error('not_authorized');
+    return buildRoster(drawing, seenAssignments(), store.people, store.drawingSeen);
+  },
+
+  async managerDrawingGaps() {
+    const person = requireManager();
+    const sites = store.sites.filter((site) => canAccessSite(person, site.id)).map((site) => site.id);
+    return managerGaps(store.drawings, seenAssignments(), store.drawingSeen, sites);
+  },
+
+  async siteNotSeen(siteId) {
+    const person = requireManager();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return notSeenByOperative(siteId, store.drawings, seenAssignments(), store.people, store.drawingSeen);
+  },
+
+  async recordDrawingOpen(drawingId) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing || !canAccessSite(person, drawing.site_id)) throw new Error('drawing_not_found');
+    if (!drawing.is_current) throw new Error('not_current');
+    recordOpen(store.drawingOpens, {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      person_id: person.id,
+      revision: drawing.revision,
+    });
+  },
+
+  async confirmDrawingSeen(drawingId, seenAt) {
+    const person = meOrThrow();
+    const drawing = store.drawings.find((row) => row.id === drawingId);
+    if (!drawing || !canAccessSite(person, drawing.site_id)) throw new Error('drawing_not_found');
+    if (!drawing.is_current) throw new Error('not_current');
+    const row = confirmSeen(store.drawingOpens, store.drawingSeen, {
+      drawing_id: drawing.id,
+      site_id: drawing.site_id,
+      person_id: person.id,
+      revision: drawing.revision,
+      seen_at: seenAt ?? null,
+      received_at: new Date().toISOString(),
+    });
+    return { seenAt: row.seen_at };
   },
 };
 

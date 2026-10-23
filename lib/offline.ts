@@ -1,6 +1,7 @@
 import { PACK_DIRECTORY_CREATE } from '@/data/walk';
 import { Directory, File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
+import { removeDrawingSeenKeys } from '@/lib/drawingSeenQueue';
 
 import type { HomeSite, ManifestItem } from '@/data/types';
 import { drawingIdsToDelete, siteIdsFromPackKeys } from '@/lib/offlinePack';
@@ -102,6 +103,7 @@ function clearLocalMetadata() {
       if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.') || key.startsWith('sitepack.variation.')) keys.push(key);
     }
     for (const key of keys) store.removeItem(key);
+    removeDrawingSeenKeys(store);
   } catch {
     // The file delete still runs.
   }

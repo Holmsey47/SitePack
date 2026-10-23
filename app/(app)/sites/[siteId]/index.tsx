@@ -1,9 +1,12 @@
-import { Button, Card, EmptyState, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
+import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
@@ -32,6 +35,10 @@ export default function SitePackScreen() {
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [newJoiners, setNewJoiners] = useState(0);
+  const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
+  const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
+  const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
+  const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -50,6 +57,15 @@ export default function SitePackScreen() {
       setError('');
       const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
       setReady(isPackReady(siteId, currentIds));
+      const manageNow = person ? canManageSite(person.role) : false;
+      const seen = await refreshDrawingSeen(manageNow, person?.auth_user_id).catch(() => null);
+      if (seen) {
+        setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
+        setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+        setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
+      }
+      if (manageNow) setSeenSummary(await loadSiteSeenSummary(siteId));
+      else setSeenSummary(null);
     } catch {
       const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
       const meta = readPackMeta(siteId);
@@ -185,6 +201,37 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
+        <GlanceRow
+          label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
+          onPress={() => router.push(`/sites/${siteId}/not-seen`)}
+        />
+      ) : null}
+      {(() => {
+        const fresh = unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision));
+        const freshLine = manage ? null : newDrawingsLine(fresh.length);
+        const waiting = queuedSeen.some((row) => row.kind === 'confirm');
+        if (!freshLine && !waiting && seenNotices.length === 0) return null;
+        return (
+          <View style={{ gap: 8 }}>
+            {seenNotices.map((notice) => (
+              <SeenRejectNotice
+                key={notice.id}
+                message={notice.message}
+                onPress={() => {
+                  void openReplacedNotice(notice).then((path) => {
+                    if (path) router.push(path);
+                  });
+                }}
+              />
+            ))}
+            {freshLine ? <GlanceRow label={freshLine} onPress={() => router.push(`/sites/${siteId}/new`)} /> : null}
+            {waiting ? (
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+            ) : null}
+          </View>
+        );
+      })()}
       {phoneRows.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>

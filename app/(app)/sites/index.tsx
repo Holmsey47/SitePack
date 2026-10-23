@@ -1,6 +1,8 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, HeaderActions, Muted, Screen, OutOfDateBadge, Title } from '@/components/ui';
+import { FixtureOfflineSwitch } from '@/components/fixture-offline';
+import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
@@ -8,6 +10,8 @@ import { archivedRows, contractsManagerLine, operativesLine, workingRows } from 
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
+import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
+import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -26,6 +30,10 @@ export default function SitesScreen() {
   const [showArchived, setShowArchived] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
+  const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
+  const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
+  const [queued, setQueued] = useState<QueuedSeen[]>([]);
+  const [notices, setNotices] = useState<SeenNotice[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -66,6 +74,36 @@ export default function SitesScreen() {
       };
     }, [person])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person) return;
+      let active = true;
+      refreshDrawingSeen(manager, person.auth_user_id)
+        .then((next) => {
+          if (!active) return;
+          setUnseen(next.unseen);
+          setGaps(next.gaps);
+          setQueued(next.queued);
+          setNotices(next.notices);
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, [manager, person])
+  );
+
+  function seenNotes(siteId: string) {
+    const badges = unseen.filter(
+      (row) => row.site_id === siteId && !confirmQueued(queued, row.drawing_id, row.revision)
+    );
+    const waiting = queued.some((item) => item.kind === 'confirm' && item.siteId === siteId);
+    const gap = gaps.find((row) => row.site_id === siteId);
+    const line = manager && gap ? siteUnseenLine(gap.not_seen_by_everyone) : null;
+    const rejections = notices.filter((notice) => notice.siteId === siteId);
+    return { badges, waiting, line, rejections };
+  }
 
   const working = useMemo(() => workingRows(rows), [rows]);
   const archived = useMemo(() => archivedRows(rows), [rows]);
@@ -114,23 +152,37 @@ export default function SitesScreen() {
           <HeaderActions label="Sign out" onPress={() => void signOut()} />
         </View>
         {resetNotice}
+        <FixtureOfflineSwitch />
         {error ? <ErrorText>{error}</ErrorText> : null}
         {loaded && !error && workingRows(mine).length === 0 && archivedRows(mine).length === 0 ? (
           <EmptyState title="You’re not on a site yet — ask your owner" />
         ) : (
           workingRows(mine).map((site) => (
-            <Card key={site.id} onPress={() => router.push(`/sites/${site.id}`)}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
-                {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
-              </View>
-              {site.address_line ? <Muted>{site.address_line}</Muted> : null}
-              <Muted>{formatWhen(site.updated_at)}</Muted>
-              {(site.my_open_request_count ?? 0) > 0 ? (
-                <Text style={{ color: theme.open, fontWeight: '700' }}>
-                  {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
-                </Text>
-              ) : null}
+            <Card key={site.id}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={site.name}
+                onPress={() => router.push(`/sites/${site.id}`)}
+                style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
+                  {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
+                </View>
+                {site.address_line ? <Muted>{site.address_line}</Muted> : null}
+                <Muted>{formatWhen(site.updated_at)}</Muted>
+                {(site.my_open_request_count ?? 0) > 0 ? (
+                  <Text style={{ color: theme.open, fontWeight: '700' }}>
+                    {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
+                  </Text>
+                ) : null}
+              </Pressable>
+              <SeenNotes
+                manager={false}
+                notes={seenNotes(site.id)}
+                onTeam={() => router.push(`/sites/${site.id}/not-seen`)}
+                onNew={() => router.push(`/sites/${site.id}/new`)}
+                onNotice={(notice) => void followNotice(router, notice)}
+              />
             </Card>
           ))
         )}
@@ -158,6 +210,7 @@ export default function SitesScreen() {
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       {resetNotice}
+      <FixtureOfflineSwitch />
       {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -173,32 +226,45 @@ export default function SitesScreen() {
         <EmptyState title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'} />
       ) : (
         filtered.map((row) => (
-          <Card key={row.site_id} onPress={() => router.push(`/sites/${row.site_id}`)}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
-              {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
-              {(row.new_joiner_count ?? 0) > 0 ? (
-                <Text
-                  style={{
-                    color: theme.currentInk,
-                    backgroundColor: theme.current,
-                    fontWeight: '800',
-                    overflow: 'hidden',
-                    borderRadius: 8,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                  }}>
-                  {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
-                </Text>
-              ) : null}
-            </View>
-            {row.address_line ? <Muted>{row.address_line}</Muted> : null}
-            <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
-            <Muted>{operativesLine(row.operative_count)}</Muted>
-            <Muted>{formatWhen(row.last_pack_update)}</Muted>
-            <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
-              {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
-            </Text>
+          <Card key={row.site_id}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={row.name}
+              onPress={() => router.push(`/sites/${row.site_id}`)}
+              style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
+                {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
+                {(row.new_joiner_count ?? 0) > 0 ? (
+                  <Text
+                    style={{
+                      color: theme.currentInk,
+                      backgroundColor: theme.current,
+                      fontWeight: '800',
+                      overflow: 'hidden',
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                    }}>
+                    {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
+                  </Text>
+                ) : null}
+              </View>
+              {row.address_line ? <Muted>{row.address_line}</Muted> : null}
+              <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
+              <Muted>{operativesLine(row.operative_count)}</Muted>
+              <Muted>{formatWhen(row.last_pack_update)}</Muted>
+              <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
+                {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
+              </Text>
+            </Pressable>
+            <SeenNotes
+              manager
+              notes={seenNotes(row.site_id)}
+              onTeam={() => router.push(`/sites/${row.site_id}/not-seen`)}
+              onNew={() => router.push(`/sites/${row.site_id}/new`)}
+              onNotice={(notice) => void followNotice(router, notice)}
+            />
           </Card>
         ))
       )}
@@ -217,5 +283,40 @@ export default function SitesScreen() {
           ))
         : null}
     </Screen>
+  );
+}
+
+function followNotice(router: { push(path: `/sites/${string}/drawing/${string}`): void }, notice: SeenNotice) {
+  void openReplacedNotice(notice).then((path) => {
+    if (path) router.push(path);
+  });
+}
+
+function SeenNotes({
+  manager,
+  notes,
+  onTeam,
+  onNew,
+  onNotice,
+}: {
+  manager: boolean;
+  notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
+  onTeam: () => void;
+  onNew: () => void;
+  onNotice: (notice: SeenNotice) => void;
+}) {
+  const fresh = manager ? null : newDrawingsLine(notes.badges.length);
+  if (!fresh && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      {notes.line ? <GlanceRow label={notes.line} onPress={onTeam} /> : null}
+      {notes.rejections.map((notice) => (
+        <SeenRejectNotice key={notice.id} message={notice.message} onPress={() => onNotice(notice)} />
+      ))}
+      {fresh ? <GlanceRow label={fresh} onPress={onNew} /> : null}
+      {notes.waiting ? (
+        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+      ) : null}
+    </View>
   );
 }
