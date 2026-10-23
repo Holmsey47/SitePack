@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { currentSheetId, replacedNoticePath } from '../data/drawingSeen.ts';
 import {
+  dismissNoticesForOpenedSheet,
   flushDrawingSeenQueue,
   memoryDrawingSeenQueue,
   noticesForOwner,
@@ -192,7 +194,15 @@ test('a wiped seen queue is not sent for the next signed-in user', async () => {
     'queued'
   );
   assert.equal((await queue.list()).length, 2);
-  assert.ok(storage.length > 0);
+  await queue.putNotice({
+    id: 'notice-a',
+    ownerId: OWNER_A,
+    siteId: 's1',
+    drawingId: 'd1',
+    revision: 'C',
+    message: 'Rev C was replaced — open rev D',
+  });
+  assert.ok(storage.getItem('sitepack.drawingSeen.notices')?.includes(OWNER_A));
   removeDrawingSeenKeys(storage);
   assert.equal(storage.length, 0);
   assert.equal(storage.getItem('sitepack.drawingSeen.queue'), null);
@@ -222,6 +232,35 @@ test('a wiped seen queue is not sent for the next signed-in user', async () => {
   assert.match(auth, /async function bindCache\(userId: string \| null\) \{[\s\S]*deleteAllDrawingCaches/);
   assert.match(auth, /if \(!live\) \{[\s\S]*bindCache\(null\)/);
   assert.match(auth, /signOut: async \(\) => \{[\s\S]*bindCache\(null\)/);
+});
+
+test('tapping the notice navigates to the current-rev sheet and the notice is gone afterwards', async () => {
+  const queue = memoryDrawingSeenQueue();
+  await queue.putNotice({
+    id: 'notice-a',
+    ownerId: OWNER_A,
+    siteId: 'site',
+    drawingId: 'old',
+    revision: 'A',
+    message: 'Rev A was replaced — open rev B',
+  });
+  const drawings = [
+    { id: 'old', supersedes_id: null, is_current: false },
+    { id: 'next', supersedes_id: 'old', is_current: true },
+  ];
+  const sheetId = currentSheetId(drawings, 'old');
+  assert.equal(sheetId, 'next');
+  assert.equal(replacedNoticePath('site', sheetId ?? ''), '/sites/site/drawing/next');
+  await dismissNoticesForOpenedSheet(queue, OWNER_A, 'next', drawings);
+  assert.equal((await queue.listNotices()).length, 0);
+
+  const ui = fs.readFileSync('components/ui.tsx', 'utf8');
+  assert.match(ui, /export function SeenRejectNotice[\s\S]*accessibilityRole="button"/);
+  assert.match(ui, />Open</);
+  const home = fs.readFileSync('app/(app)/sites/index.tsx', 'utf8');
+  assert.match(home, /openReplacedNotice/);
+  const drawing = fs.readFileSync('app/(app)/sites/[siteId]/drawing/[drawingId].tsx', 'utf8');
+  assert.match(drawing, /clearNoticesAfterOpen/);
 });
 
 test("a flush for one user drops another user's queued tap without a server call", async () => {

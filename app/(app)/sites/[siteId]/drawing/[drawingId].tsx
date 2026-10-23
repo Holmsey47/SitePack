@@ -26,7 +26,7 @@ import {
   type QueuedSeen,
   type SeenNotice,
 } from '@/lib/drawingSeenQueue';
-import { currentRevisionAfter, flushQueuedDrawingSeen } from '@/lib/drawingSeenSync';
+import { clearNoticesAfterOpen, currentRevisionAfter, flushQueuedDrawingSeen, openReplacedNotice } from '@/lib/drawingSeenSync';
 import { formatDate, formatUkDateTime } from '@/lib/format';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { localDrawingUri, readCachedSites, readPackMeta } from '@/lib/offline';
@@ -187,6 +187,21 @@ export default function DrawingViewerScreen() {
       cancelled = true;
     };
   }, [drawing, openedCurrent, ownerId]);
+
+  useEffect(() => {
+    if (!drawing?.is_current || !ownerId) return;
+    if (!openedLocal && !proof?.opened) return;
+    let cancelled = false;
+    void clearNoticesAfterOpen(ownerId, drawing.id)
+      .then(async () => {
+        if (cancelled) return;
+        setSeenNotices(noticesForOwner(await getDrawingSeenQueue().listNotices(), ownerId));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [drawing?.id, drawing?.is_current, ownerId, openedLocal, proof?.opened]);
 
   useEffect(() => {
     if (!drawingId || !manage) return;
@@ -362,7 +377,15 @@ export default function DrawingViewerScreen() {
         {seenNotices
           .filter((notice) => notice.drawingId === drawing?.id || notice.siteId === drawing?.site_id)
           .map((notice) => (
-            <SeenRejectNotice key={notice.id} message={notice.message} />
+            <SeenRejectNotice
+              key={notice.id}
+              message={notice.message}
+              onPress={() => {
+                void openReplacedNotice(notice).then((path) => {
+                  if (path) router.push(path);
+                });
+              }}
+            />
           ))}
         {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <View

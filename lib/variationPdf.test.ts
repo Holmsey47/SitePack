@@ -4,7 +4,7 @@ import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 import { solidPng, strokesToPngDataUrl, dataUrlBytes } from './signaturePng.ts';
 import { buildVariationPdf, fitPhoto, photoRowKind, variationPdfFilename } from './variationPdf.ts';
-import { variationConfirmation, variationLockLine } from './variationWording.ts';
+import { variationConfirmation, variationLockLine, variationOfficeAmountLine } from './variationWording.ts';
 
 const ZIGZAG = [
   0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
@@ -432,6 +432,36 @@ test('two landscape photos share a row, and a blank amount or first version stay
   assert.equal(photos[0].y, photos[1].y);
   assert.ok(photos[0].width / photos[0].height > 1.2);
   assert.equal(Buffer.from(solidPng(8, 8, [20, 80, 140])).length > 0, true);
+});
+
+test('an operative PDF of a priced sign-off shows the office line and the stored sentence', async () => {
+  const stored = variationConfirmation('Northbuild', true);
+  const office = variationOfficeAmountLine('Ashfield Finishes');
+  const bytes = await buildVariationPdf({
+    voSeq: 2,
+    versionNo: 1,
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 – Oak Estate',
+    title: 'Additional mastic',
+    description: 'Mastic to the screen head.',
+    levelArea: 'Ground',
+    quantityText: '1 hour',
+    valuePence: null,
+    amountLine: office,
+    whenIso: '2026-10-22T13:05:00.000Z',
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    confirmationText: stored,
+    photos: [],
+    signaturePng: signature,
+  });
+  const text = pdfText(bytes);
+  assert.match(text, /Amount: agreed with the office\. Ask Ashfield Finishes for the priced copy\./);
+  assert.match(text, /I confirm I instructed this extra work on behalf of Northbuild and agree the amount shown\./);
+  assert.equal(text.includes('Amount: £'), false);
+  assert.equal(text.includes('+ VAT'), false);
+  assert.equal(text.includes('180.00'), false);
 });
 
 test('the signature block shows the typed name, role and company beside the drawing', async () => {
