@@ -91,7 +91,10 @@ create table if not exists storage.buckets (
 create table if not exists storage.objects (
   id uuid primary key default gen_random_uuid(),
   bucket_id text,
-  name text
+  name text,
+  owner uuid,
+  owner_id text,
+  metadata jsonb
 );
 
 create or replace function storage.foldername(name text)

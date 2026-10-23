@@ -3,12 +3,16 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import test from 'node:test';
 
-test('the snag migration does not touch storage or auth', () => {
+test('the snag migration only reads storage.objects and does not grant or alter storage or auth', () => {
   const sql = fs.readFileSync('supabase/migrations/20261022170000_snags.sql', 'utf8');
+  assert.match(sql, /from storage\.objects/);
+  assert.doesNotMatch(sql, /insert\s+into\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /update\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /delete\s+from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /alter table storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+storage/i);
+  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+(table\s+)?storage\./i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+auth/i);
-  assert.doesNotMatch(sql, /storage\.objects/i);
   assert.doesNotMatch(sql, /auth\.users/i);
 });
 

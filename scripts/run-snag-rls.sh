@@ -26,6 +26,11 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 alter table storage.objects enable row level security;
 grant usage on schema storage to authenticated;
 grant select, insert on table storage.objects to authenticated;
+-- Hosted storage.objects already has these. The local stand-in may have been
+-- created by an older script, so add them here rather than in a migration.
+alter table storage.objects add column if not exists owner uuid;
+alter table storage.objects add column if not exists owner_id text;
+alter table storage.objects add column if not exists metadata jsonb;
 SQL
 
 for migration in supabase/migrations/*.sql; do
@@ -68,3 +73,4 @@ awk '
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/snags-rls.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public._snag_funcs_before; drop table if exists public._snag_funcs_migration;'
 echo "snag RLS ok"
+bash scripts/snag-signoff-race.sh

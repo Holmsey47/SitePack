@@ -701,9 +701,11 @@ export function fixtureUploadSnagPhoto(
   companyId: string,
   siteId: string,
   bytes: Uint8Array,
-  contentType: string
+  contentType: string,
+  snagId?: string
 ): { storagePath: string; fileSizeBytes: number; contentType: string } {
-  const storagePath = `${companyId}/${siteId}/snags/${newId()}`;
+  const file = snagId ? `${snagId}/${newId()}` : newId();
+  const storagePath = `${companyId}/${siteId}/snags/${file}`;
   let binary = '';
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
   const base64 = typeof Buffer !== 'undefined' ? Buffer.from(bytes).toString('base64') : btoa(binary);

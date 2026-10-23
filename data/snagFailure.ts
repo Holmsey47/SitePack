@@ -69,7 +69,9 @@ export function snagFailureFrom(err: unknown): SnagFailure {
 export function isRetryableSnagFailure(err: unknown): boolean {
   const failure = snagFailureFrom(err);
   if (failure.kind === 'network') return true;
-  if (failure.kind === 'http') return failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
+  if (failure.kind === 'http') {
+    return failure.status === 401 || failure.status === 408 || failure.status === 429 || (failure.status >= 500 && failure.status <= 599);
+  }
   return false;
 }
 

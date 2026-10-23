@@ -57,18 +57,21 @@ export default function SnagsScreen() {
   const load = useCallback(async () => {
     if (!siteId) return;
     const queue = getSnagQueue();
+    let signInRequired = false;
     if (ownerId && (await deviceIsOnline())) {
-      await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
+      const flushed = await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
+      signInRequired = flushed.signInRequired;
     }
     const pending = (await queue.list()).filter((item) => item.siteId === siteId && item.ownerId === ownerId);
     setQueued(pending);
     setNotices(noticesForOwner(await queue.listNotices(), ownerId).filter((notice) => notice.siteId === siteId));
     try {
       setList(await repo.listSnags(siteId));
-      setError('');
+      if (!signInRequired) setError('');
     } catch (err) {
-      setError(snagError(err instanceof Error ? err.message : 'unknown'));
+      if (!signInRequired) setError(snagError(err instanceof Error ? err.message : 'unknown'));
     }
+    if (signInRequired) setError('Sign in again to send what is saved on this phone.');
   }, [ownerId, siteId]);
 
   useFocusEffect(
