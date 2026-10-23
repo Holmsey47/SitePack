@@ -8,9 +8,11 @@ import {
   flushSnagQueue,
   isRetryableSnagFailure,
   memorySnagQueue,
+  noticesForOwner,
   persistThenSendSnag,
   rejectedSnagNotice,
   removeSnagQueueKeys,
+  snagRetryDelayMs,
   storageSnagQueue,
   type QueuedSnag,
   type QueuedSnagCreate,
@@ -236,8 +238,11 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
     ownerId: 'user-a',
     siteId: 'site',
     signedAt: '2026-10-22T13:05:00.000Z',
-    mode: 'internal',
+    mode: 'contractor',
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
     signerCompany: 'Northbuild',
+    signaturePng: 'data:image/png;base64,aaaa',
     coveredIds: ['shown-fixed'],
     outstandingIds: ['shown-open'],
   });
@@ -283,6 +288,10 @@ test('an unknown business code becomes a notice and a 5xx waits without blocking
   const changedNotice = notices.find((notice) => notice.id.endsWith('stale-sign'));
   assert.equal(changedNotice?.code, 'snag_list_changed');
   assert.equal(changedNotice?.retryItem, undefined);
+  assert.equal(changedNotice?.signMode, 'contractor');
+  assert.equal(changedNotice?.signerName, 'Dave Moran');
+  assert.equal(changedNotice?.signerRole, 'Site manager');
+  assert.equal(changedNotice?.signerCompany, 'Northbuild');
   const signScreen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
   assert.match(signScreen, /function clearSignFields\(\)/);
   assert.match(signScreen, /setSignature\(null\)/);
@@ -470,7 +479,7 @@ test('a real supabase client keeps gateway 502 and 503 queued and turns 4xx into
       status: 401,
       body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }),
       type: 'application/json',
-      queued: false,
+      queued: true,
     },
     { status: 404, body: 'No function matches that path', type: 'text/plain', queued: false },
   ];
@@ -509,9 +518,10 @@ test('a real supabase client keeps gateway 502 and 503 queued and turns 4xx into
       coveredIds: ['fixed-1'],
       outstandingIds: [],
     });
-    await flushSnagQueue(queue, async () => {
+    const flushed = await flushSnagQueue(queue, async () => {
       throw thrown;
     }, 'user-a', () => now);
+    assert.equal(flushed.signInRequired, shape.status === 401, `${shape.status} sign-in`);
     if (shape.queued) {
       assert.equal((await queue.list()).length, 1, `${shape.status} left the queue`);
       assert.equal((await queue.listNotices()).length, 0);
@@ -520,4 +530,142 @@ test('a real supabase client keeps gateway 502 and 503 queued and turns 4xx into
       assert.equal((await queue.listNotices()).length, 1);
     }
   }
+});
+
+test('a snag notice is shown only to the person who queued it', async () => {
+  const queue = memorySnagQueue();
+  await queue.put(item([1, 2], 'user-a', 'refused-a'));
+  await flushSnagQueue(queue, async () => {
+    throw new Error('not_authorized');
+  }, 'user-a');
+  const notices = await queue.listNotices();
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0]?.ownerId, 'user-a');
+  assert.equal(notices[0]?.id, 'reject:user-a:refused-a');
+  assert.equal(noticesForOwner(notices, 'user-a')[0]?.message, 'This snag was not saved');
+  assert.deepEqual(noticesForOwner(notices, 'user-b'), []);
+  assert.deepEqual(noticesForOwner(notices, ''), []);
+  assert.deepEqual(noticesForOwner(notices, null), []);
+  assert.deepEqual(noticesForOwner(notices, undefined), []);
+  assert.deepEqual(noticesForOwner([{ ...notices[0]!, ownerId: '' }], ''), []);
+
+  const calls: string[] = [];
+  await flushSnagQueue(queue, async (row) => {
+    calls.push(row.localId);
+  }, 'user-b');
+  assert.deepEqual(calls, []);
+  assert.equal((await queue.listNotices()).length, 0);
+  assert.deepEqual(noticesForOwner(await queue.listNotices(), 'user-b'), []);
+});
+
+test('a flush with no signed-in user does not send or drop the queue', async () => {
+  const queue = memorySnagQueue();
+  await queue.put(item([3], 'user-a', 'kept'));
+  const calls: string[] = [];
+  const flushed = await flushSnagQueue(queue, async (row) => {
+    calls.push(row.localId);
+  }, '');
+  assert.deepEqual(calls, []);
+  assert.equal(flushed.signInRequired, false);
+  assert.equal((await queue.list()).length, 1);
+  assert.equal((await queue.list())[0]?.localId, 'kept');
+  assert.equal((await queue.list())[0]?.ownerId, 'user-a');
+});
+
+test('a stored snag with no owner is dropped', async () => {
+  const storage = keyedStorage();
+  const photo = { id: 'p1', contentType: 'image/jpeg', base64: 'AQI=' };
+  storage.setItem(
+    'sitepack.snag.queue',
+    JSON.stringify([
+      {
+        kind: 'create',
+        localId: 'no-owner',
+        siteId: 'site',
+        companyId: 'company',
+        note: 'Bead missing',
+        levelArea: null,
+        tradeLabel: 'dryliner',
+        photos: [photo],
+        raisedAt: '2026-10-22T08:15:00.000Z',
+      },
+    ])
+  );
+  storage.setItem(
+    'sitepack.snag.notices',
+    JSON.stringify([{ id: 'n-missing', siteId: 'site', message: 'This snag was not saved', photos: [photo] }])
+  );
+  const queue = storageSnagQueue(storage);
+  assert.equal((await queue.list()).length, 0);
+  assert.equal((await queue.listNotices()).length, 0);
+
+  const blank = keyedStorage();
+  blank.setItem(
+    'sitepack.snag.queue',
+    JSON.stringify([
+      {
+        kind: 'create',
+        localId: 'blank-owner',
+        ownerId: '',
+        siteId: 'site',
+        companyId: 'company',
+        note: 'Bead missing',
+        levelArea: null,
+        tradeLabel: 'dryliner',
+        photos: [photo],
+        raisedAt: '2026-10-22T08:15:00.000Z',
+      },
+    ])
+  );
+  blank.setItem(
+    'sitepack.snag.notices',
+    JSON.stringify([{ id: 'n-blank', ownerId: '', siteId: 'site', message: 'This snag was not saved', photos: [photo] }])
+  );
+  const blankQueue = storageSnagQueue(blank);
+  assert.equal((await blankQueue.list()).length, 0);
+  assert.equal((await blankQueue.listNotices()).length, 0);
+});
+
+test('an expired session keeps the same user queued and a different user still clears it', async () => {
+  assert.equal(isRetryableSnagFailure(Object.assign(new Error('not_authorized'), { status: 401 })), false);
+  assert.equal(isRetryableSnagFailure(Object.assign(new Error('JWT expired'), { status: 401 })), true);
+  assert.equal(isRetryableSnagFailure(Object.assign(new Error('missing'), { status: 400 })), false);
+  assert.equal(isRetryableSnagFailure(Object.assign(new Error('missing'), { status: 404 })), false);
+
+  const queue = memorySnagQueue();
+  await queue.put(item([4], 'user-a', 'expired'));
+  const now = Date.parse('2026-10-22T12:00:00.000Z');
+  const expired = Object.assign(new Error('JWT expired'), { status: 401 });
+  const first = await flushSnagQueue(queue, async () => {
+    throw expired;
+  }, 'user-a', () => now);
+  assert.equal(first.signInRequired, true);
+  assert.equal(first.notices.length, 0);
+  assert.equal((await queue.list()).length, 1);
+  assert.equal((await queue.listNotices()).length, 0);
+
+  const calls: string[] = [];
+  const second = await flushSnagQueue(queue, async (row) => {
+    calls.push(row.localId);
+  }, 'user-b', () => now);
+  assert.deepEqual(calls, []);
+  assert.equal(second.signInRequired, false);
+  assert.equal((await queue.list()).length, 0);
+
+  const offline = fs.readFileSync('lib/offline.ts', 'utf8');
+  assert.match(offline, /function clearLocalMetadata\(\) \{[\s\S]*removeSnagQueueKeys\(store\)/);
+  const screen = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
+  assert.match(screen, /Sign in again to send what is saved on this phone\./);
+  assert.match(screen, /if \(signInRequired\) setError\('Sign in again to send what is saved on this phone\.'\)/);
+});
+
+test('snag retry backoff stays capped at five minutes', () => {
+  assert.equal(snagRetryDelayMs(1), 2_000);
+  assert.equal(snagRetryDelayMs(6), 60_000);
+  assert.equal(snagRetryDelayMs(100), snagRetryDelayMs(1000));
+  assert.ok(snagRetryDelayMs(100) <= 5 * 60 * 1000);
+  assert.ok(snagRetryDelayMs(1000) <= 5 * 60 * 1000);
+  const source = fs.readFileSync('lib/snagQueue.ts', 'utf8');
+  assert.match(source, /MAX_SNAG_RETRY_DELAY_MS = 5 \* 60 \* 1000/);
+  assert.match(source, /return Math\.min\([\s\S]*MAX_SNAG_RETRY_DELAY_MS\)/);
 });

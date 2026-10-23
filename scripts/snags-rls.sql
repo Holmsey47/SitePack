@@ -13,6 +13,15 @@
 \set sitea '51111111-1111-4111-8111-111111111111'
 \set siteb '51111111-1111-4111-8111-111111111112'
 \set sitey '52222222-2222-4222-8222-222222222221'
+\set snaga 'e1111111-1111-4111-8111-111111111111'
+\set snagopen 'e1111111-1111-4111-8111-111111111112'
+\set snaglate 'e1111111-1111-4111-8111-111111111113'
+\set snagb 'e1111111-1111-4111-8111-111111111114'
+\set snagmeta 'e1111111-1111-4111-8111-111111111116'
+\set snagwrong 'e1111111-1111-4111-8111-111111111117'
+\set snagdup 'e1111111-1111-4111-8111-111111111118'
+\set snagy 'e2222222-2222-4222-8222-222222222221'
+\set snagdummy 'e1111111-1111-4111-8111-111111111199'
 
 begin;
 
@@ -57,17 +66,40 @@ exception
 end;
 $$;
 
-create or replace function pg_temp.one_photo(p_company uuid, p_site uuid, p_name text)
+create or replace function pg_temp.one_photo(p_company uuid, p_site uuid, p_snag uuid, p_name text)
 returns jsonb
 language sql
 as $$
   select jsonb_build_array(
     jsonb_build_object(
-      'storage_path', p_company::text || '/' || p_site::text || '/snags/' || p_name,
+      'storage_path', p_company::text || '/' || p_site::text || '/snags/' || p_snag::text || '/' || p_name,
       'content_type', 'image/jpeg',
       'file_size_bytes', 1200
     )
   );
+$$;
+
+create or replace function pg_temp.keep_photo(
+  p_company uuid,
+  p_site uuid,
+  p_snag uuid,
+  p_name text,
+  p_owner uuid,
+  p_mime text default 'image/jpeg',
+  p_size bigint default 1200
+)
+returns void
+language plpgsql
+as $$
+begin
+  insert into storage.objects (bucket_id, name, owner, metadata)
+  values (
+    'site-photos',
+    p_company::text || '/' || p_site::text || '/snags/' || p_snag::text || '/' || p_name,
+    p_owner,
+    jsonb_build_object('mimetype', p_mime, 'size', p_size)
+  );
+end;
 $$;
 
 create temp table probe (k text primary key, v jsonb);
@@ -179,11 +211,18 @@ values
   (:'sitea', :'opa'),
   (:'siteb', :'opb');
 
-insert into storage.objects (bucket_id, name)
-values
-  ('site-photos', :'firmx' || '/' || :'sitea' || '/snags/a.jpg'),
-  ('site-photos', :'firmx' || '/' || :'siteb' || '/snags/b.jpg'),
-  ('site-photos', :'firmy' || '/' || :'sitey' || '/snags/y.jpg');
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a.jpg', :'opa'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a-after.jpg', :'opa'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagopen'::uuid, 'open.jpg', :'opa'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagopen'::uuid, 'open-after.jpg', :'cmx'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaglate'::uuid, 'late.jpg', :'cmx'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaglate'::uuid, 'late-after.jpg', :'cmx'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagmeta'::uuid, 'meta.jpg', :'opa'::uuid, 'image/png', 4321);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagwrong'::uuid, 'nope.jpg', :'cmx'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagdup'::uuid, 'dup.jpg', :'opa'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'siteb'::uuid, :'snagb'::uuid, 'b.jpg', :'opb'::uuid);
+select pg_temp.keep_photo(:'firmx'::uuid, :'siteb'::uuid, :'snagb'::uuid, 'b-after.jpg', :'opb'::uuid);
+select pg_temp.keep_photo(:'firmy'::uuid, :'sitey'::uuid, :'snagy'::uuid, 'y.jpg', :'ownery'::uuid);
 
 select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
@@ -192,7 +231,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.create_snag(gen_random_uuid(), '
       || quote_literal(:'sitea') || '::uuid, ''Hole'', null, ''dryliner'', now() + interval ''40 days'', '
-      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ''late.jpg''))',
+      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ' || quote_literal(:'snagdummy') || '::uuid, ''late.jpg''))',
     'invalid_time'
   ),
   'a device time weeks ahead is rejected'
@@ -202,7 +241,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.create_snag(gen_random_uuid(), '
       || quote_literal(:'sitea') || '::uuid, ''Hole'', null, ''dryliner'', now() - interval ''40 days'', '
-      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ''old.jpg''))',
+      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ' || quote_literal(:'snagdummy') || '::uuid, ''old.jpg''))',
     'invalid_time'
   ),
   'a device time older than 30 days is rejected'
@@ -212,7 +251,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.create_snag(gen_random_uuid(), '
       || quote_literal(:'siteb') || '::uuid, ''Nope'', null, ''dryliner'', now(), '
-      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'siteb') || '::uuid, ''nope.jpg''))',
+      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'siteb') || '::uuid, ' || quote_literal(:'snagdummy') || '::uuid, ''nope.jpg''))',
     'not_authorized'
   ),
   'operative of site A cannot raise a snag on site B'
@@ -260,17 +299,85 @@ select pg_temp.ok(
   'a snag photo path has to stay under company/site/snags'
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_snag('
+      || quote_literal('e1111111-1111-4111-8111-111111111119')
+      || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ''Missing'', null, ''dryliner'', now(), pg_temp.one_photo('
+      || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ' || quote_literal('e1111111-1111-4111-8111-111111111119')
+      || '::uuid, ''missing.jpg''))',
+    'invalid_path'
+  ),
+  'a photo path with no stored object is rejected'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_snag('
+      || quote_literal('e1111111-1111-4111-8111-11111111111a')
+      || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ''Other'', null, ''dryliner'', now(), pg_temp.one_photo('
+      || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ' || quote_literal(:'snaga')
+      || '::uuid, ''a.jpg''))',
+    'invalid_path'
+  ),
+  'another snag''s photo cannot be attached'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    format(
+      'select public.create_snag(%L::uuid, %L::uuid, %L, null, %L, now(), %L::jsonb)',
+      :'snagdup',
+      :'sitea',
+      'Dup',
+      'dryliner',
+      jsonb_build_array(
+        jsonb_build_object(
+          'storage_path', :'firmx' || '/' || :'sitea' || '/snags/' || :'snagdup' || '/dup.jpg',
+          'content_type', 'image/jpeg',
+          'file_size_bytes', 1200
+        ),
+        jsonb_build_object(
+          'storage_path', :'firmx' || '/' || :'sitea' || '/snags/' || :'snagdup' || '/dup.jpg',
+          'content_type', 'image/jpeg',
+          'file_size_bytes', 1200
+        )
+      )::text
+    ),
+    'invalid_path'
+  ),
+  'the same photo path twice in one call is rejected'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.create_snag('
+      || quote_literal(:'snagwrong')
+      || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ''Wrong owner'', null, ''dryliner'', now(), pg_temp.one_photo('
+      || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ' || quote_literal(:'snagwrong')
+      || '::uuid, ''nope.jpg''))',
+    'invalid_path'
+  ),
+  'a photo uploaded by someone else is rejected'
+);
+
 insert into probe (k, v)
 values (
   'a',
   public.create_snag(
-    gen_random_uuid(),
+    :'snaga'::uuid,
     :'sitea'::uuid,
     'Bead missing at the reveal',
     'Ground',
     'dryliner',
     now() - interval '3 hours',
-    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a.jpg')
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a.jpg')
   )
 );
 
@@ -282,7 +389,7 @@ select pg_temp.ok(
     'Ground',
     'dryliner',
     now() - interval '3 hours',
-    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'again.jpg')
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'again.jpg')
   ) ->> 'snag_id') = (select v->>'snag_id' from probe where k = 'a')
   and (select count(*) from public.snags where id = (select (v->>'snag_id')::uuid from probe where k = 'a')) = 1
   and (select count(*) from public.snag_photos where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'a')) = 1,
@@ -313,21 +420,21 @@ select pg_temp.ok(
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'a'),
   now() - interval '1 hour',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a-after.jpg'),
   'd4444444-4444-4444-8444-444444444441'::uuid
 );
 
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'a'),
   now() - interval '1 hour',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a-after.jpg'),
   'd4444444-4444-4444-8444-444444444441'::uuid
 );
 
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'a'),
   now() - interval '90 minutes',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'a-after.jpg'),
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaga'::uuid, 'a-after.jpg'),
   'd4444444-4444-4444-8444-444444444442'::uuid
 );
 
@@ -349,6 +456,7 @@ select pg_temp.ok(
       || quote_literal((select v->>'snag_id' from probe where k = 'a'))
       || '::uuid, now(), pg_temp.one_photo('
       || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ' || quote_literal(:'snaga')
       || '::uuid, ''other-after.jpg''), ''d4444444-4444-4444-8444-444444444449''::uuid)',
     'snag_locked'
   ),
@@ -368,14 +476,29 @@ insert into probe (k, v)
 values (
   'open',
   public.create_snag(
-    gen_random_uuid(),
+    :'snagopen'::uuid,
     :'sitea'::uuid,
     'Still open',
     'First',
     'dryliner',
     now() - interval '2 hours',
-    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'open.jpg')
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagopen'::uuid, 'open.jpg')
   )
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.fix_snag('
+      || quote_literal(:'snagopen')
+      || '::uuid, now(), pg_temp.one_photo('
+      || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea')
+      || '::uuid, ' || quote_literal(:'snagopen')
+      || '::uuid, ''open.jpg''))',
+    'invalid_path'
+  )
+  and (select status = 'Open' from public.snags where id = :'snagopen'::uuid)
+  and (select count(*) from public.snag_photos where snag_id = :'snagopen'::uuid and kind = 'after') = 0,
+  'the before photo cannot be reused as the after photo'
 );
 
 select pg_temp.ok(
@@ -401,20 +524,20 @@ insert into probe (k, v)
 values (
   'late',
   public.create_snag(
-    gen_random_uuid(),
+    :'snaglate'::uuid,
     :'sitea'::uuid,
     'Fixed after the list was shown',
     'Second',
     'dryliner',
     now() - interval '90 minutes',
-    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'late.jpg')
+    pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaglate'::uuid, 'late.jpg')
   )
 );
 
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'late'),
   now() - interval '30 minutes',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'late-after.jpg')
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snaglate'::uuid, 'late-after.jpg')
 );
 
 select pg_temp.ok(
@@ -456,17 +579,17 @@ select pg_temp.ok(
           and signer_company = 'Northbuild Site'
           and signature_png is null
           and kind = 'internal'
-          and confirmation_text = 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
+          and confirmation_text = 'I''ve checked the 2 snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
           and signed_at = now() - interval '20 minutes'
           and signed_received_at = now()
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'a'))
-  and (select confirmation_text = 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
+  and (select confirmation_text = 'I''ve checked the 2 snags marked complete above and I''m satisfied they''ve been put right. This is an internal check for Northbuild Site, not sign-off by the main contractor.'
           and jsonb_array_length(covered) = 2
           and covered->0->>'status' = 'Fixed'
           and covered->0->>'snag_id' = (select v->>'snag_id' from probe where k = 'a')
           and covered->1->>'snag_id' = (select v->>'snag_id' from probe where k = 'late')
-          and covered->0->'photo_paths' @> jsonb_build_array(:'firmx' || '/' || :'sitea' || '/snags/a.jpg')
+          and covered->0->'photo_paths' @> jsonb_build_array(:'firmx' || '/' || :'sitea' || '/snags/' || :'snaga' || '/a.jpg')
           and jsonb_array_length(outstanding) = 1
           and outstanding->0->>'note' = 'Still open'
           and outstanding->0->>'level_area' = 'First'
@@ -518,7 +641,7 @@ set local role authenticated;
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'open'),
   now() - interval '15 minutes',
-  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, 'open-after.jpg')
+  pg_temp.one_photo(:'firmx'::uuid, :'sitea'::uuid, :'snagopen'::uuid, 'open-after.jpg')
 );
 
 insert into probe (k, v)
@@ -562,20 +685,20 @@ insert into probe (k, v)
 values (
   'b',
   public.create_snag(
-    gen_random_uuid(),
+    :'snagb'::uuid,
     :'siteb'::uuid,
     'Site B crack',
     'First',
     'labourer',
     now() - interval '2 hours',
-    pg_temp.one_photo(:'firmx'::uuid, :'siteb'::uuid, 'b.jpg')
+    pg_temp.one_photo(:'firmx'::uuid, :'siteb'::uuid, :'snagb'::uuid, 'b.jpg')
   )
 );
 
 select public.fix_snag(
   (select (v->>'snag_id')::uuid from probe where k = 'b'),
   now() - interval '30 minutes',
-  pg_temp.one_photo(:'firmx'::uuid, :'siteb'::uuid, 'b-after.jpg')
+  pg_temp.one_photo(:'firmx'::uuid, :'siteb'::uuid, :'snagb'::uuid, 'b-after.jpg')
 );
 
 insert into probe (k, v)
@@ -600,11 +723,11 @@ select pg_temp.ok(
           and signer_role = 'Site manager'
           and signer_company = 'Northbuild'
           and kind = 'contractor'
-          and confirmation_text = 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of Northbuild.'
+          and confirmation_text = 'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and left(signature_png, 22) = 'data:image/png;base64,'
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'b'))
-  and (select confirmation_text = 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of Northbuild.'
+  and (select confirmation_text = 'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and jsonb_array_length(outstanding) = 0
        from public.snag_signoffs
        where id = 'c3333333-3333-4333-8333-333333333333'::uuid),
@@ -619,13 +742,13 @@ insert into probe (k, v)
 values (
   'y',
   public.create_snag(
-    gen_random_uuid(),
+    :'snagy'::uuid,
     :'sitey'::uuid,
     'Firm Y snag',
     null,
     'spark',
     now(),
-    pg_temp.one_photo(:'firmy'::uuid, :'sitey'::uuid, 'y.jpg')
+    pg_temp.one_photo(:'firmy'::uuid, :'sitey'::uuid, :'snagy'::uuid, 'y.jpg')
   )
 );
 
@@ -633,7 +756,7 @@ select pg_temp.ok(
   pg_temp.raises(
     'select public.create_snag(gen_random_uuid(), '
       || quote_literal(:'sitea') || '::uuid, ''Nope'', null, ''spark'', now(), '
-      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ''nope.jpg''))',
+      || 'pg_temp.one_photo(' || quote_literal(:'firmx') || '::uuid, ' || quote_literal(:'sitea') || '::uuid, ' || quote_literal(:'snagdummy') || '::uuid, ''nope.jpg''))',
     'not_authorized'
   ),
   'firm Y cannot raise a snag on firm X'
@@ -643,14 +766,39 @@ reset role;
 select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
 
+insert into probe (k, v)
+values (
+  'meta',
+  public.create_snag(
+    :'snagmeta'::uuid,
+    :'sitea'::uuid,
+    'Metadata from the object',
+    null,
+    'dryliner',
+    now(),
+    jsonb_build_array(jsonb_build_object(
+      'storage_path', :'firmx' || '/' || :'sitea' || '/snags/' || :'snagmeta' || '/meta.jpg',
+      'content_type', 'image/jpeg',
+      'file_size_bytes', 1
+    ))
+  )
+);
+
 select pg_temp.ok(
-  (select count(*) from public.snags) = 3
+  (select content_type = 'image/png' and file_size_bytes = 4321
+   from public.snag_photos
+   where snag_id = :'snagmeta'::uuid and kind = 'before'),
+  'mime type and size come from the stored object, not the client'
+);
+
+select pg_temp.ok(
+  (select count(*) from public.snags) = 4
   and not exists (select 1 from public.snags where site_id <> :'sitea'::uuid)
-  and (select count(*) from public.snag_photos) = 6
+  and (select count(*) from public.snag_photos) = 7
   and (select count(*) from public.snag_signatures) = 3
   and (select count(*) from public.snag_signoffs) = 2
   and not exists (select 1 from public.snags where site_id = :'siteb'::uuid)
-  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 1
+  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 9
   and not exists (
     select 1 from storage.objects
     where bucket_id = 'site-photos' and name like '%' || :'siteb' || '%'
@@ -682,7 +830,7 @@ set local role authenticated;
 select pg_temp.ok(
   (select count(*) from public.snags) = 1
   and (select site_id from public.snags) = :'siteb'::uuid
-  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 1,
+  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 2,
   'operative of site B cannot read site A'
 );
 
@@ -691,7 +839,7 @@ select pg_temp.jwt(:'cmx'::uuid);
 set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from public.snags) = 3
+  (select count(*) from public.snags) = 4
   and not exists (select 1 from public.snags where site_id <> :'sitea'::uuid),
   'contracts manager sees assigned sites only'
 );
@@ -701,9 +849,9 @@ select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from public.snags) = 4
+  (select count(*) from public.snags) = 5
   and (select count(*) from public.snags where company_id = :'firmy'::uuid) = 0
-  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 2
+  and (select count(*) from storage.objects where bucket_id = 'site-photos') = 11
   and not exists (
     select 1 from storage.objects
     where bucket_id = 'site-photos' and name like :'firmy' || '%'

@@ -1,4 +1,4 @@
-import { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
+import { isRetryableSnagFailure, snagFailureCode, snagFailureFrom } from '@/data/snagFailure';
 
 export { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 export { isRetryableSnagFailure, snagFailureCode } from '@/data/snagFailure';
@@ -68,6 +68,11 @@ export type SnagNotice = {
   /** Business or HTTP code. `snag_list_changed` must not be sent again. */
   code?: string;
   retryItem?: QueuedSnag;
+  /** Kept for Sign again so the form can be filled without a new signature. */
+  signMode?: 'internal' | 'contractor';
+  signerName?: string;
+  signerRole?: string;
+  signerCompany?: string;
 };
 
 export type SnagQueueStore = {
@@ -85,10 +90,11 @@ export const SNAG_QUEUE_PREFIX = 'sitepack.snag.';
 const DB_NAME = 'sitepack-snags';
 
 const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
+const MAX_SNAG_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 export function snagRetryDelayMs(attempts: number): number {
   const index = Math.min(Math.max(attempts, 1), RETRY_DELAYS_MS.length) - 1;
-  return RETRY_DELAYS_MS[index] ?? 60_000;
+  return Math.min(RETRY_DELAYS_MS[index] ?? MAX_SNAG_RETRY_DELAY_MS, MAX_SNAG_RETRY_DELAY_MS);
 }
 
 export function rejectedSnagNotice(kind: QueuedSnag['kind'], code: string, fixStillSending = false): string {
@@ -250,6 +256,10 @@ function decodeNotice(item: StoredNotice): SnagNotice | null {
       bytes: fromBase64(photo.base64),
     })),
     code: typeof item.code === 'string' ? item.code : undefined,
+    signMode: item.signMode === 'internal' || item.signMode === 'contractor' ? item.signMode : undefined,
+    signerName: typeof item.signerName === 'string' ? item.signerName : undefined,
+    signerRole: typeof item.signerRole === 'string' ? item.signerRole : undefined,
+    signerCompany: typeof item.signerCompany === 'string' ? item.signerCompany : undefined,
     retryItem,
   };
 }
@@ -471,18 +481,29 @@ export function noticesForOwner(notices: SnagNotice[], ownerId: string | null | 
   return notices.filter((notice) => notice.ownerId === ownerId);
 }
 
+export type SnagFlushResult = {
+  notices: SnagNotice[];
+  signInRequired: boolean;
+};
+
+function sessionExpired(err: unknown): boolean {
+  const failure = snagFailureFrom(err);
+  return failure.kind === 'http' && failure.status === 401;
+}
+
 /** Send this person's queue. Other people's items are dropped with no network call. */
 export async function flushSnagQueue(
   queue: SnagQueueStore,
   send: (item: QueuedSnag) => Promise<void>,
   ownerId: string,
   nowMs: () => number = () => Date.now()
-): Promise<SnagNotice[]> {
+): Promise<SnagFlushResult> {
   const created: SnagNotice[] = [];
+  let signInRequired = false;
   for (const notice of await queue.listNotices()) {
     if (notice.ownerId !== ownerId) await queue.removeNotice(notice.id);
   }
-  if (!ownerId) return created;
+  if (!ownerId) return { notices: created, signInRequired };
   for (const item of orderedSnagQueue(await queue.list())) {
     if (item.ownerId !== ownerId) {
       await queue.remove(item.localId);
@@ -498,6 +519,7 @@ export async function flushSnagQueue(
       if (isRetryableSnagFailure(err)) {
         const attempts = (current.attempts ?? 0) + 1;
         await queue.put({ ...current, attempts, retryAt: new Date(nowMs() + snagRetryDelayMs(attempts)).toISOString() });
+        if (sessionExpired(err)) signInRequired = true;
         continue;
       }
       const code = snagFailureCode(err);
@@ -505,6 +527,7 @@ export async function flushSnagQueue(
       const pending = await queue.list();
       const fixStillSending = pending.some((row) => row.ownerId === item.ownerId && row.siteId === item.siteId && row.kind === 'fix');
       const listChanged = code === 'snag_list_changed';
+      const signed = retrySource.kind === 'sign' ? retrySource : null;
       const notice: SnagNotice = {
         id: `reject:${item.ownerId}:${item.localId}`,
         ownerId: item.ownerId,
@@ -512,6 +535,10 @@ export async function flushSnagQueue(
         message: rejectedSnagNotice(item.kind, code, fixStillSending),
         photos: retrySource.kind === 'sign' ? [] : retrySource.photos.map(copyPhoto),
         code,
+        signMode: signed?.mode,
+        signerName: signed?.signerName,
+        signerRole: signed?.signerRole,
+        signerCompany: signed?.signerCompany,
         retryItem: listChanged ? undefined : copyItem({ ...retrySource, attempts: 0, retryAt: undefined }),
       };
       await queue.putNotice(notice);
@@ -519,5 +546,5 @@ export async function flushSnagQueue(
       created.push(notice);
     }
   }
-  return created;
+  return { notices: created, signInRequired };
 }

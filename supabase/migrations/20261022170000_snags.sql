@@ -469,9 +469,14 @@ declare
   v_len integer;
   v_item jsonb;
   v_path text;
+  v_tail text;
   v_type text;
   v_size bigint;
   v_prefix text;
+  v_seen text[] := '{}';
+  v_owner uuid;
+  v_owner_id text;
+  v_meta jsonb;
   i integer;
 begin
   if p_kind not in ('before', 'after') then
@@ -487,7 +492,8 @@ begin
     raise exception 'photo_count';
   end if;
 
-  v_prefix := p_company_id::text || '/' || p_site_id::text || '/snags/';
+  -- company/site/snags/<this snag>/<file>. Another snag's key cannot be reused.
+  v_prefix := p_company_id::text || '/' || p_site_id::text || '/snags/' || p_snag_id::text || '/';
 
   for i in 0..v_len - 1 loop
     v_item := p_photos -> i;
@@ -496,24 +502,53 @@ begin
     end if;
 
     v_path := btrim(coalesce(v_item ->> 'storage_path', ''));
-    v_type := btrim(coalesce(v_item ->> 'content_type', ''));
-
-    begin
-      v_size := (v_item ->> 'file_size_bytes')::bigint;
-    exception
-      when others then
-        raise exception 'invalid_input';
+    v_tail := case
+      when char_length(v_path) > char_length(v_prefix) then substr(v_path, char_length(v_prefix) + 1)
+      else ''
     end;
 
     if char_length(v_path) < char_length(v_prefix) + 1
        or left(v_path, 1) = '/'
        or left(v_path, char_length(v_prefix)) <> v_prefix
+       or v_tail = ''
+       or strpos(v_tail, '/') > 0
        or strpos(v_path, '..') > 0
        or strpos(v_path, chr(92)) > 0
        or strpos(v_path, '//') > 0
-       or v_path ~ '[[:space:]]' then
+       or v_path ~ '[[:space:]]'
+       or v_path = any(v_seen) then
       raise exception 'invalid_path';
     end if;
+    v_seen := v_seen || v_path;
+
+    -- The snag's own before photo cannot be filed again as the after photo.
+    if exists (
+      select 1
+      from public.snag_photos existing
+      where existing.snag_id = p_snag_id
+        and existing.storage_path = v_path
+    ) then
+      raise exception 'invalid_path';
+    end if;
+
+    -- Read-only. The object's owner and metadata are the source of truth, not the client.
+    select objects.owner, objects.owner_id, objects.metadata
+    into v_owner, v_owner_id, v_meta
+    from storage.objects objects
+    where objects.bucket_id = 'site-photos'
+      and objects.name = v_path;
+
+    if v_owner is distinct from auth.uid() and v_owner_id is distinct from auth.uid()::text then
+      raise exception 'invalid_path';
+    end if;
+
+    v_type := lower(btrim(coalesce(v_meta ->> 'mimetype', '')));
+    begin
+      v_size := (v_meta ->> 'size')::bigint;
+    exception
+      when others then
+        raise exception 'invalid_input';
+    end;
 
     if v_type not in ('image/jpeg', 'image/png', 'image/webp') then
       raise exception 'invalid_input';
@@ -586,7 +621,7 @@ revoke all on function private.next_snag_seq(uuid) from public, anon, authentica
 -- Writes
 -- ---------------------------------------------------------------------------
 
-create or replace function private.snag_confirmation(p_kind text, p_company text)
+create or replace function private.snag_confirmation(p_kind text, p_company text, p_count integer)
 returns text
 language plpgsql
 immutable
@@ -594,22 +629,24 @@ set search_path = ''
 as $fn$
 declare
   v_company text;
+  v_noun text;
 begin
-  v_company := btrim(coalesce(p_company, ''));
-  if char_length(v_company) < 1 or char_length(v_company) > 120 then
+  v_company := btrim(replace(coalesce(p_company, ''), '£', ''));
+  if p_count is null or p_count < 1 or char_length(v_company) < 1 or char_length(v_company) > 120 then
     raise exception 'invalid_input';
   end if;
+  v_noun := case when p_count = 1 then 'snag' else 'snags' end;
   if p_kind = 'contractor' then
-    return 'I confirm the snags marked complete below have been put right to my satisfaction, on behalf of ' || v_company || '.';
+    return 'I confirm the ' || p_count::text || ' ' || v_noun || ' marked complete above have been put right to my satisfaction, on behalf of ' || v_company || '. Snags listed as outstanding are not signed off.';
   end if;
   if p_kind = 'internal' then
-    return 'I''ve checked the snags marked complete below and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
+    return 'I''ve checked the ' || p_count::text || ' ' || v_noun || ' marked complete above and I''m satisfied they''ve been put right. This is an internal check for ' || v_company || ', not sign-off by the main contractor.';
   end if;
   raise exception 'invalid_input';
 end;
 $fn$;
 
-revoke all on function private.snag_confirmation(text, text) from public, anon, authenticated;
+revoke all on function private.snag_confirmation(text, text, integer) from public, anon, authenticated;
 
 create or replace function private.guard_snag_signoff()
 returns trigger
@@ -696,6 +733,9 @@ begin
     raise exception 'invalid_input';
   end if;
 
+  -- Same client id from two phones waits, then reads the stored row.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_signoff_id::text, 0));
+
   select * into v_actor from private.snag_require_site(p_site_id);
 
   select * into v_existing from public.snag_signoffs where id = p_signoff_id;
@@ -708,7 +748,6 @@ begin
     raise exception 'not_authorized';
   end if;
 
-  v_confirmation := private.snag_confirmation(p_kind, p_company);
   v_signed := private.snag_device_time(p_signed_at);
   v_received := now();
 
@@ -751,6 +790,8 @@ begin
     raise exception 'closed';
   end if;
 
+  v_confirmation := private.snag_confirmation(p_kind, p_company, coalesce(array_length(v_fixed_ids, 1), 0));
+
   select coalesce(jsonb_agg(item order by snag_seq), '[]'::jsonb)
   into v_covered
   from (
@@ -787,16 +828,28 @@ begin
     where s.id = any(v_open_ids)
   ) open_rows;
 
-  insert into public.snag_signoffs (
-    id, site_id, company_id, kind, signer_name, signer_role, signer_company,
-    confirmation_text, signature_png, signed_at, signed_received_at,
-    covered, outstanding, recorded_by
-  ) values (
-    p_signoff_id, p_site_id, v_actor.company_id, p_kind,
-    p_signer_name, p_signer_role, btrim(p_company),
-    v_confirmation, p_signature_png, v_signed, v_received,
-    v_covered, v_outstanding, v_actor.person_id
-  );
+  begin
+    insert into public.snag_signoffs (
+      id, site_id, company_id, kind, signer_name, signer_role, signer_company,
+      confirmation_text, signature_png, signed_at, signed_received_at,
+      covered, outstanding, recorded_by
+    ) values (
+      p_signoff_id, p_site_id, v_actor.company_id, p_kind,
+      p_signer_name, p_signer_role, btrim(p_company),
+      v_confirmation, p_signature_png, v_signed, v_received,
+      v_covered, v_outstanding, v_actor.person_id
+    );
+  exception
+    when unique_violation then
+      select * into v_existing from public.snag_signoffs where id = p_signoff_id;
+      if v_existing.id is not null
+         and v_existing.site_id = p_site_id
+         and v_existing.company_id = v_actor.company_id
+         and v_existing.kind = p_kind then
+        return private.snag_signoff_json(v_existing.id);
+      end if;
+      raise;
+  end;
 
   for v_item in select value from jsonb_array_elements(v_covered) loop
     v_snag_id := (v_item ->> 'snag_id')::uuid;
