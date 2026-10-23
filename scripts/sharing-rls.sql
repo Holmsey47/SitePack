@@ -388,30 +388,31 @@ values
   );
 
 insert into public.site_talk_versions (
-  id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, content_hash, is_current, created_by
+  id, talk_id, site_id, company_id, version_no, body, pdf_path, pdf_content_type, pdf_size_bytes, pdf_sha256, content_hash, is_current, created_by
 )
 values
   (
     'dd111111-1111-4111-8111-111111111111', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 2,
     'Read this induction.', :'firmx' || '/' || :'sitea' || '/talks/TALKPDF-SECRET.pdf', 'application/pdf', 128,
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     'hash-induction', true, :'ownerx'
   ),
   (
     'dd111111-1111-4111-8111-111111111113', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1,
-    'OLD-INDUCTION-SECRET', null, null, null, 'hash-induction-old', false, :'ownerx'
+    'OLD-INDUCTION-SECRET', null, null, null, null, 'hash-induction-old', false, :'ownerx'
   ),
   (
     'dd111111-1111-4111-8111-111111111112', 'cc111111-1111-4111-8111-111111111112', :'sitea', :'firmx', 1,
-    'TOOLBOX-SECRET body', null, null, null, 'hash-toolbox', true, :'ownerx'
+    'TOOLBOX-SECRET body', null, null, null, null, 'hash-toolbox', true, :'ownerx'
   );
 
 insert into public.site_talk_signatures (
-  talk_id, version_id, site_id, company_id, person_id, person_name, captured_by, session_id,
+  talk_id, version_id, site_id, company_id, person_id, person_name, signer_name, captured_by, session_id,
   shared_device, signature_role, meaning, signature_png, device_at, received_at, content_hash
 )
 values (
   'cc111111-1111-4111-8111-111111111111', 'dd111111-1111-4111-8111-111111111111', :'sitea', :'firmx',
-  :'opx', 'Łukasz Wójcik', :'opx', 'session-1',
+  :'opx', 'Łukasz Wójcik', 'Łukasz Wójcik', :'opx', 'session-1',
   false, 'attendee', 'I have read the induction.', 'SIGIMAGE-SECRET-' || repeat('Z', 24), now(), now(), 'hash-induction'
 );
 
@@ -1032,10 +1033,22 @@ begin
     if v_count <> 0 or v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0 then
       raise exception 'FAIL: % read signature rows', v_role;
     end if;
-    select coalesce(max(to_jsonb(s)::text), '') into v_text from public.site_talk_signatures s;
-    if v_text <> '' or position('signature_png' in v_text) > 0 then
-      raise exception 'FAIL: % read a signature column', v_role;
-    end if;
+    -- signer_name is not granted, so the whole row is permission denied.
+    -- A granted column still has to come back empty.
+    begin
+      select coalesce(max(to_jsonb(s)::text), '') into v_text from public.site_talk_signatures s;
+      if v_text <> '' or position('signature_png' in v_text) > 0 or position('SIGIMAGE-SECRET' in v_text) > 0 then
+        raise exception 'FAIL: % read a signature column', v_role;
+      end if;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if v_state is distinct from '42501' or position('SIGIMAGE-SECRET' in sqlerrm) > 0 then
+          raise exception 'FAIL: % signature row % %', v_role, v_state, sqlerrm;
+        end if;
+    end;
 
     select count(*) into v_count from public.site_talk_questions;
     select coalesce(max(q.body), '') into v_text from public.site_talk_questions q;
@@ -1161,12 +1174,24 @@ begin
       raise exception 'FAIL: % direct select returned a signature image', v_role;
     end if;
 
-    select coalesce(string_agg(to_jsonb(s)::text, ''), '') into v_text
-    from public.site_talk_signatures s;
-    if v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0
-       or position('"signature_png"' in v_text) > 0 then
-      raise exception 'FAIL: % direct select returned a signature row', v_role;
-    end if;
+    begin
+      select coalesce(string_agg(to_jsonb(s)::text, ''), '') into v_text
+      from public.site_talk_signatures s;
+      if v_text <> '' or position('SIGIMAGE-SECRET' in v_text) > 0
+         or position('"signature_png"' in v_text) > 0 then
+        raise exception 'FAIL: % direct select returned a signature row', v_role;
+      end if;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+        if v_state is distinct from '42501'
+           or position('SIGIMAGE-SECRET' in sqlerrm) > 0
+           or position('direct select returned' in sqlerrm) > 0 then
+          raise exception 'FAIL: % signature row % %', v_role, v_state, sqlerrm;
+        end if;
+    end;
 
     if exists (select 1 from public.site_talk_signatures) then
       raise exception 'FAIL: % direct select returned signature rows', v_role;
