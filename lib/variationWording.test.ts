@@ -28,6 +28,14 @@ test('a blank company reads as your company until the field has text', () => {
     'I confirm I instructed this extra work on behalf of your company. The price is still to be agreed.'
   );
   assert.equal(variationConfirmation('Otherbuild', false).includes('Otherbuild'), true);
+  assert.equal(
+    variationConfirmation('$& $1', true),
+    'I confirm I instructed this extra work on behalf of $& $1 and agree the amount shown.'
+  );
+  assert.equal(
+    variationLockLine('$&'),
+    'Record locked at signing, $&. Any later change creates a new version.'
+  );
   assert.equal(variationConfirmation('Otherbuild', false).includes('agree the amount shown'), false);
   const sql = fs.readFileSync('supabase/migrations/20261022150000_variations.sql', 'utf8');
   assert.doesNotMatch(sql, /your company/);

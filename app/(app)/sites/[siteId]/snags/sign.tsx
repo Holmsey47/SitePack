@@ -3,19 +3,19 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
-import { canSignOffSnag, snagError, snagNumber, snagRoleLabel, type SnagDetail, type SnagSignoff } from '@/data/snags';
+import { canSignOffSnag, snagError, snagRoleLabel, type SnagDetail, type SnagSignoff } from '@/data/snags';
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type SnagPdfSnag } from '@/lib/snagPdf';
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, snagDisplayText, takeSignAgain } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
@@ -56,6 +56,7 @@ type LocalSign = {
   role: string;
   company: string;
   signedAt: string;
+  putRight: string;
 };
 
 function queryValue(value: string | string[] | undefined): string {
@@ -63,13 +64,7 @@ function queryValue(value: string | string[] | undefined): string {
 }
 
 export default function SnagSignScreen() {
-  const params = useLocalSearchParams<{
-    siteId: string;
-    signMode?: string;
-    signerName?: string;
-    signerRole?: string;
-    signerCompany?: string;
-  }>();
+  const params = useLocalSearchParams<{ siteId: string }>();
   const siteId = queryValue(params.siteId);
   const { person } = useAuth();
   const [rows, setRows] = useState<SnagDetail[]>([]);
@@ -85,7 +80,6 @@ export default function SnagSignScreen() {
   const [record, setRecord] = useState<SnagSignoff | null>(null);
   const [localSign, setLocalSign] = useState<LocalSign | null>(null);
   const [savedOnPhone, setSavedOnPhone] = useState(false);
-  const prefilled = useRef(false);
 
   function clearSignFields() {
     setInternalCompany('');
@@ -108,22 +102,21 @@ export default function SnagSignScreen() {
       .finally(() => setLoaded(true));
   }, [load]);
 
-  useEffect(() => {
-    if (prefilled.current) return;
-    const mode = queryValue(params.signMode);
-    if (!mode) return;
-    prefilled.current = true;
-    const company = queryValue(params.signerCompany);
-    if (mode === 'contractor') {
-      setSignerName(queryValue(params.signerName));
-      setSignerRole(queryValue(params.signerRole));
-      setContractorCompany(company);
-      setSignature(null);
-      setPadKey((key) => key + 1);
-      return;
-    }
-    if (mode === 'internal') setInternalCompany(company);
-  }, [params.signMode, params.signerName, params.signerRole, params.signerCompany]);
+  useFocusEffect(
+    useCallback(() => {
+      const draft = takeSignAgain();
+      if (!draft) return;
+      if (draft.signMode === 'contractor') {
+        setSignerName(draft.signerName);
+        setSignerRole(draft.signerRole);
+        setContractorCompany(draft.signerCompany);
+        setSignature(null);
+        setPadKey((key) => key + 1);
+        return;
+      }
+      if (draft.signMode === 'internal') setInternalCompany(draft.signerCompany);
+    }, [])
+  );
 
   const fixed = rows.filter((row) => row.status === 'Fixed');
   const open = rows.filter((row) => row.status === 'Open');
@@ -222,6 +215,7 @@ export default function SnagSignScreen() {
           role: snagRoleLabel(person.role),
           company: internalCompany.trim(),
           signedAt,
+          putRight: putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note }))),
         });
         setSavedOnPhone(true);
         clearSignFields();
@@ -279,6 +273,7 @@ export default function SnagSignScreen() {
           role: signerRole.trim(),
           company: contractorCompany.trim(),
           signedAt,
+          putRight: putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note }))),
         });
         setSavedOnPhone(true);
         clearSignFields();
@@ -328,13 +323,22 @@ export default function SnagSignScreen() {
     ? record.outstanding.map((item) => outstandingLine(item.snag_seq, item.note, item.level_area))
     : open.map((row) => outstandingLine(row.snag_seq, row.note, row.level_area));
   const outstandingCount = record ? record.outstanding.length : open.length;
+  const formPutRight = putRightLine(fixed.map((row) => ({ snagSeq: row.snag_seq, note: row.note })));
+  const signedPutRight = record
+    ? putRightLine(record.covered.map((item) => ({ snagSeq: item.snag_seq, note: item.note })))
+    : localSign?.putRight ?? formPutRight;
 
   return (
     <Screen>
       <Title>Sign off snags put right</Title>
       {shownSign ? (
         <View nativeID="signer-block" style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Signed off</Text>
+          <Text nativeID="sign-off-state" style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>
+            {savedOnPhone ? SIGNED_ON_PHONE : 'Signed off'}
+          </Text>
+          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+            {signedPutRight}
+          </Text>
           {savedOnPhone ? (
             <Text
               nativeID="saved-on-phone"
@@ -343,21 +347,24 @@ export default function SnagSignScreen() {
               {SAVED_ON_PHONE}
             </Text>
           ) : null}
-          <Muted>{shownSign.confirmation}</Muted>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{shownSign.name}</Text>
-          <Muted>{shownSign.role}</Muted>
-          <Muted>{shownSign.company}</Muted>
+          <Muted>{snagDisplayText(shownSign.confirmation)}</Muted>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{snagDisplayText(shownSign.name)}</Text>
+          <Muted>{snagDisplayText(shownSign.role)}</Muted>
+          <Muted>{snagDisplayText(shownSign.company)}</Muted>
           <Muted>Signed {formatUkDateTime(shownSign.signedAt)}</Muted>
         </View>
       ) : null}
       {formOpen ? (
         <>
+          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+            {formPutRight}
+          </Text>
           {internal ? (
             <View nativeID="internal-check" style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
               <Muted>This is an internal check. It is not sign-off by the main contractor.</Muted>
               <Field label="Company" value={internalCompany} onChangeText={setInternalCompany} autoCapitalize="words" maxLength={120} />
-              <Muted>{snagConfirmation(internalCompany, 'internal', fixed.length)}</Muted>
+              <Muted>{snagDisplayText(snagConfirmation(internalCompany, 'internal', fixed.length))}</Muted>
               <Button
                 label="Sign internal check"
                 minHeight={56}
@@ -378,7 +385,7 @@ export default function SnagSignScreen() {
               autoCapitalize="words"
               maxLength={120}
             />
-            <Muted>{snagConfirmation(contractorCompany, 'contractor', fixed.length)}</Muted>
+            <Muted>{snagDisplayText(snagConfirmation(contractorCompany, 'contractor', fixed.length))}</Muted>
             <SignaturePad key={padKey} disabled={!contractorPadEnabled(contractorCompany)} onChange={setSignature} />
             <Button
               label="Sign off snags put right"
@@ -391,17 +398,11 @@ export default function SnagSignScreen() {
         </>
       ) : null}
       <View nativeID="outstanding-snags" style={{ gap: 8 }}>
-        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{outstandingHeading(outstandingCount)}</Text>
+        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Not signed off</Text>
+        <Muted>{outstandingHeading(outstandingCount)}</Muted>
         {shownOutstanding.map((line) => (
           <Muted key={line}>{line}</Muted>
         ))}
-        {shownSign ? null : (
-          <Muted>
-            {fixed.length < 1
-              ? 'No snags are marked put right yet.'
-              : `${fixed.length} put right: ${fixed.map((row) => snagNumber(row.snag_seq)).join(', ')}`}
-          </Muted>
-        )}
       </View>
       <ErrorText>{error}</ErrorText>
     </Screen>
