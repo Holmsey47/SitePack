@@ -26,6 +26,7 @@ if (keyMessage) {
   process.exit(1);
 }
 
+process.env.EXPO_NO_DOTENV = '1';
 const result = spawnSync('npx', ['expo', 'export', '--platform', 'web'], {
   stdio: 'inherit',
   env: process.env,

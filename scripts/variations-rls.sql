@@ -682,6 +682,22 @@ select pg_temp.ok(
   'a priced manager sign-off stores the server sentence and the shown amount'
 );
 
+select pg_temp.ok(
+  private.visible_variation_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) = 14550
+  and private.visible_shown_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) = 14550,
+  'a same-company manager can read the pound amount'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  private.visible_variation_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) is null
+  and private.visible_shown_pence((select (v->>'version_id')::uuid from probe where k = 'priced')) is null,
+  'a manager in another company cannot read the pound amount'
+);
+
 reset role;
 
 rollback;

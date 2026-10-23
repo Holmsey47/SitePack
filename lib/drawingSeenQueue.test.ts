@@ -192,7 +192,12 @@ test('a wiped seen queue is not sent for the next signed-in user', async () => {
     'queued'
   );
   assert.equal((await queue.list()).length, 2);
+  assert.ok(storage.length > 0);
   removeDrawingSeenKeys(storage);
+  assert.equal(storage.length, 0);
+  assert.equal(storage.getItem('sitepack.drawingSeen.queue'), null);
+  assert.equal(storage.getItem('sitepack.drawingSeen.notices'), null);
+  assert.equal((await queue.list()).length, 0);
   const calls: string[] = [];
   await flushDrawingSeenQueue(
     storageDrawingSeenQueue(storage),
