@@ -123,6 +123,11 @@ file_size_limit = "50MiB"
 allowed_mime_types = ["application/pdf", "image/jpeg", "image/png"]
 objects_path = "./seed-files/drawings"
 
+[storage.buckets.company-logos]
+public = false
+file_size_limit = "1MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true
@@ -385,7 +390,7 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
-# Public join, username login, and reset redeem. verify_jwt is off because the caller has no session.
+# Public join, username login, reset redeem, and owner start. verify_jwt is off because the caller has no session.
 # issue-join-code and issue-reset-code are logged-in. They hash with the edge secret
 # JOIN_CODE_PEPPER. SQL only receives the hash. Do not set a database pepper.
 # JOIN_IP_HEADER defaults to cf-connecting-ip. Confirm it at ship.
@@ -408,6 +413,9 @@ verify_jwt = true
 
 [functions.issue-reset-code]
 verify_jwt = true
+
+[functions.start-company]
+verify_jwt = false
 
 [edge_runtime]
 enabled = true

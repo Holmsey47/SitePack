@@ -72,11 +72,11 @@ test('the sites list arms an exit, then exits on a second back within 2 seconds'
   assert.equal(decide({ pathname: '/sites', now: 7_000, exitArmedUntil: 7_000 }), 'arm-exit');
 });
 
-test('hardware back leaves a site, and exits sign-in, set-password, join, and reset with no history', () => {
+test('hardware back leaves a site, and exits welcome, start, sign-in, set-password, join, and reset with no history', () => {
   assert.equal(decide({ pathname: '/sites/oak', canGoBack: true }), 'go-back');
   assert.equal(decide({ pathname: '/people', canGoBack: true }), 'go-back');
   assert.equal(decide({ pathname: '/people', canGoBack: false }), 'stay');
-  for (const pathname of ['/login', '/set-password', '/join', '/join/AB12', '/reset', '/reset/AB12']) {
+  for (const pathname of ['/welcome', '/start', '/login', '/set-password', '/join', '/join/AB12', '/reset', '/reset/AB12']) {
     assert.equal(decide({ pathname, canGoBack: false }), 'exit', pathname);
     assert.equal(decide({ pathname, canGoBack: true }), 'go-back', pathname);
   }

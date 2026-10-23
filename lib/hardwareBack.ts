@@ -28,9 +28,11 @@ export function isUploadScreen(pathname: string): boolean {
   return normalizePath(pathname).endsWith('/upload');
 }
 
-/** Sign-in, set-password, and a join or reset link opened with nothing behind it. */
+/** Welcome, start, sign-in, set-password, and a join or reset link opened with nothing behind it. */
 export function exitsWhenNoHistory(pathname: string): boolean {
   const path = normalizePath(pathname);
+  if (path === '/welcome' || path === '/(auth)/welcome') return true;
+  if (path === '/start' || path === '/(auth)/start') return true;
   if (path === '/login' || path === '/(auth)/login') return true;
   if (path === '/set-password' || path === '/(auth)/set-password') return true;
   if (path === '/join' || path.startsWith('/join/')) return true;
@@ -47,8 +49,8 @@ export function isSitePackScreen(pathname: string): boolean {
 /**
  * Hardware back: close a sheet first, confirm before leaving an upload that is
  * still running, say when a pack download carries on, go back one screen.
- * The sites list asks once, then exits. Sign-in, set-password, join, and reset
- * exit when there is no history.
+ * The sites list asks once, then exits. Welcome, start, sign-in, set-password,
+ * join, and reset exit when there is no history.
  */
 export function decideHardwareBack(input: {
   overlayOpen: boolean;

@@ -1,5 +1,6 @@
 import { Button, Muted } from '@/components/ui';
 import { newId } from '@/data/newId';
+import { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE } from '@/lib/photoBytes';
 import { preparePhoto } from '@/lib/photoPrep';
 import { theme } from '@/lib/theme';
 import { createElement, useRef, useState } from 'react';
@@ -21,19 +22,19 @@ function copyBytes(bytes: Uint8Array): Blob {
   return new Blob([copy], { type: 'image/jpeg' });
 }
 
-function readError(err: unknown): string {
+function readError(err: unknown, tooLarge: string): string {
   const code = err instanceof Error ? err.message : '';
-  if (code === 'photo_too_large') return 'Each photo must be 1.5MB or smaller.';
+  if (code === 'photo_too_large') return tooLarge;
   return 'Could not read that photo.';
 }
 
-async function fromUri(uri: string): Promise<PickedPhoto> {
-  const prepared = await preparePhoto({ uri });
+async function fromUri(uri: string, maxEdge: number, maxBytes: number): Promise<PickedPhoto> {
+  const prepared = await preparePhoto({ uri, maxEdge, maxBytes });
   return { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview: uri };
 }
 
-async function fromBlob(blob: Blob): Promise<PickedPhoto> {
-  const prepared = await preparePhoto({ blob });
+async function fromBlob(blob: Blob, maxEdge: number, maxBytes: number): Promise<PickedPhoto> {
+  const prepared = await preparePhoto({ blob, maxEdge, maxBytes });
   const preview = URL.createObjectURL(copyBytes(prepared.bytes));
   return { id: newId(), bytes: prepared.bytes, contentType: prepared.contentType, preview };
 }
@@ -47,6 +48,9 @@ export function PhotoPicker({
   max = 10,
   multiple = false,
   title,
+  maxEdge = PHOTO_MAX_EDGE,
+  maxBytes = PHOTO_MAX_BYTES,
+  tooLarge = 'Each photo must be 1.5MB or smaller.',
   onAdd,
   onError,
 }: {
@@ -54,6 +58,10 @@ export function PhotoPicker({
   max?: number;
   multiple?: boolean;
   title?: string;
+  /** Longest side after resize. Site photos stay at 2000. A logo passes 512. */
+  maxEdge?: number;
+  maxBytes?: number;
+  tooLarge?: string;
   onAdd: (photos: PickedPhoto[]) => void;
   onError: (message: string) => void;
 }) {
@@ -81,10 +89,10 @@ export function PhotoPicker({
       const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 });
       if (result.canceled || !result.assets[0]) return;
       if (max - countRef.current <= 0) return;
-      const picked = await fromUri(result.assets[0].uri);
+      const picked = await fromUri(result.assets[0].uri, maxEdge, maxBytes);
       onAdd([picked]);
     } catch (err) {
-      onError(readError(err));
+      onError(readError(err, tooLarge));
     }
   }
 
@@ -105,10 +113,10 @@ export function PhotoPicker({
       });
       if (result.canceled) return;
       const picked: PickedPhoto[] = [];
-      for (const asset of result.assets.slice(0, room)) picked.push(await fromUri(asset.uri));
+      for (const asset of result.assets.slice(0, room)) picked.push(await fromUri(asset.uri, maxEdge, maxBytes));
       if (picked.length) onAdd(picked);
     } catch (err) {
-      onError(readError(err));
+      onError(readError(err, tooLarge));
     }
   }
 
@@ -122,10 +130,10 @@ export function PhotoPicker({
     void (async () => {
       try {
         const picked: PickedPhoto[] = [];
-        for (const file of chosen) picked.push(await fromBlob(file));
+        for (const file of chosen) picked.push(await fromBlob(file, maxEdge, maxBytes));
         if (picked.length) onAdd(picked);
       } catch (err) {
-        onError(readError(err));
+        onError(readError(err, tooLarge));
       }
     })();
   }

@@ -41,6 +41,8 @@
     "lib/contrast.test.ts",
     "lib/offlineGuard.test.ts",
     "data/variations.test.ts",
+    "data/startCompany.test.ts",
+    "data/companyLogo.test.ts",
     "lib/photoPrep.test.ts",
     "lib/variationQueue.test.ts",
     "lib/variationPdf.test.ts",

@@ -1,4 +1,6 @@
 import type { CreateSiteInput } from '@/data/createSite';
+import type { CompanyMark } from '@/data/companyLogo';
+import type { StartCompanyInput } from '@/data/startCompany';
 import type {
   CreateRequestInput,
   Drawing,
@@ -41,6 +43,7 @@ export type SignInResult = {
 
 export type SitePackRepo = {
   signIn(email: string, password: string): Promise<SignInResult>;
+  startCompany(input: StartCompanyInput): Promise<{ message: string }>;
   signOut(): Promise<void>;
   restoreSession(): Promise<Person | null>;
   setPassword(password: string): Promise<void>;
@@ -106,6 +109,8 @@ export type SitePackRepo = {
   joinWithCode(input: JoinWithCodeInput): Promise<{ person: Person; siteId: string }>;
   acknowledgePasswordReset(): Promise<void>;
   companyName(): Promise<string>;
+  companyMark(): Promise<CompanyMark>;
+  setCompanyLogo(photo: { bytes: Uint8Array; contentType: string } | null): Promise<CompanyMark>;
   listVariations(siteId: string): Promise<VariationList>;
   getVariation(variationId: string): Promise<VariationDetail | null>;
   createVariation(input: CreateVariationInput): Promise<{ variationId: string; versionId: string; voSeq: number }>;

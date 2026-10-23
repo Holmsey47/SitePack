@@ -12,7 +12,7 @@ export default function Index() {
       </View>
     );
   }
-  if (!person) return <Redirect href="/login" />;
+  if (!person) return <Redirect href="/welcome" />;
   if (needsPassword) return <Redirect href="/set-password" />;
   return <Redirect href="/sites" />;
 }
