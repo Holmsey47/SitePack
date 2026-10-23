@@ -2,6 +2,7 @@ import { newId } from '@/data/newId';
 import {
   signaturePngOk,
   talkContentHash,
+  talkPlain,
   talkSessionOk,
   talkStoragePath,
   type AskTalkInput,
@@ -254,7 +255,7 @@ function assertCapture(actor: TalkActor, talk: TalkRow, personId: string, people
 }
 
 function assertContent(input: { kind: TalkKind; delivery: TalkDelivery; title: string; body: string; pdfPath: string | null; site: TalkSite }) {
-  const title = input.title.trim();
+  const title = talkPlain(input.title.trim());
   const body = input.body.trim();
   if (title.length < 1 || title.length > 120) fail('invalid_input');
   if (body.length > 8000) fail('invalid_input');
@@ -278,8 +279,8 @@ export function fixtureCreateTalk(
   if (!manager(actor)) fail('not_authorized');
   const site = requireSite(actor, sites.find((row) => row.id === input.siteId), canAccess(input.siteId));
   const content = assertContent({ ...input, site });
-  const presenterName = input.presenterName.trim();
-  const presenterRole = input.presenterRole.trim();
+  const presenterName = talkPlain(input.presenterName.trim());
+  const presenterRole = talkPlain(input.presenterRole.trim());
   if (presenterName.length < 1 || presenterName.length > 120 || presenterRole.length < 1 || presenterRole.length > 80) {
     fail('invalid_input');
   }
@@ -347,12 +348,19 @@ export function fixtureReviseTalk(
   const talk = bucket.talks.find((row) => row.id === talkId);
   if (!talk) fail('not_authorized');
   const site = requireSite(actor, sites.find((row) => row.id === talk.site_id), canAccess(talk.site_id));
+  const current = currentVersion(bucket, talk.id);
+  const requested = input.pdfPath?.trim() ?? '';
+  let carried: string | null = current.pdf_path;
+  if (requested && (!current.pdf_path || talkStoragePath(site.company_id, site.id, requested) !== current.pdf_path)) {
+    carried = talkStoragePath(site.company_id, site.id, requested);
+    if (bucket.versions.some((row) => row.pdf_path === carried)) fail('invalid_path');
+  }
   const content = assertContent({
     kind: talk.kind,
     delivery: talk.delivery,
     title: input.title,
     body: input.body,
-    pdfPath: input.pdfPath,
+    pdfPath: carried,
     site,
   });
   const hash = talkContentHash({
@@ -362,7 +370,6 @@ export function fixtureReviseTalk(
     body: content.body,
     pdfPath: content.pdf,
   });
-  const current = currentVersion(bucket, talk.id);
   if (hash === current.content_hash && talk.title === content.title) {
     return { talk_id: talk.id, version_id: current.id, version_no: current.version_no, content_hash: current.content_hash };
   }
@@ -627,7 +634,7 @@ export function fixtureOutstanding(
     .map((talk) => listItem(bucket, actor, talk, people, assignments));
 }
 
-function signedRow(bucket: FixtureTalkBucket, row: SignatureRow, people: TalkPerson[]): TalkSignedRow {
+function signedRow(bucket: FixtureTalkBucket, row: SignatureRow, people: TalkPerson[], actor: TalkActor): TalkSignedRow {
   const note = noteFor(bucket, row.version_id, row.person_id);
   const question = questionFor(bucket, row.version_id, row.person_id);
   const person = people.find((item) => item.id === row.person_id);
@@ -641,7 +648,7 @@ function signedRow(bucket: FixtureTalkBucket, row: SignatureRow, people: TalkPer
     received_at: row.received_at,
     device_at: row.device_at,
     meaning: row.meaning,
-    signature_png: row.signature_png,
+    signature_png: manager(actor) || row.person_id === actor.id ? row.signature_png : null,
     shared_device: row.shared_device,
     session_id: row.session_id,
     captured_by: row.captured_by,
@@ -654,7 +661,8 @@ function registerFor(
   talk: TalkRow,
   version: VersionRow,
   people: TalkPerson[],
-  assignments: TalkAssignment[]
+  assignments: TalkAssignment[],
+  actor: TalkActor
 ): TalkRegister {
   const ids = requiredIds(bucket, talk, people, assignments);
   const notSigned = ids
@@ -676,7 +684,7 @@ function registerFor(
   const signed = bucket.signatures
     .filter((row) => row.version_id === version.id && row.signature_role === 'attendee' && ids.includes(row.person_id))
     .sort((a, b) => a.received_at.localeCompare(b.received_at))
-    .map((row) => signedRow(bucket, row, people));
+    .map((row) => signedRow(bucket, row, people, actor));
   const presenter = bucket.signatures.find((row) => row.version_id === version.id && row.signature_role === 'presenter');
   const questions: TalkQuestionRow[] = bucket.questions
     .filter((row) => row.version_id === version.id)
@@ -691,7 +699,7 @@ function registerFor(
     signed_count: signed.length,
     not_signed: notSigned,
     signed,
-    presenter_signature: presenter ? signedRow(bucket, presenter, people) : null,
+    presenter_signature: presenter ? signedRow(bucket, presenter, people, actor) : null,
     questions,
   };
 }
@@ -738,7 +746,7 @@ export function fixtureTalkDetail(
     presented_at: talk.presented_at,
     attendee_meaning: meaningFor(talk, site.name, 'attendee'),
     mine_signed: attendeeSigned(bucket, version.id, actor.id),
-    register: show ? registerFor(bucket, talk, version, people, assignments) : null,
+    register: show ? registerFor(bucket, talk, version, people, assignments, actor) : null,
   };
 }
 

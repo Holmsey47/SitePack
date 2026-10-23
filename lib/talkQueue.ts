@@ -106,6 +106,11 @@ export function refusedTalkNotice(action: QueuedTalkAction, code = ''): string {
   if (code === 'already_signed') return 'This version is already signed.';
   if (code === 'not_required') return 'This person does not need to sign this talk.';
   if (code === 'invalid_time') return 'The time on this phone is not valid. Check the clock and try again.';
+  if (code === '400') {
+    if (action === 'question') return 'That question was not saved.';
+    if (action === 'note') return 'That note was not saved.';
+    return 'That signature was not saved.';
+  }
   if (code === 'invalid_input' || code === 'invalid_path') return 'Check the details and try again.';
   if (code === 'not_authorized') {
     if (action === 'question') return 'That question was not saved. Ask the site manager.';

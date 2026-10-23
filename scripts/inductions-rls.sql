@@ -324,8 +324,44 @@ select pg_temp.ok(
     'select public.create_site_talk('
       || quote_literal(:'sitea') || '::uuid, ''induction'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Own'' || chr(1) || ''er'', ''Owner'', now())',
     'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', '
+      || quote_literal('Site' || chr(10) || 'lead') || ', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', '
+      || quote_literal('Site' || chr(13) || 'lead') || ', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', '
+      || quote_literal('=HYPERLINK("x")' || chr(13)) || ', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', '
+      || quote_literal('Lead' || chr(133)) || ', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Title'' || chr(8232), ''Body'', null, ''all'', array[]::uuid[], ''Owner X'', '
+      || quote_literal('Lead' || chr(8238)) || ', now())',
+    'invalid_input'
+  )
+  and pg_temp.raises(
+    'select public.create_site_talk('
+      || quote_literal(:'sitea') || '::uuid, ''toolbox'', ''phone'', ''Bad'', ''Body'', null, ''all'', array[]::uuid[], '
+      || quote_literal('Owner' || chr(8207)) || ', ''Lead'', now())',
+    'invalid_input'
   ),
-  'a talk file must be this caller''s object at company/site/talks/file, and names reject control characters'
+  'a presenter role with LF, CR, or a spreadsheet formula is rejected, and NEL, line separators, and bidi controls are rejected'
 );
 
 insert into probe (k, v)
@@ -663,6 +699,78 @@ select pg_temp.ok(
   'the same talk file cannot be recorded twice, and its type and size are the object''s'
 );
 
+insert into probe (k, v)
+values (
+  'pdf-body',
+  public.revise_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'pdf'),
+    'Stored file',
+    'Read the updated file.',
+    null
+  )
+);
+
+select pg_temp.ok(
+  (select (v->>'version_no')::int = 2
+      and v->>'version_id' is distinct from (select p.v->>'version_id' from probe p where p.k = 'pdf')
+   from probe where k = 'pdf-body')
+  and (select pdf_path = :'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf'
+       and pdf_content_type = 'application/pdf'
+       and pdf_size_bytes = 1800
+       and is_current
+       from public.site_talk_versions
+       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-body')),
+  'revising the words of a talk with a PDF keeps that PDF on the new version'
+);
+
+select pg_temp.keep_talk(:'firmx' || '/' || :'sitea' || '/talks/next.pdf', :'ownerx'::uuid, 'drawings', 'application/pdf', 3100);
+
+insert into probe (k, v)
+values (
+  'pdf-new',
+  public.revise_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'pdf'),
+    'Stored file',
+    'Read the new file.',
+    :'firmx' || '/' || :'sitea' || '/talks/next.pdf'
+  )
+);
+
+select pg_temp.ok(
+  (select (v->>'version_no')::int = 3
+      and v->>'version_id' is distinct from (select p.v->>'version_id' from probe p where p.k = 'pdf-body')
+   from probe where k = 'pdf-new')
+  and (select pdf_path = :'firmx' || '/' || :'sitea' || '/talks/next.pdf'
+       and pdf_content_type = 'application/pdf'
+       and pdf_size_bytes = 3100
+       and is_current
+       from public.site_talk_versions
+       where id = (select (v->>'version_id')::uuid from probe where k = 'pdf-new')),
+  'revising with a new uploaded PDF is accepted'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Nope.'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/stolen.pdf') || ')',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Nope.'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/brief.pdf') || ')',
+    'invalid_path'
+  )
+  and pg_temp.raises(
+    'select public.revise_site_talk('
+      || quote_literal((select v->>'talk_id' from probe where k = 'pdf')) || '::uuid, ''Stored file'', ''Nope.'', '
+      || quote_literal(:'firmx' || '/' || :'sitea' || '/talks/ownerid.pdf') || ')',
+    'invalid_path'
+  ),
+  'revising with someone else''s file or a path already used is invalid_path'
+);
+
 select pg_temp.ok(
   pg_temp.raises(
     'update public.people set display_name = ''Op'' || chr(10) || ''F'' where id = ' || quote_literal(:'opf') || '::uuid',
@@ -835,7 +943,154 @@ select pg_temp.ok(
   'the named presenter sign-off stores its own sentence'
 );
 
+insert into probe (k, v)
+values (
+  'mask-captured',
+  public.sign_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'presenter-own'),
+    (select (v->>'version_id')::uuid from probe where k = 'presenter-own'),
+    :'opd'::uuid,
+    true,
+    :'png',
+    now(),
+    'session-opa-2'
+  )
+);
+
 reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'mask-other',
+  public.sign_site_talk(
+    (select (v->>'talk_id')::uuid from probe where k = 'presenter-own'),
+    (select (v->>'version_id')::uuid from probe where k = 'presenter-own'),
+    :'ope'::uuid,
+    true,
+    :'png',
+    now(),
+    'session-owner-1'
+  )
+);
+
+insert into probe (k, v)
+values (
+  'mask-owner',
+  public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'presenter-own'))
+);
+
+select pg_temp.ok(
+  (select
+    (select count(*) from jsonb_array_elements(v->'register'->'signed') s where s->>'signature_png' = :'png') = 2
+    and v->'register'->'presenter_signature'->>'signature_png' = :'png'
+    and (select count(*) from jsonb_array_elements(v->'register'->'signed') s where s->>'person_name' in ('Op D', 'Op E') and s->>'received_at' is not null) = 2
+   from probe where k = 'mask-owner'),
+  'the owner sees every signature image on the register'
+);
+
+reset role;
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'mask-cm',
+  public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'presenter-own'))
+);
+
+select pg_temp.ok(
+  (select
+    (select count(*) from jsonb_array_elements(v->'register'->'signed') s where s->>'signature_png' = :'png') = 2
+    and v->'register'->'presenter_signature'->>'signature_png' = :'png'
+   from probe where k = 'mask-cm'),
+  'the contracts manager sees every signature image on the register'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'mask-presenter',
+  public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'presenter-own'))
+);
+
+select pg_temp.ok(
+  (select
+    v->'register'->'presenter_signature'->>'person_id' = :'opa'
+    and v->'register'->'presenter_signature'->>'signature_png' = :'png'
+    and v->'register'->'presenter_signature'->>'received_at' is not null
+    and (select count(*) from jsonb_array_elements(v->'register'->'signed') s where s->>'signature_png' is not null) = 0
+    and (select count(*) from jsonb_array_elements(v->'register'->'signed') s
+         where s->>'person_name' in ('Op D', 'Op E')
+           and s->>'signature_png' is null
+           and s->>'received_at' is not null) = 2
+   from probe where k = 'mask-presenter'),
+  'a presenter operative gets only their own signature image; returning every image fails this check'
+);
+
+reset role;
+select pg_temp.jwt(:'opc'::uuid);
+set local role authenticated;
+
+insert into probe (k, v)
+values (
+  'mask-operative',
+  public.site_talk_detail((select (v->>'talk_id')::uuid from probe where k = 'presenter-own'))
+);
+
+select pg_temp.ok(
+  (select jsonb_typeof(v->'register') = 'null' and position(:'png' in v::text) = 0 from probe where k = 'mask-operative'),
+  'another operative gets no signature images from the register'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select public.site_talk_detail('
+      || quote_literal((select v->>'talk_id' from probe where k = 'presenter-own')) || '::uuid)',
+    'not_authorized'
+  ),
+  'an unrelated firm gets no signature images from the register'
+);
+
+reset role;
+
+select pg_temp.ok(
+  not exists (
+    select 1
+    from (
+      select pg_get_functiondef(p.oid) as def
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname in ('public', 'private')
+        and p.proname like '%talk%'
+        and p.proname not in ('sign_site_talk', 'sign_talk_presenter', 'talk_register')
+    ) defs
+    where defs.def like '%site_talk_signatures%'
+      and defs.def like '%signature_png%'
+  )
+  and not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relkind = 'v'
+      and pg_get_viewdef(c.oid) like '%site_talk_signatures%'
+  )
+  and position(
+    'when v_actor.role in (''owner'', ''cm'') or s.person_id = v_actor.person_id then s.signature_png'
+    in pg_get_functiondef('private.talk_register(uuid)'::regprocedure)
+  ) > 0,
+  'no other talk function or view returns a signature image, and an unconditional image fails this check'
+);
+
 select pg_temp.jwt(:'ownerx'::uuid);
 set local role authenticated;
 

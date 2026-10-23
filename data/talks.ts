@@ -101,7 +101,8 @@ export type TalkSignedRow = TalkPersonRow & {
   received_at: string;
   device_at: string;
   meaning: string;
-  signature_png: string;
+  /** Null unless the caller is the host owner, the host CM, or this row's signer. */
+  signature_png: string | null;
   shared_device: boolean;
   session_id: string;
   captured_by: string;
@@ -208,6 +209,14 @@ export function talkContentHash(parts: {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+const TALK_CONTROLS = /[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/;
+
+/** Rejects C0 controls, DEL, NEL, line separators, and bidi controls. */
+export function talkPlain(value: string): string {
+  if (TALK_CONTROLS.test(value)) throw new Error('invalid_input');
+  return value;
 }
 
 const TALK_FILE = /^[A-Za-z0-9._-]+$/;

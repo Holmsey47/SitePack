@@ -232,6 +232,8 @@ test('a phone network error, a 503, and an unknown storage error each take their
   assert.equal(notices.find((row) => row.id === 'retry:unauth')?.message, SIGN_IN_AGAIN);
   assert.equal(notices.find((row) => row.id === 'retry:jwt')?.message, SIGN_IN_AGAIN);
   assert.equal((await queue.list()).find((row) => row.localId === 'jwt')?.needsSignIn, true);
+  assert.equal(notices.find((row) => row.id === 'reject:bad')?.message, refusedTalkNotice('sign', '400'));
+  assert.equal(refusedTalkNotice('sign', '400').includes('Try again'), false);
   assert.match(notices.find((row) => row.id === 'reject:bad')?.message ?? '', /not saved/);
   assert.equal(notices.filter((row) => row.retryLocalId).length, 8);
 });

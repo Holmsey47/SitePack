@@ -67,10 +67,25 @@ export function talkPdfFilename(siteName: string, title: string): string {
   return `Register ${site} ${name}.pdf`;
 }
 
-export function talkReportId(versionNo: number, presentedAt: string): string {
+export function talkReportKey(input: Pick<RegisterPdfInput, 'siteName' | 'title'>): string {
+  return `${input.siteName}\n${input.title}`;
+}
+
+function shortRef(value: string): string {
+  if (!value) return '';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(4, '0').slice(-4);
+}
+
+export function talkReportId(versionNo: number, presentedAt: string, talkKey = ''): string {
   const formatted = formatUkDateTime(presentedAt);
   const date = formatted.split(',')[0]?.replace(/\s+/g, '') ?? 'undated';
-  return `TR-v${versionNo}-${date}`;
+  const suffix = shortRef(talkKey);
+  return suffix ? `TR-v${versionNo}-${date}-${suffix}` : `TR-v${versionNo}-${date}`;
 }
 
 export function talkFooter(
@@ -91,7 +106,10 @@ export function talkFooter(
 
 /** Keep letters, including Ł and ü. A dash the name font does not draw becomes a hyphen. */
 export function pdfText(value: string): string {
-  return value.normalize('NFC').replace(/[–—]/g, '-').replace(/[\u0000-\u001f\u007f]/g, ' ');
+  return value
+    .normalize('NFC')
+    .replace(/[–—]/g, '-')
+    .replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/g, ' ');
 }
 
 function wrap(text: string, face: PDFFont, size: number, max: number): string[] {
@@ -263,7 +281,7 @@ function buildBlocks(input: RegisterPdfInput, font: PDFFont, bold: PDFFont): Blo
 export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Uint8Array; footers: string[]; pages: string[][] }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const reportId = talkReportId(input.versionNo, input.presentedAt);
+  const reportId = talkReportId(input.versionNo, input.presentedAt, talkReportKey(input));
   doc.setTitle(`Register ${reportId}`);
   const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
   const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
@@ -284,6 +302,10 @@ export async function buildTalkPdf(input: RegisterPdfInput): Promise<{ bytes: Ui
     sheet = doc.addPage([PAGE_W, PAGE_H]);
     drawn.push(sheet);
     y = TOP;
+    const continued = pdfText('Register (continued)');
+    sheet.drawText(continued, { x: MARGIN, y: y - 14, size: 14, font: bold, color: rgb(0.1, 0.1, 0.1) });
+    lines.push(continued);
+    y -= 18;
     return sheet;
   }
 

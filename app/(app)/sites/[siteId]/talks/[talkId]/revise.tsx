@@ -12,7 +12,6 @@ export default function ReviseTalkScreen() {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [pdfPath, setPdfPath] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -24,7 +23,6 @@ export default function ReviseTalkScreen() {
         if (!talk) return;
         setTitle(talk.title);
         setBody(talk.body);
-        setPdfPath(talk.pdf_path);
       })
       .catch(() => setError('Could not load the talk.'));
   }, [talkId]);
@@ -36,7 +34,7 @@ export default function ReviseTalkScreen() {
     setSaving(true);
     setError('');
     try {
-      await repo.reviseTalk(talkId, { title, body, pdfPath });
+      await repo.reviseTalk(talkId, { title, body, pdfPath: null });
       router.back();
     } catch (err) {
       setError(talkError(err instanceof Error ? err.message : 'unknown'));
