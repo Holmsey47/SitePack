@@ -411,7 +411,7 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   const contractorText = decodedPdfText(contractor.bytes);
   assert.match(contractorText, /Snag sign-off/);
   assert.equal(contractorText.includes('Internal check'), false);
-  assert.match(contractorText, /I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of/);
+  assert.match(contractorText, /I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of/);
   assert.match(contractorText, /Northbuild\./);
   assert.match(contractorText, /Outstanding \(not signed off\): 1/);
   assert.match(contractorText, /S-2 · Skirting not fixed in the hall · Ground/);
@@ -437,8 +437,8 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
   });
   const internalText = decodedPdfText(internalPdf.bytes);
   assert.match(internalText, /Internal check/);
-  assert.match(internalText, /I've checked the 1 snag marked complete above and I'm satisfied they've been put right\./);
-  assert.match(internalText, /internal check for Ashfield Finishes, not sign-off by the main contractor\./);
+  assert.match(internalText, /I've checked the 1 snag marked complete above and I'm satisfied it's been put right\./);
+  assert.match(internalText, /for Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /Ashfield Finishes, not sign-off by the main contractor\./);
   assert.match(internalText, /not sign-off by the main contractor\./);
   assert.match(internalText, /No snags are outstanding\./);
@@ -482,6 +482,51 @@ test('José Müller and Łukasz Wójcik survive in the sign-off PDF', async () =
   assert.match(text, /Łukasz Wójcik/);
   assert.equal(text.includes('Jos Mller'), false);
   assert.equal(text.includes('£'), false);
+});
+
+test('bidi overrides and control characters are stripped from the sign-off PDF', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
+  assert.ok(signaturePng);
+  const bidi = '\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F';
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: `A\u202D$&`,
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('North\u2066build', 'contractor', 1),
+    signerName: 'Jos\u0000é\u200E Müller',
+    signerRole: `Site${bidi}\u007F manager`,
+    signerCompany: 'North\u202Ebuild',
+    signedAt: when,
+    signaturePng,
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Bead\u0007 missing at the window reveal',
+        levelArea: 'Gro\u0001und',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'José Müller',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [{ snagSeq: 2, note: 'Skirting\u0085 not fixed', levelArea: 'Ground' }],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.equal(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/.test(text), false);
+  assert.match(text, /José Müller/);
+  assert.match(text, /Northbuild/);
+  assert.match(text, /A\$&/);
+  assert.match(text, /Site manager/);
+  assert.match(text, /Bead missing at the window reveal/);
+  assert.match(text, /Ground/);
+  assert.match(text, /I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of/);
+  assert.match(text, /Northbuild\. Snags listed as outstanding are not signed off\./);
 });
 
 function signerSharesLastPhoto(trace: Array<{ page: number; kind: string; snagSeq?: number }>, lastSeq: number): boolean {
@@ -653,7 +698,7 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     const signLow = Math.min(...signature.map((item) => item.baseline ?? 0));
     assert.ok(outLow > signHigh, `${count} outstanding is not above the signature`);
     assert.ok(noteLow < signLow, `${count} disclaimer is not under the signature`);
-    assert.match(text, /I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of/);
+    assert.match(text, /I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of/);
     assert.match(text, /Northbuild\. Snags listed as outstanding are not signed off\./);
     assert.equal(text.includes('£'), false);
     const referenceHits = text.match(/SO-22Oct2026/g) ?? [];

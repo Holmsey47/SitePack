@@ -1,14 +1,23 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation } from './snagWording.ts';
+import {
+  contractorPadEnabled,
+  outstandingHeading,
+  outstandingLine,
+  rememberSignAgain,
+  signAgainPath,
+  signoffFormOpen,
+  snagConfirmation,
+  takeSignAgain,
+} from './snagWording.ts';
 
 const CONTRACTOR_ONE =
-  'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
+  'I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
 const CONTRACTOR_TWO =
   'I confirm the 2 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
 const INTERNAL_ONE =
-  "I've checked the 1 snag marked complete above and I'm satisfied they've been put right. This is an internal check for Ashfield Finishes, not sign-off by the main contractor.";
+  "I've checked the 1 snag marked complete above and I'm satisfied it's been put right. This is an internal check for Ashfield Finishes, not sign-off by the main contractor.";
 const INTERNAL_TWO =
   "I've checked the 2 snags marked complete above and I'm satisfied they've been put right. This is an internal check for Northbuild, not sign-off by the main contractor.";
 
@@ -19,7 +28,7 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
   assert.equal(snagConfirmation('Ashfield Finishes', 'internal', 1), INTERNAL_ONE);
   assert.equal(
     snagConfirmation('', 'contractor', 1),
-    'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of your company. Snags listed as outstanding are not signed off.'
+    'I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of your company. Snags listed as outstanding are not signed off.'
   );
   assert.equal(
     snagConfirmation('   ', 'internal', 3),
@@ -29,6 +38,14 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
   assert.equal(
     snagConfirmation('North £build', 'contractor', 2),
     'I confirm the 2 snags marked complete above have been put right to my satisfaction, on behalf of North build. Snags listed as outstanding are not signed off.'
+  );
+  assert.equal(
+    snagConfirmation('$& $1', 'contractor', 1),
+    'I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of $& $1. Snags listed as outstanding are not signed off.'
+  );
+  assert.equal(
+    snagConfirmation('$& $1', 'internal', 2),
+    "I've checked the 2 snags marked complete above and I'm satisfied they've been put right. This is an internal check for $& $1, not sign-off by the main contractor."
   );
   for (const sentence of [CONTRACTOR_ONE, CONTRACTOR_TWO, INTERNAL_ONE, INTERNAL_TWO]) {
     assert.equal(sentence.includes('£'), false);
@@ -64,16 +81,19 @@ test('the server stores the same sentence the screen shows', () => {
   const screen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
   const pdf = fs.readFileSync('lib/snagPdf.ts', 'utf8');
   const wording = fs.readFileSync('lib/snagWording.ts', 'utf8');
-  assert.match(sql, /v_noun := case when p_count = 1 then 'snag' else 'snags' end;/);
-  assert.match(sql, /I confirm the ' \|\| p_count::text \|\| ' ' \|\| v_noun \|\| ' marked complete above have been put right to my satisfaction, on behalf of /);
-  assert.match(sql, /Snags listed as outstanding are not signed off\./);
+  assert.match(sql, /I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of \[Company\]\. Snags listed as outstanding are not signed off\./);
+  assert.match(sql, /I confirm the ' \|\| p_count::text \|\| ' snags marked complete above have been put right to my satisfaction, on behalf of \[Company\]\. Snags listed as outstanding are not signed off\./);
+  assert.match(sql, /I''ve checked the 1 snag marked complete above and I''m satisfied it''s been put right\. This is an internal check for \[Company\], not sign-off by the main contractor\./);
   assert.match(
     sql,
-    /I''ve checked the ' \|\| p_count::text \|\| ' ' \|\| v_noun \|\| ' marked complete above and I''m satisfied they''ve been put right\. This is an internal check for /
+    /I''ve checked the ' \|\| p_count::text \|\| ' snags marked complete above and I''m satisfied they''ve been put right\. This is an internal check for \[Company\], not sign-off by the main contractor\./
   );
-  assert.match(sql, /, not sign-off by the main contractor\./);
+  assert.match(sql, /return replace\(v_sentence, '\[Company\]', v_company\);/);
+  assert.doesNotMatch(sql, /regexp_replace/);
   assert.match(sql, /coalesce\(array_length\(v_fixed_ids, 1\), 0\)/);
+  assert.match(wording, /I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of \[Company\]\. Snags listed as outstanding are not signed off\./);
   assert.match(wording, /I confirm the \[n\] snags marked complete above have been put right to my satisfaction, on behalf of \[Company\]\. Snags listed as outstanding are not signed off\./);
+  assert.match(wording, /\.replace\('\[Company\]', \(\) => shown\)/);
   assert.doesNotMatch(sql, /your company/);
   assert.match(sql, /replace\(coalesce\(p_company, ''\), '£', ''\)/);
   assert.match(screen, /snagConfirmation\(internalCompany, 'internal', shownCovered\.length\)/);
@@ -98,11 +118,42 @@ test('the server stores the same sentence the screen shows', () => {
   assert.match(screen, /clearSignFields\(\)/);
   assert.match(screen, /nativeID="saved-on-phone"/);
   assert.match(screen, />Signed off</);
-  assert.match(screen, /queryValue\(params\.signMode\)/);
+  assert.match(screen, /takeSignAgain\(\)/);
   assert.match(screen, /setSignature\(null\)/);
-  assert.doesNotMatch(screen, /setSignature\(queryValue\(params/);
+  assert.doesNotMatch(screen, /params\.signerName|params\.signerRole|params\.signerCompany/);
   const index = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
-  assert.match(index, /query\.set\('signMode', notice\.signMode\)/);
-  assert.match(index, /query\.set\('signerName', notice\.signerName\)/);
-  assert.match(index, /query\.set\('signerCompany', notice\.signerCompany\)/);
+  assert.match(index, /rememberSignAgain\(/);
+  assert.match(index, /router\.push\(`\/sites\/\$\{siteId\}\/snags\/sign`\)/);
+  assert.doesNotMatch(index, /query\.set\('signerName'|query\.set\('signerRole'|query\.set\('signerCompany'/);
+  assert.doesNotMatch(index, /snags\/sign\?/);
+});
+
+test('sign again keeps name, role and company off the route', () => {
+  const route = signAgainPath('66666666-6666-6666-6666-666666666666');
+  const params = new URL(route, 'https://sitepack.test').searchParams;
+  assert.equal(route.includes('?'), false);
+  assert.equal(params.has('signerName'), false);
+  assert.equal(params.has('signerRole'), false);
+  assert.equal(params.has('signerCompany'), false);
+  assert.equal(params.has('name'), false);
+  assert.equal(params.has('role'), false);
+  assert.equal(params.has('company'), false);
+  rememberSignAgain({
+    signMode: 'contractor',
+    signerName: 'Dave Moran',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+  });
+  const draft = takeSignAgain();
+  assert.equal(draft?.signMode, 'contractor');
+  assert.equal(draft?.signerName, 'Dave Moran');
+  assert.equal(draft?.signerRole, 'Site manager');
+  assert.equal(draft?.signerCompany, 'Northbuild');
+  assert.equal(takeSignAgain(), null);
+  const screen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
+  const index = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
+  assert.doesNotMatch(screen, /signerName\?:/);
+  assert.doesNotMatch(screen, /signerRole\?:/);
+  assert.doesNotMatch(screen, /signerCompany\?:/);
+  assert.doesNotMatch(index, /URLSearchParams/);
 });

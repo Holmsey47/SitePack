@@ -97,9 +97,10 @@ function pdfFontBytes(encoded: string): Uint8Array {
   return bytes;
 }
 
-/** Keep letters, including accents. A pound sign is not part of a snag report. */
+/** Keep letters, including accents. Drop bidi overrides, control characters, and a pound sign. */
 function pdfText(value: string): string {
   return value
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
     .replace(/£/g, '')
     .replace(/[–—]/g, '-')
     .replace(/[‘’]/g, "'")
@@ -199,7 +200,7 @@ async function drawReport(
 ): Promise<{ bytes: Uint8Array; trace: SnagPdfTrace[] }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  doc.setTitle(input.reportId);
+  doc.setTitle(pdfText(input.reportId));
   const font = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS), { subset: true });
   const bold = await doc.embedFont(pdfFontBytes(SNAG_PDF_SANS_BOLD), { subset: true });
   const trace: SnagPdfTrace[] = [];

@@ -10,12 +10,12 @@ import { buildSnagSignoffPdf, snagSignoffFilename, snagSignoffReportId, type Sna
 import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQueue';
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation } from '@/lib/snagWording';
+import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation, takeSignAgain } from '@/lib/snagWording';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
@@ -63,13 +63,7 @@ function queryValue(value: string | string[] | undefined): string {
 }
 
 export default function SnagSignScreen() {
-  const params = useLocalSearchParams<{
-    siteId: string;
-    signMode?: string;
-    signerName?: string;
-    signerRole?: string;
-    signerCompany?: string;
-  }>();
+  const params = useLocalSearchParams<{ siteId: string }>();
   const siteId = queryValue(params.siteId);
   const { person } = useAuth();
   const [rows, setRows] = useState<SnagDetail[]>([]);
@@ -85,7 +79,6 @@ export default function SnagSignScreen() {
   const [record, setRecord] = useState<SnagSignoff | null>(null);
   const [localSign, setLocalSign] = useState<LocalSign | null>(null);
   const [savedOnPhone, setSavedOnPhone] = useState(false);
-  const prefilled = useRef(false);
 
   function clearSignFields() {
     setInternalCompany('');
@@ -108,22 +101,21 @@ export default function SnagSignScreen() {
       .finally(() => setLoaded(true));
   }, [load]);
 
-  useEffect(() => {
-    if (prefilled.current) return;
-    const mode = queryValue(params.signMode);
-    if (!mode) return;
-    prefilled.current = true;
-    const company = queryValue(params.signerCompany);
-    if (mode === 'contractor') {
-      setSignerName(queryValue(params.signerName));
-      setSignerRole(queryValue(params.signerRole));
-      setContractorCompany(company);
-      setSignature(null);
-      setPadKey((key) => key + 1);
-      return;
-    }
-    if (mode === 'internal') setInternalCompany(company);
-  }, [params.signMode, params.signerName, params.signerRole, params.signerCompany]);
+  useFocusEffect(
+    useCallback(() => {
+      const draft = takeSignAgain();
+      if (!draft) return;
+      if (draft.signMode === 'contractor') {
+        setSignerName(draft.signerName);
+        setSignerRole(draft.signerRole);
+        setContractorCompany(draft.signerCompany);
+        setSignature(null);
+        setPadKey((key) => key + 1);
+        return;
+      }
+      if (draft.signMode === 'internal') setInternalCompany(draft.signerCompany);
+    }, [])
+  );
 
   const fixed = rows.filter((row) => row.status === 'Fixed');
   const open = rows.filter((row) => row.status === 'Open');

@@ -15,6 +15,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
 import { flushSnagQueue, getSnagQueue, noticesForOwner, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
+import { rememberSignAgain } from '@/lib/snagWording';
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
@@ -102,13 +103,15 @@ export default function SnagsScreen() {
   async function signAgain(notice: SnagNotice) {
     await getSnagQueue().removeNotice(notice.id);
     setNotices((current) => current.filter((row) => row.id !== notice.id));
-    const query = new URLSearchParams();
-    if (notice.signMode) query.set('signMode', notice.signMode);
-    if (notice.signerName) query.set('signerName', notice.signerName);
-    if (notice.signerRole) query.set('signerRole', notice.signerRole);
-    if (notice.signerCompany) query.set('signerCompany', notice.signerCompany);
-    const suffix = query.toString();
-    router.push(suffix ? `/sites/${siteId}/snags/sign?${suffix}` : `/sites/${siteId}/snags/sign`);
+    if (notice.signMode === 'internal' || notice.signMode === 'contractor') {
+      rememberSignAgain({
+        signMode: notice.signMode,
+        signerName: notice.signerName ?? '',
+        signerRole: notice.signerRole ?? '',
+        signerCompany: notice.signerCompany ?? '',
+      });
+    }
+    if (siteId) router.push(`/sites/${siteId}/snags/sign`);
   }
 
   async function saveNoticePhotos(notice: SnagNotice) {
