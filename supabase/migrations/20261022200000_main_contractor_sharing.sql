@@ -94,10 +94,28 @@ create index site_share_audit_site_idx on public.site_share_audit (site_id, crea
 comment on table public.site_share_audit is
   'Create, redeem, section change, revoke, and each view grant. No code plaintext and no email or phone.';
 
+-- Failed redeem attempts. A person who fails ten times in an hour is refused.
+create table public.site_share_attempts (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid not null,
+  created_at timestamptz not null default now()
+);
+
+create index site_share_attempts_actor_idx on public.site_share_attempts (actor_id, created_at desc);
+
+alter table public.site_share_attempts enable row level security;
+revoke all on table public.site_share_attempts from public, anon, authenticated;
+
+comment on table public.site_share_attempts is
+  'Failed redeem attempts for one person. No code plaintext.';
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
 
+-- Trim and collapse spaces, and keep the letters as typed.
+-- "  Firm   Y " matches Firm Y. "  FIRM   y " does not.
+-- The code is not bound to a company id: the guest firm may not exist yet.
 create or replace function private.share_company_key(p_name text)
 returns text
 language sql
@@ -105,7 +123,7 @@ immutable
 security definer
 set search_path = ''
 as $fn$
-  select nullif(lower(regexp_replace(btrim(coalesce(p_name, '')), '[[:space:]]+', ' ', 'g')), '');
+  select nullif(regexp_replace(btrim(coalesce(p_name, '')), '[[:space:]]+', ' ', 'g'), '');
 $fn$;
 
 revoke all on function private.share_company_key(text) from public, anon, authenticated;
@@ -200,18 +218,25 @@ $fn$;
 
 revoke all on function private.share_audit(uuid, uuid, uuid, uuid, uuid, uuid, text, jsonb) from public, anon, authenticated;
 
+-- Drawing files only: <company>/<site>/<uuid>.pdf, and the object is in the drawings bucket.
+-- A requests/ photo, a talks/ PDF, or a path with no object is invalid_path.
 create or replace function private.share_path_ok(p_path text, p_company uuid, p_site uuid)
 returns boolean
 language sql
-immutable
+stable
 security definer
 set search_path = ''
 as $fn$
   select p_path is not null
-    and p_path <> ''
-    and left(p_path, 1) <> '/'
-    and position('..' in p_path) = 0
-    and p_path ~ ('^' || p_company::text || '/' || p_site::text || '/[^/].+');
+    and lower(p_path) = lower(p_company::text) || '/' || lower(p_site::text) || '/' ||
+      substring(lower(p_path) from '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf)$')
+    and lower(p_path) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$'
+    and exists (
+      select 1
+      from storage.objects o
+      where o.bucket_id = 'drawings'
+        and o.name = p_path
+    );
 $fn$;
 
 revoke all on function private.share_path_ok(text, uuid, uuid) from public, anon, authenticated;
@@ -298,6 +323,9 @@ as $fn$
   from public.variation_signatures s
   where s.version_id = p_version_id;
 $fn$;
+
+revoke all on function private.visible_variation_pence(uuid) from public, anon;
+revoke all on function private.visible_shown_pence(uuid) from public, anon;
 
 -- ---------------------------------------------------------------------------
 -- RLS for the new tables. Clients do not write them.
@@ -437,7 +465,7 @@ create policy variations_select
       and exists (
         select 1
         from public.variation_versions v
-        where v.variation_id = id
+        where v.variation_id = variations.id
           and v.status in ('Signed', 'Sent')
       )
     )
@@ -561,7 +589,8 @@ create policy site_talk_versions_select
       )
     )
     or (
-      private.can_view_shared_section(site_id, 'inductions')
+      is_current
+      and private.can_view_shared_section(site_id, 'inductions')
       and exists (
         select 1
         from public.site_talks t
@@ -721,12 +750,22 @@ declare
   v_actor record;
   v_hash bytea;
   v_invite public.site_share_invites;
+  v_share public.site_shares;
   v_share_id uuid;
   v_site_name text;
+  v_failed integer;
 begin
   select * into v_actor from private.share_actor();
   if not found or v_actor.company_id is null then
     raise exception 'not_authorized';
+  end if;
+
+  select count(*) into v_failed
+  from public.site_share_attempts a
+  where a.actor_id = v_actor.person_id
+    and a.created_at > now() - interval '1 hour';
+  if v_failed >= 10 then
+    return jsonb_build_object('error', 'too_many_attempts');
   end if;
 
   begin
@@ -736,7 +775,8 @@ begin
       v_hash := null;
   end;
   if v_hash is null or octet_length(v_hash) <> 32 then
-    raise exception 'invalid_input';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'invalid_input');
   end if;
 
   select * into v_invite
@@ -745,19 +785,50 @@ begin
   for update;
 
   if not found then
-    raise exception 'invalid_input';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'invalid_input');
   end if;
   if v_invite.revoked_at is not null then
-    raise exception 'code_revoked';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'code_revoked');
   end if;
   if v_invite.expires_at <= now() then
-    raise exception 'code_expired';
-  end if;
-  if v_invite.uses >= v_invite.max_uses then
-    raise exception 'code_used';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'code_expired');
   end if;
   if private.share_company_key(v_actor.company_name) is distinct from v_invite.guest_company_key then
-    raise exception 'other_firm';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'other_firm');
+  end if;
+  if v_actor.role not in ('owner', 'cm') then
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'not_allowed');
+  end if;
+
+  select * into v_share
+  from public.site_shares s
+  where s.invite_id = v_invite.id
+    and s.guest_company_id = v_actor.company_id
+    and s.revoked_at is null;
+  if found then
+    select s.name into v_site_name from public.sites s where s.id = v_invite.site_id;
+    return jsonb_build_object(
+      'share_id', v_share.id,
+      'site_id', v_invite.site_id,
+      'site_name', v_site_name,
+      'sections', jsonb_build_object(
+        'drawings', v_share.share_drawings,
+        'variations', v_share.share_variations,
+        'snags', v_share.share_snags,
+        'sign_in', v_share.share_sign_in,
+        'inductions', v_share.share_inductions
+      )
+    );
+  end if;
+
+  if v_invite.uses >= v_invite.max_uses then
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'code_used');
   end if;
   if exists (
     select 1
@@ -766,7 +837,8 @@ begin
       and s.guest_company_id = v_actor.company_id
       and s.revoked_at is null
   ) then
-    raise exception 'already_shared';
+    insert into public.site_share_attempts (actor_id) values (v_actor.person_id);
+    return jsonb_build_object('error', 'already_shared');
   end if;
 
   insert into public.site_shares (

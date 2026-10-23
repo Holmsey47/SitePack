@@ -63,18 +63,19 @@ import type {
   Role,
   Site,
 } from '@/data/types';
-import type {
-  ShareDrawingUrl,
-  ShareInviteCreated,
-  ShareSections,
-  SharedDrawing,
-  SharedInductionRow,
-  SharedSignInRow,
-  SharedSiteCard,
-  SharedSiteView,
-  SharedSnag,
-  SharedVariation,
-  SiteShareList,
+import {
+  throwShareFunction,
+  type ShareDrawingUrl,
+  type ShareInviteCreated,
+  type ShareSections,
+  type SharedDrawing,
+  type SharedInductionRow,
+  type SharedSignInRow,
+  type SharedSiteCard,
+  type SharedSiteView,
+  type SharedSnag,
+  type SharedVariation,
+  type SiteShareList,
 } from '@/data/sharing';
 import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
@@ -265,40 +266,33 @@ async function invokePublicFunction(name: string, body: Record<string, unknown>)
 
 async function invokeShareFunction(name: string, body: Record<string, unknown>): Promise<unknown> {
   const supabase = getSupabase();
-  const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) {
-    let code = '';
-    let status: number | undefined;
-    const context = (error as { context?: unknown }).context;
-    if (context instanceof Response) {
-      status = context.status;
-      try {
-        const payload = (await context.json()) as { error?: unknown };
-        if (typeof payload.error === 'string') code = payload.error;
-      } catch {
-        code = '';
-      }
-    }
-    const failure = new Error(code || error.message || 'network');
-    if (status != null) (failure as Error & { status?: number }).status = status;
-    throw failure;
+  let data: unknown;
+  let error: unknown;
+  try {
+    const result = await supabase.functions.invoke(name, { body });
+    data = result.data;
+    error = result.error;
+  } catch (caught) {
+    throw snagRpcError(caught);
   }
+  if (error) await throwShareFunction(error);
   if (data && typeof data === 'object' && 'error' in data && (data as { error?: unknown }).error) {
-    throw new Error(String((data as { error: unknown }).error));
+    throw snagRpcError({ message: String((data as { error: unknown }).error) });
   }
   return data;
 }
 
 async function shareRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const { data, error } = await getSupabase().rpc(name, args);
-  if (error) {
-    const mapped = rpcErrorCode(error);
-    const failure = new Error(mapped === 'unknown' ? error.message : mapped);
-    const status = (error as { status?: number }).status;
-    if (typeof status === 'number') (failure as Error & { status?: number }).status = status;
-    throw failure;
+  let response: { data: T | null; error: unknown; status?: number };
+  try {
+    response = await getSupabase().rpc(name, args);
+  } catch (error) {
+    throw snagRpcError(error);
   }
-  return data as T;
+  if (response.error || (typeof response.status === 'number' && response.status >= 400)) {
+    throw snagRpcError(response.error ?? { message: String(response.status ?? '') }, response.status);
+  }
+  return response.data as T;
 }
 
 function sectionArgs(sections: ShareSections) {
@@ -1320,6 +1314,10 @@ export const supabaseRepo: SitePackRepo = {
 
   async revokeSiteShare(shareId) {
     await shareRpc('revoke_site_share', { p_share_id: shareId });
+  },
+
+  async revokeSiteShareInvite(inviteId) {
+    await shareRpc('revoke_site_share_invite', { p_invite_id: inviteId });
   },
 
   async redeemSiteShare(code) {

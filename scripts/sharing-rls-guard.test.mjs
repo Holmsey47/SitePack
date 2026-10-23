@@ -22,19 +22,24 @@ function functionsIn(sql) {
 
 test('the sharing migration pins search_path and revokes anon on every function it creates', () => {
   const sql = fs.readFileSync(migrationPath, 'utf8');
-  const created = functionsIn(sql).filter((fn) => fn.name !== 'private.visible_variation_pence' && fn.name !== 'private.visible_shown_pence');
-  assert.ok(created.length >= 20, `parsed ${created.length} functions`);
-  for (const fn of created) {
+  const replacedNames = new Set(['private.visible_variation_pence', 'private.visible_shown_pence']);
+  const parsed = functionsIn(sql);
+  const created = parsed.filter((fn) => !replacedNames.has(fn.name));
+  const replaced = parsed.filter((fn) => replacedNames.has(fn.name));
+  assert.equal(created.length, 24, `parsed ${created.length} new functions`);
+  assert.equal(replaced.length, 2);
+  for (const fn of [...created, ...replaced]) {
     assert.equal(fn.definer, true, fn.name);
     assert.equal(fn.emptyPath, true, fn.name);
     const escaped = fn.name.replace('.', '\\.');
     assert.match(sql, new RegExp(`revoke all on function ${escaped}\\(`, 'i'), fn.name);
   }
+  assert.match(sql, /from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /function\s+private\.can_access_site/i);
   assert.doesNotMatch(sql, /alter table storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+storage/i);
   assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+schema\s+auth/i);
-  assert.doesNotMatch(sql, /storage\.objects/i);
+  assert.doesNotMatch(sql, /grant\s+[\s\S]*\bon\s+table\s+storage/i);
   assert.doesNotMatch(sql, /auth\.users/i);
 });
 

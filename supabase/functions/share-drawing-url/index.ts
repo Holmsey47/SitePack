@@ -32,7 +32,9 @@ Deno.serve(async (req) => {
 
   const row = checked.data && typeof checked.data === 'object' ? (checked.data as { path?: unknown }) : {};
   const path = typeof row.path === 'string' ? row.path : '';
-  if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\')) {
+  const drawingFile =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/i;
+  if (!drawingFile.test(path) || path.includes('..') || path.includes('\\')) {
     return json({ error: 'invalid_path' }, 400);
   }
 

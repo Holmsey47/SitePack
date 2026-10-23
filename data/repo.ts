@@ -207,6 +207,7 @@ export type SitePackRepo = {
   listSiteShares(siteId: string): Promise<SiteShareList>;
   setSiteShareSections(shareId: string, sections: ShareSections): Promise<void>;
   revokeSiteShare(shareId: string): Promise<void>;
+  revokeSiteShareInvite(inviteId: string): Promise<void>;
   redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string }>;
   mySharedSites(): Promise<SharedSiteCard[]>;
   sharedSiteView(siteId: string): Promise<SharedSiteView>;
@@ -302,6 +303,8 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'already_shared',
     'section_off',
     'not_shared',
+    'not_allowed',
+    'too_many_attempts',
   ]) {
     if (text.includes(known)) return known;
   }

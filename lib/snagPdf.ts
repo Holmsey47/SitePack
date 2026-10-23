@@ -97,7 +97,7 @@ function pdfText(value: string, face?: { name: string }): string {
   if (face && !/Helvetica/i.test(face.name)) {
     return mapped.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
   }
-  return mapped.replace(/[^\x0A\x0D\x20-\x7E\u00A3\u00B7]/g, '');
+  return mapped.replace(/[^\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, '');
 }
 
 function wrap(text: string, face: Face, size: number, max: number): string[] {

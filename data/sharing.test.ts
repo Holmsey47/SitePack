@@ -8,12 +8,26 @@ import {
   droppedSharedSiteIds,
   forgetSharedSiteStorage,
   rememberSharedSiteIds,
+  pendingShareInvites,
   shareCompanyKey,
   shareFailureNotice,
   shareFailureRetries,
   shareInviteText,
   withShareRetry,
 } from './sharing.ts';
+import {
+  fixtureListSiteShares,
+  fixtureRevokeSiteShareInvite,
+  fixtureSharedDrawings,
+  fixtureSharedInductions,
+  fixtureSharedSignIn,
+  fixtureSharedSiteView,
+  HARBOUR_SITE_ID,
+  resetShareFixture,
+  SECTION_ERROR_SITE_ID,
+} from './shareFixture.ts';
+import { IDS } from './ids.ts';
+import fs from 'node:fs';
 
 test('sections start off and the company placeholder is your company', () => {
   assert.deepEqual(SHARE_SECTION_DEFAULTS, {
@@ -27,9 +41,52 @@ test('sections start off and the company placeholder is your company', () => {
   assert.equal(SHARE_COMPANY_PLACEHOLDER.includes('[company]'), false);
 });
 
-test('a company key ignores case and extra spaces', () => {
-  assert.equal(shareCompanyKey('  Firm   Y '), 'firm y');
+test('a company key collapses spaces and keeps the typed case', () => {
+  assert.equal(shareCompanyKey('  Firm   Y '), 'Firm Y');
+  assert.equal(shareCompanyKey('  FIRM   y '), 'FIRM y');
+  assert.notEqual(shareCompanyKey('  FIRM   y '), shareCompanyKey('Firm Y'));
   assert.notEqual(shareCompanyKey('Firm Y'), shareCompanyKey('Firm Z'));
+});
+
+test('an unused code can be cancelled and a used one cannot', () => {
+  resetShareFixture();
+  const pending = pendingShareInvites(fixtureListSiteShares(IDS.oak).invites);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]?.guest_company_name, 'Main Contractor Ltd');
+  fixtureRevokeSiteShareInvite(pending[0]!.id);
+  assert.equal(pendingShareInvites(fixtureListSiteShares(IDS.oak).invites).length, 0);
+  assert.throws(() => fixtureRevokeSiteShareInvite(pending[0]!.id), /not_authorized/);
+});
+
+test('a guest view includes the sign-in and induction registers without contact details', () => {
+  const view = fixtureSharedSiteView(HARBOUR_SITE_ID);
+  assert.equal(view.sections.sign_in, true);
+  assert.equal(view.sections.inductions, true);
+  const signIn = fixtureSharedSignIn(HARBOUR_SITE_ID);
+  const inductions = fixtureSharedInductions(HARBOUR_SITE_ID);
+  assert.equal(signIn[0]?.person_name, 'Łukasz Wójcik');
+  assert.equal(inductions[0]?.person_name, 'Łukasz Wójcik');
+  assert.equal(inductions[0]?.title, 'Site induction');
+  const packed = JSON.stringify({ signIn, inductions, view });
+  assert.equal(packed.includes('@'), false);
+  assert.equal(packed.includes('0700'), false);
+  assert.equal(fixtureSharedSiteView(SECTION_ERROR_SITE_ID).sections.drawings, true);
+  assert.throws(() => fixtureSharedDrawings(SECTION_ERROR_SITE_ID), /Failed to fetch/);
+});
+
+test('the share screens show pending codes, both registers, a section retry, and one header', () => {
+  const share = fs.readFileSync('app/(app)/sites/[siteId]/share.tsx', 'utf8');
+  const shared = fs.readFileSync('app/(app)/sites/[siteId]/shared.tsx', 'utf8');
+  const layout = fs.readFileSync('app/share/_layout.tsx', 'utf8');
+  assert.match(share, /revokeSiteShareInvite/);
+  assert.match(share, /Cancel code/);
+  assert.match(share, /PENDING CODES/);
+  assert.match(shared, /SIGN-IN/);
+  assert.match(shared, /INDUCTIONS/);
+  assert.match(shared, /label="Retry"/);
+  assert.equal(shared.includes('.catch(() => [])'), false);
+  assert.match(layout, /headerShown: false/);
+  assert.equal(layout.includes("title: 'Open a share'"), false);
 });
 
 test('network, 408, 429, and 5xx retry, and a business code becomes a notice', async () => {
@@ -42,6 +99,8 @@ test('network, 408, 429, and 5xx retry, and a business code becomes a notice', a
   assert.equal(shareFailureRetries(revoked), false);
   assert.equal(shareFailureNotice(revoked), accessRemovedMessage());
   assert.match(shareFailureNotice(classifyShareFailure(new Error('other_firm'))), /different company/);
+  assert.match(shareFailureNotice(classifyShareFailure(new Error('not_allowed'))), /owner or contracts manager/);
+  assert.match(shareFailureNotice(classifyShareFailure(new Error('too_many_attempts'))), /Wait an hour/);
   assert.equal(shareFailureRetries(classifyShareFailure({ status: 400, message: 'bad' })), false);
 
   let calls = 0;

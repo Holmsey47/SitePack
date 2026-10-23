@@ -4,6 +4,7 @@ import {
   fixtureMySharedSites,
   fixtureRedeemSiteShare,
   fixtureRevokeSiteShare,
+  fixtureRevokeSiteShareInvite,
   fixtureSetSiteShareSections,
   fixtureSharedDrawingUrl,
   fixtureSharedDrawings,
@@ -2041,6 +2042,11 @@ export const fixtureRepo: SitePackRepo = {
   async revokeSiteShare(shareId) {
     if (meOrThrow().role !== 'owner') throw new Error('not_authorized');
     fixtureRevokeSiteShare(shareId);
+  },
+
+  async revokeSiteShareInvite(inviteId) {
+    if (meOrThrow().role !== 'owner') throw new Error('not_authorized');
+    fixtureRevokeSiteShareInvite(inviteId);
   },
 
   async redeemSiteShare(code) {

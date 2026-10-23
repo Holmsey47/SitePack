@@ -1,4 +1,4 @@
-import { Card, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
+import { Button, Card, Muted, Screen, SeenRejectNotice, Title } from '@/components/ui';
 import { repo } from '@/data/index';
 import {
   accessRemovedMessage,
@@ -6,22 +6,40 @@ import {
   shareFailureNotice,
   withShareRetry,
   type SharedDrawing,
+  type SharedInductionRow,
+  type SharedSignInRow,
   type SharedSiteView,
   type SharedSnag,
   type SharedVariation,
 } from '@/data/sharing';
+import { formatUkDateTime } from '@/lib/format';
 import { forgetSharedSite } from '@/lib/forgetShare';
 import { theme } from '@/lib/theme';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 
+type Loaded<T> = { rows: T[]; failed: boolean };
+
+const EMPTY: Loaded<never> = { rows: [], failed: false };
+
+async function loadRows<T>(enabled: boolean, run: () => Promise<T[]>): Promise<Loaded<T>> {
+  if (!enabled) return { rows: [], failed: false };
+  try {
+    return { rows: await withShareRetry(run), failed: false };
+  } catch {
+    return { rows: [], failed: true };
+  }
+}
+
 export default function SharedSiteScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const [view, setView] = useState<SharedSiteView | null>(null);
-  const [drawings, setDrawings] = useState<SharedDrawing[]>([]);
-  const [variations, setVariations] = useState<SharedVariation[]>([]);
-  const [snags, setSnags] = useState<SharedSnag[]>([]);
+  const [drawings, setDrawings] = useState<Loaded<SharedDrawing>>(EMPTY);
+  const [variations, setVariations] = useState<Loaded<SharedVariation>>(EMPTY);
+  const [snags, setSnags] = useState<Loaded<SharedSnag>>(EMPTY);
+  const [signIns, setSignIns] = useState<Loaded<SharedSignInRow>>(EMPTY);
+  const [inductions, setInductions] = useState<Loaded<SharedInductionRow>>(EMPTY);
   const [removed, setRemoved] = useState(false);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,19 +50,28 @@ export default function SharedSiteScreen() {
     setNotice('');
     try {
       const next = await withShareRetry(() => repo.sharedSiteView(siteId));
-      const [nextDrawings, nextVariations, nextSnags] = await Promise.all([
-        next.sections.drawings ? withShareRetry(() => repo.sharedDrawings(siteId)).catch(() => []) : Promise.resolve([]),
-        next.sections.variations ? withShareRetry(() => repo.sharedVariations(siteId)).catch(() => []) : Promise.resolve([]),
-        next.sections.snags ? withShareRetry(() => repo.sharedSnags(siteId)).catch(() => []) : Promise.resolve([]),
+      const [nextDrawings, nextVariations, nextSnags, nextSignIns, nextInductions] = await Promise.all([
+        loadRows(next.sections.drawings, () => repo.sharedDrawings(siteId)),
+        loadRows(next.sections.variations, () => repo.sharedVariations(siteId)),
+        loadRows(next.sections.snags, () => repo.sharedSnags(siteId)),
+        loadRows(next.sections.sign_in, () => repo.sharedSignInRegister(siteId)),
+        loadRows(next.sections.inductions, () => repo.sharedInductionRegister(siteId)),
       ]);
       setView(next);
       setDrawings(nextDrawings);
       setVariations(nextVariations);
       setSnags(nextSnags);
+      setSignIns(nextSignIns);
+      setInductions(nextInductions);
       setRemoved(false);
     } catch (error) {
       const failure = classifyShareFailure(error);
       setView(null);
+      setDrawings(EMPTY);
+      setVariations(EMPTY);
+      setSnags(EMPTY);
+      setSignIns(EMPTY);
+      setInductions(EMPTY);
       if (failure.kind === 'business' && failure.code === 'share_revoked') {
         await forgetSharedSite(siteId);
         setRemoved(true);
@@ -86,8 +113,14 @@ export default function SharedSiteScreen() {
           {view.sections.drawings ? (
             <View style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>DRAWINGS</Text>
-              {drawings.length === 0 ? <Muted>No current drawings.</Muted> : null}
-              {drawings.map((drawing) => (
+              {drawings.failed ? (
+                <Card>
+                  <Muted>This section did not load.</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                </Card>
+              ) : null}
+              {!drawings.failed && drawings.rows.length === 0 ? <Muted>No current drawings.</Muted> : null}
+              {drawings.rows.map((drawing) => (
                 <Card key={drawing.id}>
                   <Pressable
                     accessibilityRole="button"
@@ -107,8 +140,14 @@ export default function SharedSiteScreen() {
           {view.sections.variations ? (
             <View style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>VARIATIONS</Text>
-              {variations.length === 0 ? <Muted>No signed or sent variations.</Muted> : null}
-              {variations.map((row) => (
+              {variations.failed ? (
+                <Card>
+                  <Muted>This section did not load.</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                </Card>
+              ) : null}
+              {!variations.failed && variations.rows.length === 0 ? <Muted>No signed or sent variations.</Muted> : null}
+              {variations.rows.map((row) => (
                 <Card key={row.version_id}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{`VO-${row.vo_seq} ${row.title}`}</Text>
                   <Muted>{row.status}</Muted>
@@ -121,11 +160,58 @@ export default function SharedSiteScreen() {
           {view.sections.snags ? (
             <View style={{ gap: 8 }}>
               <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SNAGS</Text>
-              {snags.length === 0 ? <Muted>No snags.</Muted> : null}
-              {snags.map((row) => (
+              {snags.failed ? (
+                <Card>
+                  <Muted>This section did not load.</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                </Card>
+              ) : null}
+              {!snags.failed && snags.rows.length === 0 ? <Muted>No snags.</Muted> : null}
+              {snags.rows.map((row) => (
                 <Card key={row.id}>
                   <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.note}</Text>
                   <Muted>{`${row.status} · ${row.raised_by_name}`}</Muted>
+                </Card>
+              ))}
+            </View>
+          ) : null}
+
+          {view.sections.sign_in ? (
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>SIGN-IN</Text>
+              {signIns.failed ? (
+                <Card>
+                  <Muted>This section did not load.</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                </Card>
+              ) : null}
+              {!signIns.failed && signIns.rows.length === 0 ? <Muted>No one has signed in.</Muted> : null}
+              {signIns.rows.map((row) => (
+                <Card key={row.id}>
+                  <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
+                  <Muted>
+                    {`In ${formatUkDateTime(row.in_at)}${row.out_at ? ` · Out ${formatUkDateTime(row.out_at)}` : ''}`}
+                  </Muted>
+                </Card>
+              ))}
+            </View>
+          ) : null}
+
+          {view.sections.inductions ? (
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>INDUCTIONS</Text>
+              {inductions.failed ? (
+                <Card>
+                  <Muted>This section did not load.</Muted>
+                  <Button label="Retry" minHeight={48} onPress={() => void load()} />
+                </Card>
+              ) : null}
+              {!inductions.failed && inductions.rows.length === 0 ? <Muted>No induction signatures.</Muted> : null}
+              {inductions.rows.map((row) => (
+                <Card key={`${row.talk_id}-${row.person_name}`}>
+                  <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.person_name}</Text>
+                  <Muted>{row.title}</Muted>
+                  <Muted>{row.meaning}</Muted>
                 </Card>
               ))}
             </View>

@@ -19,6 +19,11 @@
 \set hashused 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
 \set hashother 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
 \set hashrev 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+\set hashop 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+\set hashlook 'abababababababababababababababababababababababababababababababab'
+\set hashspace 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd'
+\set cmy 'a2222222-2222-4222-8222-222222222222'
+\set opy 'a2222222-2222-4222-8222-222222222223'
 
 begin;
 
@@ -71,6 +76,8 @@ declare
   v_sql text;
   v_state text;
   v_count integer;
+  v_expected integer;
+  v_replaced integer;
 begin
   select count(*) into v_count
   from pg_proc p
@@ -83,13 +90,37 @@ begin
         and b.proname = p.proname
         and b.args = pg_get_function_identity_arguments(p.oid)
     );
-  if v_count < 20 then
-    raise exception 'FAIL: expected new functions, found %', v_count;
+  select count(*) into v_expected from public.share_funcs_expected where not replaced;
+  select count(*) into v_replaced from public.share_funcs_expected where replaced;
+  if v_expected <> 24 or v_replaced <> 2 then
+    raise exception 'FAIL: migration list expected 24 new and 2 replaced, found % / %', v_expected, v_replaced;
   end if;
-  raise notice 'functions created: %', v_count;
-
-  for r in
-    select n.nspname, p.proname, p.pronargs, p.proargmodes, p.oid, p.prosecdef, p.proconfig
+  if v_count <> 24 then
+    raise exception 'FAIL: expected 24 new functions, found %', v_count;
+  end if;
+  if exists (
+    select 1
+    from public.share_funcs_expected e
+    where not e.replaced
+      and not exists (
+        select 1
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = e.nspname
+          and p.proname = e.proname
+          and not exists (
+            select 1
+            from public.proc_catalog_before b
+            where b.nspname = n.nspname
+              and b.proname = p.proname
+              and b.args = pg_get_function_identity_arguments(p.oid)
+          )
+      )
+  ) then
+    raise exception 'FAIL: a function from this migration is missing';
+  end if;
+  if exists (
+    select 1
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'private')
@@ -100,6 +131,23 @@ begin
           and b.proname = p.proname
           and b.args = pg_get_function_identity_arguments(p.oid)
       )
+      and not exists (
+        select 1
+        from public.share_funcs_expected e
+        where e.nspname = n.nspname
+          and e.proname = p.proname
+          and not e.replaced
+      )
+  ) then
+    raise exception 'FAIL: a new function is not in this migration';
+  end if;
+  raise notice 'functions created: %', v_count;
+
+  for r in
+    select n.nspname, p.proname, p.pronargs, p.proargmodes, p.oid, p.prosecdef, p.proconfig
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    join public.share_funcs_expected e on e.nspname = n.nspname and e.proname = p.proname
   loop
     if not r.prosecdef
       or not exists (
@@ -145,12 +193,21 @@ $catalog$;
 
 reset role;
 
+select pg_temp.ok(
+  private.share_company_key('  Firm   Y ') = 'Firm Y'
+  and private.share_company_key('  FIRM   y ') = 'FIRM y'
+  and private.share_company_key('  FIRM   y ') is distinct from private.share_company_key('Firm Y'),
+  'a company name matches after trim and collapsed spaces, and keeps its case'
+);
+
 insert into auth.users (id, email)
 values
   (:'ownerx', 'ownerx@firmx.test'),
   (:'cmx', 'cmx@firmx.test'),
   (:'opx', 'opx@firmx.test'),
   (:'ownery', 'ownery@firmy.test'),
+  (:'cmy', 'cmy@firmy.test'),
+  (:'opy', 'opy@firmy.test'),
   (:'ownerz', 'ownerz@firmz.test');
 
 insert into public.companies (id, name)
@@ -165,6 +222,8 @@ values
   (:'cmx', :'cmx', :'firmx', 'cm', 'CM X', 'secret-host@firmx.test', '07000900900', 'contracts'),
   (:'opx', :'opx', :'firmx', 'operative', 'Op Secret', 'op-secret@firmx.test', '07000900901', 'dryliner'),
   (:'ownery', :'ownery', :'firmy', 'owner', 'Owner Y', 'ownery@firmy.test', '07000000002', null),
+  (:'cmy', :'cmy', :'firmy', 'cm', 'CM Y', 'cmy@firmy.test', '07000000004', 'contracts'),
+  (:'opy', :'opy', :'firmy', 'operative', 'Op Y', 'opy@firmy.test', '07000000005', 'dryliner'),
   (:'ownerz', :'ownerz', :'firmz', 'owner', 'Owner Z', 'ownerz@firmz.test', '07000000003', null);
 
 insert into public.sites (id, company_id, name, address_line)
@@ -181,10 +240,19 @@ set session_replication_role = replica;
 
 insert into public.drawings (id, site_id, title, sheet_number, revision, is_current, storage_path)
 values
-  ('d1111111-1111-4111-8111-111111111111', :'sitea', 'Current sheet', 'A-1', 'C', true, :'firmx' || '/' || :'sitea' || '/current.pdf'),
-  ('d1111111-1111-4111-8111-111111111112', :'sitea', 'Old sheet', 'A-1-old', 'B', false, :'firmx' || '/' || :'sitea' || '/old.pdf'),
+  ('d1111111-1111-4111-8111-111111111111', :'sitea', 'Current sheet', 'A-1', 'C', true, :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111111.pdf'),
+  ('d1111111-1111-4111-8111-111111111112', :'sitea', 'Old sheet', 'A-1-old', 'B', false, :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111112.pdf'),
   ('d1111111-1111-4111-8111-111111111113', :'sitea', 'Bad path', 'A-9', 'A', true, '../secret.pdf'),
-  ('d1111111-1111-4111-8111-111111111114', :'siteb', 'OTHER-SITE-SHEET', 'B-1', 'A', true, :'firmx' || '/' || :'siteb' || '/other.pdf');
+  ('d1111111-1111-4111-8111-111111111114', :'siteb', 'OTHER-SITE-SHEET', 'B-1', 'A', true, :'firmx' || '/' || :'siteb' || '/d3111111-1111-4111-8111-111111111114.pdf'),
+  ('d1111111-1111-4111-8111-111111111115', :'sitea', 'Request photo', 'A-2', 'A', true, :'firmx' || '/' || :'sitea' || '/requests/photo.jpg'),
+  ('d1111111-1111-4111-8111-111111111116', :'sitea', 'Talk PDF', 'A-3', 'A', true, :'firmx' || '/' || :'sitea' || '/talks/induction.pdf'),
+  ('d1111111-1111-4111-8111-111111111117', :'sitea', 'Missing file', 'A-4', 'A', true, :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111117.pdf');
+
+insert into storage.objects (bucket_id, name)
+values
+  ('drawings', :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111111.pdf'),
+  ('drawings', :'firmx' || '/' || :'sitea' || '/requests/photo.jpg'),
+  ('drawings', :'firmx' || '/' || :'sitea' || '/talks/induction.pdf');
 
 insert into public.variations (id, site_id, company_id, vo_seq, created_by)
 values
@@ -243,7 +311,8 @@ values
 
 insert into public.site_talk_versions (id, talk_id, site_id, company_id, version_no, body, content_hash, is_current, created_by)
 values
-  ('dd111111-1111-4111-8111-111111111111', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1, 'Read this induction.', 'hash-induction', true, :'ownerx'),
+  ('dd111111-1111-4111-8111-111111111111', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 2, 'Read this induction.', 'hash-induction', true, :'ownerx'),
+  ('dd111111-1111-4111-8111-111111111113', 'cc111111-1111-4111-8111-111111111111', :'sitea', :'firmx', 1, 'OLD-INDUCTION-SECRET', 'hash-induction-old', false, :'ownerx'),
   ('dd111111-1111-4111-8111-111111111112', 'cc111111-1111-4111-8111-111111111112', :'sitea', :'firmx', 1, 'TOOLBOX-SECRET body', 'hash-toolbox', true, :'ownerx');
 
 insert into public.site_talk_signatures (
@@ -286,8 +355,9 @@ select pg_temp.ok(
   private.can_access_site(:'sitea'::uuid)
   and private.can_access_site(:'siteb'::uuid)
   and (select count(*) from public.variation_versions where title = 'DRAFT-SECRET-PRICE') = 1
-  and (select count(*) from public.drawings where title = 'OTHER-SITE-SHEET') = 1,
-  'the host owner still sees drafts and the other site'
+  and (select count(*) from public.drawings where title = 'OTHER-SITE-SHEET') = 1
+  and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 1,
+  'the host owner still sees drafts, the old induction, and the other site'
 );
 
 insert into share_probe (k, v)
@@ -296,7 +366,16 @@ values
   ('used', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', true, false, false, false, false, :'hashused')),
   ('other', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', true, false, false, false, false, :'hashother')),
   ('rev', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', false, false, false, false, false, :'hashrev')),
-  ('exp', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', false, false, false, false, false, :'hashexp'));
+  ('exp', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', false, false, false, false, false, :'hashexp')),
+  ('op', public.create_site_share_invite(:'sitea'::uuid, 'Firm Y', true, false, false, false, false, :'hashop')),
+  ('look', public.create_site_share_invite(:'sitea'::uuid, '  FIRM   y ', false, false, false, false, false, :'hashlook')),
+  ('space', public.create_site_share_invite(:'sitea'::uuid, '  Firm   Y ', false, false, false, false, false, :'hashspace'));
+
+select pg_temp.ok(
+  (select guest_company_key from public.site_share_invites where guest_company_name = 'FIRM   y') = 'FIRM y'
+  and (select guest_company_key from public.site_share_invites where guest_company_name = 'Firm   Y') = 'Firm Y',
+  'the stored company key collapses spaces and keeps case'
+);
 
 select pg_temp.ok(
   (share_probe.v ->> 'expires_at')::timestamptz > now() + interval '6 days'
@@ -318,23 +397,14 @@ where code_hash = decode(:'hashexp', 'hex');
 select pg_temp.jwt(:'ownerz'::uuid);
 set local role authenticated;
 select pg_temp.ok(
-  pg_temp.raises(
-    'select public.redeem_site_share(' || quote_literal(:'hashother') || ')',
-    'other_firm'
-  ),
+  (public.redeem_site_share(:'hashother') ->> 'error') = 'other_firm',
   'a different firm cannot redeem the code'
 );
 
 select pg_temp.jwt(:'ownery'::uuid);
 select pg_temp.ok(
-  pg_temp.raises(
-    'select public.redeem_site_share(' || quote_literal(:'hashexp') || ')',
-    'code_expired'
-  )
-  and pg_temp.raises(
-    'select public.redeem_site_share(' || quote_literal(:'hashrev') || ')',
-    'code_revoked'
-  ),
+  (public.redeem_site_share(:'hashexp') ->> 'error') = 'code_expired'
+  and (public.redeem_site_share(:'hashrev') ->> 'error') = 'code_revoked',
   'an expired or revoked code is refused'
 );
 
@@ -342,12 +412,17 @@ insert into share_probe (k, v)
 values ('redeemed_used', public.redeem_site_share(:'hashused'));
 
 select pg_temp.ok(
-  pg_temp.raises(
-    'select public.redeem_site_share(' || quote_literal(:'hashused') || ')',
-    'code_used'
-  ),
-  'a code works once'
+  (public.redeem_site_share(:'hashused') ->> 'share_id')
+    = (select v ->> 'share_id' from share_probe where k = 'redeemed_used'),
+  'a second redeem of the same code returns the same share'
 );
+
+select pg_temp.jwt(:'opy'::uuid);
+select pg_temp.ok(
+  (public.redeem_site_share(:'hashused') ->> 'error') = 'not_allowed',
+  'an operative cannot redeem a code, even one their firm already opened'
+);
+select pg_temp.jwt(:'ownery'::uuid);
 
 reset role;
 select pg_temp.jwt(:'ownerx'::uuid);
@@ -371,7 +446,7 @@ select pg_temp.ok(
   and (select count(*) from public.drawings where site_id = :'sitea'::uuid and not is_current) = 0
   and (select count(*) from public.drawings where site_id = :'siteb'::uuid) = 0
   and (select count(*) from public.drawings where title = 'OTHER-SITE-SHEET') = 0
-  and jsonb_array_length(public.shared_drawings(:'sitea'::uuid)) = 2
+  and jsonb_array_length(public.shared_drawings(:'sitea'::uuid)) = 5
   and exists (
     select 1
     from jsonb_array_elements(public.shared_drawings(:'sitea'::uuid)) row
@@ -394,16 +469,58 @@ select pg_temp.ok(
     'not_shared'
   )
   and (public.shared_drawing_url('d1111111-1111-4111-8111-111111111111'::uuid) ->> 'path')
-    = :'firmx' || '/' || :'sitea' || '/current.pdf'
+    = :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111111.pdf'
   and (public.shared_drawing_url('d1111111-1111-4111-8111-111111111111'::uuid) ->> 'expires_in') = '300',
   'a shared drawing URL checks the share and rejects a bad path'
 );
+
+do $paths$
+declare
+  v_role uuid;
+  v_drawing uuid;
+begin
+  foreach v_role in array array[
+    'a2222222-2222-4222-8222-222222222221'::uuid,
+    'a2222222-2222-4222-8222-222222222222'::uuid,
+    'a2222222-2222-4222-8222-222222222223'::uuid
+  ]
+  loop
+    perform set_config('request.jwt.claim.sub', v_role::text, true);
+    perform set_config('request.jwt.claim.role', 'authenticated', true);
+    perform set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_role::text, 'role', 'authenticated')::text,
+      true
+    );
+    foreach v_drawing in array array[
+      'd1111111-1111-4111-8111-111111111115'::uuid,
+      'd1111111-1111-4111-8111-111111111116'::uuid,
+      'd1111111-1111-4111-8111-111111111117'::uuid
+    ]
+    loop
+      begin
+        perform public.shared_drawing_url(v_drawing);
+        raise exception 'FAIL: signed % for %', v_drawing, v_role;
+      exception
+        when others then
+          if sqlerrm is distinct from 'invalid_path' then
+            raise exception 'FAIL: drawing % role % -> %', v_drawing, v_role, sqlerrm;
+          end if;
+      end;
+    end loop;
+  end loop;
+  raise notice 'ok: a request photo, a talk PDF, and a missing file are invalid_path for every guest role';
+end
+$paths$;
+
+select pg_temp.jwt(:'ownery'::uuid);
 
 select pg_temp.ok(
   (select count(*) from public.variation_versions where status = 'Draft') = 0
   and (select count(*) from public.variation_versions where title = 'DRAFT-SECRET-PRICE') = 0
   and (select count(*) from public.variation_versions where title = 'OTHER-SITE-VARIATION') = 0
   and (select count(*) from public.variation_versions where status in ('Signed', 'Sent')) = 2
+  and (select count(*) from public.variations) = 2
   and jsonb_array_length(public.shared_variations(:'sitea'::uuid)) = 2
   and not (public.shared_variations(:'sitea'::uuid)::text like '%424242%')
   and not (public.shared_variations(:'sitea'::uuid)::text like '%515151%')
@@ -469,8 +586,11 @@ select pg_temp.ok(
   and (select count(*) from public.site_talks where title = 'TOOLBOX-SECRET') = 0
   and (select count(*) from public.site_talk_questions) = 0
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
-  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%'),
-  'turning a section on shows the register names and still hides the toolbox and questions'
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%')
+  and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 0
+  and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 1
+  and (select count(*) from public.site_talk_versions) = 1,
+  'turning a section on shows the register names and still hides the toolbox, questions, and old induction text'
 );
 
 do $write$
@@ -533,5 +653,59 @@ select pg_temp.ok(
     'share_revoked'
   ),
   'revoke removes access on the next request'
+);
+
+select pg_temp.jwt(:'ownery'::uuid);
+select pg_temp.ok(
+  (public.redeem_site_share(:'hashlook') ->> 'error') = 'other_firm',
+  'a lookalike company name does not match'
+);
+
+select pg_temp.jwt(:'opy'::uuid);
+select pg_temp.ok(
+  (public.redeem_site_share(:'hashop') ->> 'error') = 'not_allowed',
+  'an operative cannot open a fresh code'
+);
+
+reset role;
+select pg_temp.ok(
+  (select uses from public.site_share_invites where code_hash = decode(:'hashop', 'hex')) = 0,
+  'an operative refusal does not use the code'
+);
+
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+select pg_temp.ok(
+  (public.redeem_site_share(:'hashop') ->> 'site_id') = :'sitea',
+  'the firm owner can still redeem after an operative is refused'
+);
+
+reset role;
+delete from public.site_share_attempts where actor_id = :'ownery'::uuid;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+do $rate$
+declare
+  v_i integer;
+  v_err text;
+begin
+  for v_i in 1..10 loop
+    v_err := public.redeem_site_share('abcd') ->> 'error';
+    if v_err is distinct from 'invalid_input' then
+      raise exception 'FAIL: attempt % -> %', v_i, v_err;
+    end if;
+  end loop;
+  v_err := public.redeem_site_share('abcd') ->> 'error';
+  if v_err is distinct from 'too_many_attempts' then
+    raise exception 'FAIL: 11th attempt -> %', v_err;
+  end if;
+  raise notice 'ok: ten failed redeems then too_many_attempts';
+end
+$rate$;
+
+reset role;
+select pg_temp.ok(
+  (select count(*) from public.site_share_attempts where actor_id = :'ownery'::uuid) = 10,
+  'too_many_attempts does not insert another row'
 );
 

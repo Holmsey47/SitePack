@@ -31,7 +31,18 @@ function decodedPdfText(bytes: Uint8Array): string {
   const source = streams.join('\n');
   const shown: string[] = [];
   for (const match of source.matchAll(/\((?:\\\)|[^)])*\)/g)) {
-    shown.push(match[0]?.slice(1, -1).replace(/\\([()\\])/g, '$1') ?? '');
+    const body = match[0]?.slice(1, -1) ?? '';
+    shown.push(
+      body.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_full, esc: string) => {
+        if (/^[0-7]/.test(esc)) return String.fromCharCode(Number.parseInt(esc, 8));
+        if (esc === 'n') return '\n';
+        if (esc === 'r') return '\r';
+        if (esc === 't') return '\t';
+        if (esc === 'b') return '\b';
+        if (esc === 'f') return '\f';
+        return esc;
+      })
+    );
   }
   for (const match of source.matchAll(/<([0-9A-Fa-f\s]+)>/g)) {
     const hex = match[1]?.replace(/\s/g, '') ?? '';
@@ -51,6 +62,13 @@ test('every hours page has the site, company, page count, and a UK time', async 
       outAt: '2026-10-20T16:00:00.000Z',
       forgot: false,
     })),
+    {
+      personId: 'jose',
+      personName: 'José Müller',
+      inAt: '2026-10-20T08:00:00.000Z',
+      outAt: '2026-10-20T16:00:00.000Z',
+      forgot: false,
+    },
     {
       personId: 'late',
       personName: 'Late Sign Out',
@@ -87,4 +105,6 @@ test('every hours page has the site, company, page count, and a UK time', async 
   assert.match(text, /Corrected/);
   assert.equal(text.includes('Mon 8h'), false);
   assert.match(text, /\nMon\n/);
+  assert.match(text, /José Müller/);
+  assert.equal(text.includes('Jos Mller'), false);
 });

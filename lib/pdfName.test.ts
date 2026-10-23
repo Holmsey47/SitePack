@@ -115,3 +115,37 @@ test('a snag report and a variation keep Łukasz Wójcik', async () => {
   assert.equal(pdfShows(snag.bytes, NAME), true);
   assert.equal(pdfShows(variation, NAME), true);
 });
+
+test('a snag report keeps José Müller', async () => {
+  const snag = await buildSnagPdf({
+    reportId: 'SR-22Oct2026',
+    companyName: 'Northbuild',
+    siteName: 'Harbour Point',
+    generatedAt: '2026-10-22T08:00:00.000Z',
+    filterLabel: 'Open',
+    snags: [
+      {
+        snagSeq: 3,
+        note: 'Paint the reveal',
+        levelArea: 'GF',
+        tradeLabel: 'decorator',
+        status: 'Open',
+        raisedByName: 'José Müller',
+        raisedAt: '2026-10-22T08:00:00.000Z',
+        fixedAt: null,
+        photos: [],
+        signature: null,
+      },
+    ],
+  });
+  const winAnsi = streamList(snag.bytes)
+    .flatMap((stream) => [...stream.matchAll(/<([0-9A-Fa-f\s]+)>/g)])
+    .map((match) => {
+      const hex = (match[1] ?? '').replace(/\s/g, '');
+      if (hex.length < 2 || hex.length % 2 !== 0) return '';
+      return Buffer.from(hex, 'hex').toString('latin1');
+    })
+    .join('');
+  assert.match(winAnsi, /José Müller/);
+  assert.equal(winAnsi.includes('Jos Mller'), false);
+});

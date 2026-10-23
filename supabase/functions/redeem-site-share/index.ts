@@ -35,5 +35,11 @@ Deno.serve(async (req) => {
     const status = codeName === 'not_authorized' ? 403 : 400;
     return json({ error: codeName }, status);
   }
+  const row = redeemed.data && typeof redeemed.data === 'object' ? (redeemed.data as { error?: unknown }) : {};
+  if (typeof row.error === 'string') {
+    const codeName = knownCode(row.error, 'invalid_input');
+    const status = codeName === 'not_authorized' ? 403 : 400;
+    return json({ error: codeName }, status);
+  }
   return json(redeemed.data ?? {});
 });

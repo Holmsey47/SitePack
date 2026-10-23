@@ -1,4 +1,5 @@
 import { formatJoinCode, JOIN_WEB_ORIGIN, normalizeJoinCode } from '@/data/joinCodes';
+import { snagFailureFrom, snagRpcError } from '@/data/snagFailure';
 
 export const SHARE_DAYS = 7;
 export const SHARE_COMPANY_PLACEHOLDER = 'your company';
@@ -141,6 +142,8 @@ export const SHARE_BUSINESS_CODES = [
   'invalid_path',
   'invalid_input',
   'not_authorized',
+  'not_allowed',
+  'too_many_attempts',
   'code_in_use',
 ] as const;
 
@@ -165,11 +168,19 @@ const NOTICES: Record<string, string> = {
   invalid_path: 'That file cannot be opened.',
   invalid_input: 'Check the company name and try again.',
   not_authorized: 'You can’t do that.',
+  not_allowed: 'Ask an owner or contracts manager to open this code.',
+  too_many_attempts: 'Too many tries. Wait an hour and try again.',
   code_in_use: 'Try the share again.',
 };
 
+/** Trim and collapse spaces. Case stays, so "FIRM y" is not "Firm Y". */
 export function shareCompanyKey(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+  return name.trim().replace(/\s+/g, ' ');
+}
+
+/** Unused codes the owner can still cancel. */
+export function pendingShareInvites<T extends { revoked_at: string | null; uses: number }>(invites: readonly T[]): T[] {
+  return invites.filter((row) => !row.revoked_at && row.uses < 1);
 }
 
 export function shareInviteText(input: { company: string; site: string; code: string; origin?: string }): string {
@@ -199,20 +210,16 @@ function businessCode(text: string): string | null {
 
 /** Network, an HTTP status, or a business code. Business codes are not retried. */
 export function classifyShareFailure(error: unknown): ShareFailure {
-  const row = (error ?? {}) as ShareErrorLike;
-  const message = typeof row.message === 'string' ? row.message : '';
-  const named = typeof row.code === 'string' ? row.code : '';
-  const code = businessCode(`${named}\n${message}`);
-  if (code) return { kind: 'business', code };
-  const status = readStatus(row);
-  const network =
-    row.name === 'TypeError' ||
-    /network|failed to fetch|timeout|network request failed/i.test(message) ||
-    status === 0;
-  if (network && (status == null || status === 0)) return { kind: 'network' };
-  if (status != null) return { kind: 'http', status };
-  if (network) return { kind: 'network' };
-  return { kind: 'http', status: 0 };
+  const failure = snagFailureFrom(error);
+  if (failure.kind === 'network') return { kind: 'network' };
+  if (failure.kind === 'http') {
+    const code = businessCode(failure.message);
+    if (code && failure.status !== 408 && failure.status !== 429 && failure.status < 500) {
+      return { kind: 'business', code };
+    }
+    return { kind: 'http', status: failure.status };
+  }
+  return { kind: 'business', code: failure.code };
 }
 
 /** Retry a dropped connection, a timeout, 408, 429, and 5xx. A business code is shown instead. */
@@ -226,6 +233,26 @@ export function shareFailureNotice(failure: ShareFailure): string {
   if (failure.kind === 'business') return NOTICES[failure.code] ?? 'That did not work.';
   if (shareFailureRetries(failure)) return 'The connection dropped. Try again.';
   return 'That did not work.';
+}
+
+/**
+ * Edge functions put a network failure on FunctionsFetchError and an HTTP status on the Response.
+ * The same helper the repo throws, so a dropped share call is retried.
+ */
+export async function throwShareFunction(error: unknown): Promise<never> {
+  const context =
+    error && typeof error === 'object' && 'context' in error ? (error as { context?: unknown }).context : undefined;
+  if (context instanceof Response) {
+    let code = '';
+    try {
+      const payload = (await context.clone().json()) as { error?: unknown };
+      if (typeof payload.error === 'string') code = payload.error;
+    } catch {
+      code = '';
+    }
+    throw snagRpcError(code ? { message: code, code } : error, context.status);
+  }
+  throw snagRpcError(error);
 }
 
 export async function withShareRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {

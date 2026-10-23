@@ -101,6 +101,8 @@ const KNOWN = [
   'not_shared',
   'not_current',
   'invalid_path',
+  'not_allowed',
+  'too_many_attempts',
   'username_taken',
   'invalid_input',
   'weak_password',

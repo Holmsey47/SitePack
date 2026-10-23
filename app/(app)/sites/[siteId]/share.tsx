@@ -5,7 +5,9 @@ import {
   SHARE_COMPANY_PLACEHOLDER,
   SHARE_SECTION_DEFAULTS,
   classifyShareFailure,
+  pendingShareInvites,
   shareFailureNotice,
+  type ShareInviteRow,
   type ShareSections,
   type SiteShareRow,
 } from '@/data/sharing';
@@ -34,15 +36,20 @@ export default function ShareSiteScreen() {
   const [company, setCompany] = useState('');
   const [sections, setSections] = useState<ShareSections>({ ...SHARE_SECTION_DEFAULTS });
   const [shares, setShares] = useState<SiteShareRow[]>([]);
+  const [invites, setInvites] = useState<ShareInviteRow[]>([]);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<SiteShareRow | null>(null);
+  const [cancelInvite, setCancelInvite] = useState<ShareInviteRow | null>(null);
 
   const load = useCallback(() => {
     if (!siteId || person?.role !== 'owner') return;
     repo
       .listSiteShares(siteId)
-      .then((list) => setShares(list.shares.filter((row) => !row.revoked_at)))
+      .then((list) => {
+        setShares(list.shares.filter((row) => !row.revoked_at));
+        setInvites(pendingShareInvites(list.invites));
+      })
       .catch((error: unknown) => setNotice(shareFailureNotice(classifyShareFailure(error))));
   }, [person?.role, siteId]);
 
@@ -108,10 +115,42 @@ export default function ShareSiteScreen() {
     }
   }
 
+  async function onCancelInvite() {
+    if (!cancelInvite) return;
+    setNotice('');
+    try {
+      await repo.revokeSiteShareInvite(cancelInvite.id);
+      setCancelInvite(null);
+      load();
+    } catch (error) {
+      setNotice(shareFailureNotice(classifyShareFailure(error)));
+    }
+  }
+
   return (
     <Screen>
       <Title>Share with main contractor</Title>
       <Muted>One site, one company, view only. The code lasts 7 days and works once. Nothing is shared until you turn a section on.</Muted>
+
+      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>PENDING CODES</Text>
+      {invites.length === 0 ? <Muted>No unused codes.</Muted> : null}
+      {invites.map((invite) => (
+        <Card key={invite.id}>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{invite.guest_company_name}</Text>
+          <Muted>Unused. Cancel it if you do not want it opened.</Muted>
+          <Button label="Cancel" variant="danger" minHeight={56} onPress={() => setCancelInvite(invite)} />
+        </Card>
+      ))}
+      {cancelInvite ? (
+        <Card>
+          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+            {`Cancel the code for ${cancelInvite.guest_company_name}?`}
+          </Text>
+          <Muted>The code stops working. Nothing has been shared with them yet.</Muted>
+          <Button label="Cancel code" variant="danger" minHeight={56} onPress={() => void onCancelInvite()} />
+          <Button label="Keep code" variant="secondary" minHeight={48} onPress={() => setCancelInvite(null)} />
+        </Card>
+      ) : null}
       <Field
         label="Their company"
         value={company}

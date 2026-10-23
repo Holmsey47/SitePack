@@ -34,14 +34,25 @@ function httpStatus(err: unknown): number | undefined {
   return undefined;
 }
 
+function isTransport(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (!err || typeof err !== 'object') return false;
+  const name = (err as { name?: unknown }).name;
+  return name === 'AbortError' || name === 'FunctionsFetchError';
+}
+
 function isNetworkMessage(message: string): boolean {
   return (
     message === 'network' ||
     message === 'timeout' ||
     /failed to fetch/i.test(message) ||
+    /failed to send a request/i.test(message) ||
     /network request failed/i.test(message) ||
     /\btimeout\b/i.test(message) ||
-    /network error/i.test(message)
+    /network error/i.test(message) ||
+    /operation was aborted/i.test(message) ||
+    /the user aborted/i.test(message) ||
+    /^AbortError\b/i.test(message)
   );
 }
 
@@ -49,9 +60,11 @@ function isNetworkMessage(message: string): boolean {
 export function snagFailureFrom(err: unknown): SnagFailure {
   if (err instanceof SnagRequestError) return err.failure;
   const message = messageOf(err);
-  if (err instanceof TypeError || isNetworkMessage(message)) return { kind: 'network', message: message || 'network' };
+  if (isTransport(err) || isNetworkMessage(message)) return { kind: 'network', message: message || 'network' };
   const statusFromMessage = /^(?:4|5)\d\d$/.test(message) ? Number(message) : undefined;
   const status = httpStatus(err) ?? statusFromMessage;
+  // postgrest-js reports a dropped or aborted fetch as status 0, with the name only in the message.
+  if (status === 0) return { kind: 'network', message: message || 'network' };
   const like: RpcErrorLike | string =
     err && typeof err === 'object' ? (err as RpcErrorLike) : message;
   const code = rpcErrorCode(like);
