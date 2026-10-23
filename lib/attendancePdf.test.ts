@@ -333,3 +333,35 @@ test('a site name drops controls, line breaks, bidi, and zero-width characters',
   assert.equal(text.includes('\u202E'), false);
   assert.equal(text.includes('\u200B'), false);
 });
+
+test('a pound sign in a site name and a reason stays in the weekly PDF', async () => {
+  const { pdfText } = await import('./snagPdf.ts');
+  assert.equal(pdfText('Plot £12'), 'Plot £12');
+  const rows = buildWeekSheet(
+    [
+      {
+        personId: 'amy',
+        personName: 'Amy Keane',
+        inAt: '2026-10-20T07:00:00.000Z',
+        outAt: '2026-10-20T15:00:00.000Z',
+        forgot: false,
+        corrected: true,
+        correctedBy: 'Jordan Hale',
+        reason: 'Left at £4',
+        prior: 'was signed out',
+      },
+    ],
+    '2026-10-19',
+    '2026-10-22T18:00:00.000Z'
+  );
+  const { bytes } = await buildAttendancePdf({
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot £12',
+    weekStart: '2026-10-19',
+    generatedAt: '2026-10-22T13:05:00.000Z',
+    rows,
+  });
+  const text = decodedPdfText(bytes);
+  assert.match(text, /Plot £12/);
+  assert.match(text, /Left at £4/);
+});
