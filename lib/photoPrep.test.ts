@@ -78,7 +78,8 @@ test('a camera-sized photo is compressed under the 1.5MB upload limit', async ()
     assert.ok(result.bytes.byteLength < sizes[0]!);
     const native = (await import('node:fs')).readFileSync(new URL('./photoPrep.ts', import.meta.url), 'utf8');
     const nativeLoop = native.slice(native.indexOf('async function prepareOnNative'), native.indexOf('export async function preparePhoto'));
-    assert.match(nativeLoop, /bytes\.byteLength <= PHOTO_MAX_BYTES/);
+    assert.match(nativeLoop, /bytes\.byteLength <= maxBytes/);
+    assert.match(native, /const maxBytes = input\.maxBytes \?\? PHOTO_MAX_BYTES/);
     assert.match(nativeLoop, /quality -= 0\.15/);
     assert.match(nativeLoop, /fittedSize/);
   } finally {

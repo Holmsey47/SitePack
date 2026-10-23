@@ -68,7 +68,7 @@ function makePlane(width: number, height: number): Plane | null {
   };
 }
 
-async function encodePlane(plane: Plane, image: Drawable): Promise<Uint8Array> {
+async function encodePlane(plane: Plane, image: Drawable, maxEdge: number, maxBytes: number): Promise<Uint8Array> {
   let quality = 0.85;
   let edgeScale = 1;
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -79,26 +79,26 @@ async function encodePlane(plane: Plane, image: Drawable): Promise<Uint8Array> {
     target.drawImage(image, 0, 0, width, height);
     const blob = await target.toBlob('image/jpeg', quality);
     const bytes = stripJpegExif(new Uint8Array(await blob.arrayBuffer()));
-    if (bytes.byteLength <= PHOTO_MAX_BYTES && Math.max(width, height) <= PHOTO_MAX_EDGE) return bytes;
+    if (bytes.byteLength <= maxBytes && Math.max(width, height) <= maxEdge) return bytes;
     if (quality > 0.45) quality -= 0.15;
     else edgeScale *= 0.75;
   }
   throw new Error('photo_too_large');
 }
 
-async function prepareOnWeb(blob: Blob): Promise<Uint8Array> {
+async function prepareOnWeb(blob: Blob, maxEdge: number, maxBytes: number): Promise<Uint8Array> {
   const image = await loadDrawable(blob);
   try {
-    const fitted = fittedSize(image.width, image.height);
+    const fitted = fittedSize(image.width, image.height, maxEdge);
     const plane = makePlane(fitted.width, fitted.height);
     if (!plane) throw new Error('photo_unreadable');
-    return await encodePlane(plane, image);
+    return await encodePlane(plane, image, maxEdge, maxBytes);
   } finally {
     image.release();
   }
 }
 
-async function prepareOnNative(uri: string): Promise<Uint8Array> {
+async function prepareOnNative(uri: string, maxEdge: number, maxBytes: number): Promise<Uint8Array> {
   const { Image } = await import('react-native');
   const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
     Image.getSize(
@@ -108,7 +108,7 @@ async function prepareOnNative(uri: string): Promise<Uint8Array> {
     );
   });
   const manipulator = await import('expo-image-manipulator');
-  let fitted = fittedSize(size.width, size.height);
+  let fitted = fittedSize(size.width, size.height, maxEdge);
   let quality = 0.85;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const action =
@@ -119,28 +119,35 @@ async function prepareOnNative(uri: string): Promise<Uint8Array> {
     });
     const response = await fetch(result.uri);
     const bytes = stripJpegExif(new Uint8Array(await response.arrayBuffer()));
-    if (bytes.byteLength <= PHOTO_MAX_BYTES) return bytes;
+    if (bytes.byteLength <= maxBytes) return bytes;
     if (quality > 0.45) quality -= 0.15;
-    else fitted = fittedSize(fitted.width, fitted.height, Math.round(PHOTO_MAX_EDGE * 0.75));
+    else fitted = fittedSize(fitted.width, fitted.height, Math.max(1, Math.round(maxEdge * 0.75)));
   }
   throw new Error('photo_too_large');
 }
 
-export async function preparePhoto(input: { uri?: string; blob?: Blob }): Promise<{
+export async function preparePhoto(input: {
+  uri?: string;
+  blob?: Blob;
+  maxEdge?: number;
+  maxBytes?: number;
+}): Promise<{
   bytes: Uint8Array;
   contentType: 'image/jpeg';
 }> {
+  const maxEdge = input.maxEdge ?? PHOTO_MAX_EDGE;
+  const maxBytes = input.maxBytes ?? PHOTO_MAX_BYTES;
   if (input.blob && browserDocument()) {
-    const bytes = await prepareOnWeb(input.blob);
+    const bytes = await prepareOnWeb(input.blob, maxEdge, maxBytes);
     return { bytes, contentType: 'image/jpeg' };
   }
   if (input.uri && isReactNative()) {
-    const bytes = await prepareOnNative(input.uri);
+    const bytes = await prepareOnNative(input.uri, maxEdge, maxBytes);
     return { bytes, contentType: 'image/jpeg' };
   }
   if (input.blob) {
     const bytes = stripJpegExif(new Uint8Array(await input.blob.arrayBuffer()));
-    if (bytes.byteLength > PHOTO_MAX_BYTES) throw new Error('photo_too_large');
+    if (bytes.byteLength > maxBytes) throw new Error('photo_too_large');
     return { bytes, contentType: 'image/jpeg' };
   }
   throw new Error('photo_unreadable');

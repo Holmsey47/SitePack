@@ -85,4 +85,6 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'drop table if exists public._snag_fu
 echo "snag RLS ok"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/start-company.sql
 echo "owner start grants ok"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/company-logo.sql
+echo "company logo grants ok"
 bash scripts/snag-signoff-race.sh

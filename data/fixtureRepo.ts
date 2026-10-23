@@ -6,6 +6,7 @@ import {
   START_IP_LIMIT,
   START_WINDOW_MINUTES,
 } from '@/data/startCompany';
+import { assertLogoUpload, logoObjectPath } from '@/data/companyLogo';
 import { newId } from '@/data/newId';
 import { inviteSiteIds, previewName } from '@/data/walk';
 import { IDS, SEED_PASSWORD } from '@/data/ids';
@@ -160,6 +161,7 @@ type Store = {
   passwords: Record<string, string>;
   banned: string[];
   companyName: string;
+  logos: Record<string, { path: string; bytes: Uint8Array; contentType: string }>;
   codeSerial: number;
   variations: FixtureVariationBucket;
   snags: FixtureSnagBucket;
@@ -446,6 +448,7 @@ function seed(): Store {
     passwords: {},
     banned: [],
     companyName: 'Ashfield Finishes',
+    logos: {},
     codeSerial: 0,
     drawingOpens: [],
     drawingSeen: [],
@@ -534,6 +537,23 @@ function meOrThrow(): Person {
   const person = store.people.find((p) => p.id === store.sessionPersonId);
   if (!person) throw new Error('not_authorized');
   return person;
+}
+
+function fixtureCompanyMark(): { name: string; logoUrl: string | null } {
+  const actor = meOrThrow();
+  const logo = store.logos[actor.company_id];
+  if (!logo) return { name: store.companyName, logoUrl: null };
+  let logoUrl: string | null = null;
+  if (typeof btoa === 'function') {
+    let binary = '';
+    for (const byte of logo.bytes) binary += String.fromCharCode(byte);
+    logoUrl = `data:${logo.contentType};base64,${btoa(binary)}`;
+  }
+  return { name: store.companyName, logoUrl };
+}
+
+export function logoPathForTests(companyId: string): string | null {
+  return store.logos[companyId]?.path ?? null;
 }
 
 function snagActor(person: Person) {
@@ -1159,6 +1179,24 @@ export const fixtureRepo: SitePackRepo = {
 
   async companyName() {
     return store.companyName;
+  },
+
+  async companyMark() {
+    meOrThrow();
+    return fixtureCompanyMark();
+  },
+
+  async setCompanyLogo(photo) {
+    const actor = meOrThrow();
+    if (actor.role !== 'owner') throw new Error('not_authorized');
+    if (!photo) {
+      delete store.logos[actor.company_id];
+      return fixtureCompanyMark();
+    }
+    const extension = assertLogoUpload(photo.bytes, photo.contentType);
+    const path = logoObjectPath(actor.company_id, newId(), extension);
+    store.logos[actor.company_id] = { path, bytes: photo.bytes, contentType: photo.contentType };
+    return fixtureCompanyMark();
   },
 
   async listVariations(siteId): Promise<VariationList> {

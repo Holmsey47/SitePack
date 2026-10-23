@@ -1,4 +1,5 @@
 import { normalizeCreateSite } from '@/data/createSite';
+import { assertLogoUpload, logoObjectPath } from '@/data/companyLogo';
 import { CHECK_YOUR_EMAIL, parseStartCompany } from '@/data/startCompany';
 import { newId } from '@/data/newId';
 import { inviteSiteIds } from '@/data/walk';
@@ -262,6 +263,21 @@ function snagStoragePath(params: {
     return `${params.companyId}/${params.siteId}/snags/${params.snagId}/${newId()}.${photoExtension(params.contentType)}`;
   }
   return `${params.companyId}/${params.siteId}/variations/${newId()}`;
+}
+
+async function readCompanyLogo(): Promise<{ name: string; logo_path: string | null }> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from('companies').select('name, logo_path').limit(1).maybeSingle();
+  if (error || !data?.name) throw new Error('not_authorized');
+  const path = typeof data.logo_path === 'string' && data.logo_path ? data.logo_path : null;
+  return { name: data.name as string, logo_path: path };
+}
+
+async function signCompanyMark(name: string, logoPath: string | null): Promise<{ name: string; logoUrl: string | null }> {
+  if (!logoPath) return { name, logoUrl: null };
+  const { data, error } = await getSupabase().storage.from('company-logos').createSignedUrl(logoPath, PHOTO_URL_SECONDS);
+  if (error || !data?.signedUrl) return { name, logoUrl: null };
+  return { name, logoUrl: data.signedUrl };
 }
 
 export const supabaseRepo: SitePackRepo = {
@@ -725,6 +741,44 @@ export const supabaseRepo: SitePackRepo = {
     const { data, error } = await supabase.from('companies').select('name').limit(1).maybeSingle();
     if (error || !data?.name) throw new Error('not_authorized');
     return data.name as string;
+  },
+
+  async companyMark() {
+    const row = await readCompanyLogo();
+    return signCompanyMark(row.name, row.logo_path);
+  },
+
+  async setCompanyLogo(photo) {
+    const person = await this.me();
+    if (!person || person.role !== 'owner') throw new Error('not_authorized');
+    const current = await readCompanyLogo();
+    const supabase = getSupabase();
+    if (!photo) {
+      const { error } = await supabase.from('companies').update({ logo_path: null }).eq('id', person.company_id);
+      if (error) throw new Error(rpcErrorCode(error));
+      if (current.logo_path) {
+        const removed = await supabase.storage.from('company-logos').remove([current.logo_path]);
+        if (removed.error) throw new Error('invalid_input');
+      }
+      return { name: current.name, logoUrl: null };
+    }
+    const extension = assertLogoUpload(photo.bytes, photo.contentType);
+    const path = logoObjectPath(person.company_id, newId(), extension);
+    const uploaded = await supabase.storage.from('company-logos').upload(path, photo.bytes, {
+      contentType: photo.contentType,
+      upsert: false,
+    });
+    if (uploaded.error) throw new Error('invalid_input');
+    const { error } = await supabase.from('companies').update({ logo_path: path }).eq('id', person.company_id);
+    if (error) {
+      await supabase.storage.from('company-logos').remove([path]);
+      throw new Error(rpcErrorCode(error));
+    }
+    if (current.logo_path && current.logo_path !== path) {
+      const removed = await supabase.storage.from('company-logos').remove([current.logo_path]);
+      if (removed.error) throw new Error('invalid_input');
+    }
+    return signCompanyMark(current.name, path);
   },
 
   async createJoinCode(input) {

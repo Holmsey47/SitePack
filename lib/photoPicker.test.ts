@@ -21,7 +21,7 @@ test('the shared picker offers take photo and the gallery, and every photo slot 
   assert.match(picker, /minHeight=\{48\}/);
   assert.match(picker, /preparePhoto/);
   const fromUri = picker.slice(picker.indexOf('async function fromUri'), picker.indexOf('async function fromBlob'));
-  assert.match(fromUri, /await preparePhoto\(\{ uri \}\)/);
+  assert.match(fromUri, /await preparePhoto\(\{ uri, maxEdge, maxBytes \}\)/);
   const denied = picker.slice(picker.indexOf('{cameraDenied ?'), picker.indexOf('{full ?'));
   assert.match(denied, /\{CAMERA_OFF\}/);
   assert.match(picker, /const CAMERA_OFF = 'The camera is off for SitePack\. Turn it on in the phone settings, then try again\.'/);

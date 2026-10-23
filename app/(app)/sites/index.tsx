@@ -1,4 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
+import { CompanyLogo } from '@/components/CompanyLogo';
 import { FixtureOfflineSwitch } from '@/components/fixture-offline';
 import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -147,8 +148,11 @@ export default function SitesScreen() {
   if (!manager) {
     return (
       <Screen footer={footer}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Title>Sites</Title>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1, gap: 8 }}>
+            <CompanyLogo />
+            <Title>Sites</Title>
+          </View>
           <HeaderActions label="Sign out" onPress={() => void signOut()} />
         </View>
         {resetNotice}
@@ -205,8 +209,11 @@ export default function SitesScreen() {
 
   return (
     <Screen footer={footer}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Title>Sites</Title>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <View style={{ flex: 1, gap: 8 }}>
+          <CompanyLogo />
+          <Title>Sites</Title>
+        </View>
         <HeaderActions label="Sign out" onPress={() => void signOut()} />
       </View>
       {resetNotice}
