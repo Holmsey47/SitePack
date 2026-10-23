@@ -41,6 +41,9 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/assignments" options={{ title: 'Assigned people' }} />
       <Stack.Screen name="sites/[siteId]/invite-code" options={{ title: 'Invite to site' }} />
       <Stack.Screen name="sites/[siteId]/joined" options={{ title: 'Who joined' }} />
+      <Stack.Screen name="sites/[siteId]/share" options={{ title: 'Share with main contractor' }} />
+      <Stack.Screen name="sites/[siteId]/share-code" options={{ title: 'Share code' }} />
+      <Stack.Screen name="sites/[siteId]/shared" options={{ title: 'Shared site' }} />
       <Stack.Screen name="requests/index" options={{ title: 'Drawing requests' }} />
       <Stack.Screen name="requests/[requestId]" options={{ title: 'Request' }} />
       <Stack.Screen name="invite" options={{ title: 'Invite' }} />

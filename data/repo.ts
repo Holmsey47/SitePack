@@ -47,6 +47,21 @@ import type {
   TalkListItem,
   TalkVersionRef,
 } from '@/data/talks';
+import type {
+  ShareCodePreview,
+  ShareDrawingUrl,
+  ShareInviteCreated,
+  ShareNotice,
+  ShareSections,
+  SharedDrawing,
+  SharedInductionRow,
+  SharedSignInRow,
+  SharedSiteCard,
+  SharedSiteView,
+  SharedSnag,
+  SharedVariation,
+  SiteShareList,
+} from '@/data/sharing';
 
 export type SignInResult = {
   person: Person;
@@ -188,6 +203,28 @@ export type SitePackRepo = {
   myTalkBadges(): Promise<TalkBadge[]>;
   uploadTalkPdf(input: { companyId: string; siteId: string; bytes: Uint8Array }): Promise<{ storagePath: string }>;
   removeTalkPdf(storagePath: string): Promise<void>;
+  createSiteShareInvite(input: {
+    siteId: string;
+    guestCompanyName: string;
+    sections: ShareSections;
+  }): Promise<ShareInviteCreated>;
+  listSiteShares(siteId: string): Promise<SiteShareList>;
+  setSiteShareSections(shareId: string, sections: ShareSections): Promise<void>;
+  revokeSiteShare(shareId: string): Promise<void>;
+  revokeSiteShareInvite(inviteId: string): Promise<void>;
+  redeemSiteShare(code: string): Promise<{ shareId: string; siteId: string; siteName: string; status: string }>;
+  previewSiteShare(code: string): Promise<ShareCodePreview>;
+  approveSiteShare(shareId: string): Promise<void>;
+  declineSiteShare(shareId: string): Promise<void>;
+  myShareNotices(): Promise<ShareNotice[]>;
+  mySharedSites(): Promise<SharedSiteCard[]>;
+  sharedSiteView(siteId: string): Promise<SharedSiteView>;
+  sharedDrawings(siteId: string): Promise<SharedDrawing[]>;
+  sharedDrawingUrl(siteId: string, drawingId: string): Promise<ShareDrawingUrl>;
+  sharedVariations(siteId: string): Promise<SharedVariation[]>;
+  sharedSnags(siteId: string): Promise<SharedSnag[]>;
+  sharedSignInRegister(siteId: string): Promise<SharedSignInRow[]>;
+  sharedInductionRegister(siteId: string): Promise<SharedInductionRow[]>;
 };
 
 export function canManageSite(role: Role): boolean {
@@ -268,6 +305,17 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'closed',
     'snag_list_changed',
     'not_found',
+    'other_firm',
+    'code_expired',
+    'code_used',
+    'code_revoked',
+    'share_revoked',
+    'own_firm',
+    'already_shared',
+    'section_off',
+    'not_shared',
+    'not_allowed',
+    'too_many_attempts',
   ]) {
     if (text.includes(known)) return known;
   }

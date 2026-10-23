@@ -93,14 +93,10 @@ select
   p.proconfig
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
-where n.nspname in ('public', 'private')
-  and not exists (
-    select 1
-    from public.probe_funcs_before b
-    where b.schema_name = n.nspname
-      and b.func_name = p.proname
-      and b.identity_args = pg_get_function_identity_arguments(p.oid)
-  );
+join public.probe_funcs_talk t
+  on t.schema_name = n.nspname
+ and t.func_name = p.proname
+ and t.identity_args = pg_get_function_identity_arguments(p.oid);
 
 select pg_temp.ok(
   (select count(*) from new_talk_funcs) = :talk_func_count

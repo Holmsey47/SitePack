@@ -7,6 +7,10 @@ const migration = 'supabase/migrations/20261022190000_inductions.sql';
 
 test('the inductions migration does not alter storage tables or auth', () => {
   const sql = fs.readFileSync(migration, 'utf8');
+  assert.match(sql, /from storage\.objects/);
+  assert.doesNotMatch(sql, /insert\s+into\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /update\s+storage\.objects/i);
+  assert.doesNotMatch(sql, /delete\s+from\s+storage\.objects/i);
   assert.doesNotMatch(sql, /alter table storage/i);
   assert.doesNotMatch(sql, /^grant\s+.*\bon\s+schema\s+storage/im);
   assert.doesNotMatch(sql, /^grant\s+.*\bon\s+(table\s+)?storage\.objects/im);

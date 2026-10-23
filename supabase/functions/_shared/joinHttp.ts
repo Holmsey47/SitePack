@@ -90,6 +90,19 @@ export function errorText(error: unknown): string {
 }
 
 const KNOWN = [
+  'other_firm',
+  'code_expired',
+  'code_used',
+  'code_revoked',
+  'share_revoked',
+  'own_firm',
+  'already_shared',
+  'section_off',
+  'not_shared',
+  'not_current',
+  'invalid_path',
+  'not_allowed',
+  'too_many_attempts',
   'username_taken',
   'invalid_display_name',
   'invalid_input',

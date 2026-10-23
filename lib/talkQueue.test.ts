@@ -226,9 +226,9 @@ test('a phone network error, a 503, and an unknown storage error each take their
   assert.deepEqual(left, ['empty', 'html', 'jwt', 'net', 'pgrst', 'plain', 'storage', 'unauth']);
   const notices = await queue.listNotices();
   assert.equal(notices.some((row) => row.id === 'reject:storage'), false);
-  assert.equal(notices.some((row) => row.id === 'reject:bad' && row.retryLocalId === null), true);
   assert.equal(notices.some((row) => row.id === 'reject:unauth'), false);
   assert.equal(notices.some((row) => row.id === 'reject:jwt'), false);
+  assert.equal(notices.some((row) => row.id === 'reject:bad' && row.retryLocalId === null), true);
   assert.equal(notices.find((row) => row.id === 'retry:unauth')?.message, SIGN_IN_AGAIN);
   assert.equal(notices.find((row) => row.id === 'retry:jwt')?.message, SIGN_IN_AGAIN);
   assert.equal((await queue.list()).find((row) => row.localId === 'jwt')?.needsSignIn, true);
@@ -277,12 +277,12 @@ async function postgrestFailures(): Promise<Map<string, SnagRequestError>> {
     } catch (err) {
       assert.ok(err instanceof SnagRequestError);
       const classified = classifyTalkFailure(err);
-      if (status >= 500) {
+      if (status === 401) {
+        assert.equal(isRetryableSnagFailure(err), true);
+        assert.deepEqual(classified, { kind: 'signin' });
+      } else if (status >= 500) {
         assert.equal(isRetryableSnagFailure(err), true);
         assert.deepEqual(classified, { kind: 'http', status });
-      } else if (status === 401) {
-        assert.equal(isRetryableSnagFailure(err), true);
-        assert.equal(classified.kind, 'signin');
       } else {
         assert.equal(isRetryableSnagFailure(err), false);
         assert.equal(classified.kind, 'permanent');

@@ -41,7 +41,7 @@ function Gate() {
     const parts = [...segments] as string[];
     const inAuth = parts[0] === '(auth)';
     const screen = parts[1] ?? '';
-    const publicJoin = parts[0] === 'join' || parts[0] === 'reset';
+    const publicJoin = parts[0] === 'join' || parts[0] === 'reset' || parts[0] === 'share';
     if (!person && screen !== 'login' && !publicJoin) {
       router.replace('/login');
       return;
@@ -84,6 +84,7 @@ function Gate() {
         <Stack.Screen name="(app)" options={{ headerShown: false }} />
         <Stack.Screen name="join" options={{ title: 'Join a site' }} />
         <Stack.Screen name="reset" options={{ title: 'New password' }} />
+        <Stack.Screen name="share" options={{ title: 'Open a share' }} />
       </Stack>
     </View>
   );

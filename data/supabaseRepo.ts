@@ -63,6 +63,22 @@ import type {
   Role,
   Site,
 } from '@/data/types';
+import {
+  throwShareFunction,
+  type ShareCodePreview,
+  type ShareDrawingUrl,
+  type ShareInviteCreated,
+  type ShareNotice,
+  type ShareSections,
+  type SharedDrawing,
+  type SharedInductionRow,
+  type SharedSignInRow,
+  type SharedSiteCard,
+  type SharedSiteView,
+  type SharedSnag,
+  type SharedVariation,
+  type SiteShareList,
+} from '@/data/sharing';
 import { SnagRequestError, snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import { getSupabase } from '@/lib/supabase';
 
@@ -248,6 +264,47 @@ async function invokePublicFunction(name: string, body: Record<string, unknown>)
     throw new Error(String((data as { error: unknown }).error));
   }
   return data;
+}
+
+async function invokeShareFunction(name: string, body: Record<string, unknown>): Promise<unknown> {
+  const supabase = getSupabase();
+  let data: unknown;
+  let error: unknown;
+  try {
+    const result = await supabase.functions.invoke(name, { body });
+    data = result.data;
+    error = result.error;
+  } catch (caught) {
+    throw snagRpcError(caught);
+  }
+  if (error) await throwShareFunction(error);
+  if (data && typeof data === 'object' && 'error' in data && (data as { error?: unknown }).error) {
+    throw snagRpcError({ message: String((data as { error: unknown }).error) });
+  }
+  return data;
+}
+
+async function shareRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
+  let response: { data: T | null; error: unknown; status?: number };
+  try {
+    response = await getSupabase().rpc(name, args);
+  } catch (error) {
+    throw snagRpcError(error);
+  }
+  if (response.error || (typeof response.status === 'number' && response.status >= 400)) {
+    throw snagRpcError(response.error ?? { message: String(response.status ?? '') }, response.status);
+  }
+  return response.data as T;
+}
+
+function sectionArgs(sections: ShareSections) {
+  return {
+    p_drawings: sections.drawings,
+    p_variations: sections.variations,
+    p_snags: sections.snags,
+    p_sign_in: sections.sign_in,
+    p_inductions: sections.inductions,
+  };
 }
 
 async function signUrls(items: Array<ManifestItem & { storage_path?: string }>): Promise<ManifestItem[]> {
@@ -1259,6 +1316,92 @@ export const supabaseRepo: SitePackRepo = {
   async removeTalkPdf(storagePath) {
     const { error } = await getSupabase().storage.from('drawings').remove([storagePath]);
     if (error) throw new Error(error.message);
+  },
+
+  async createSiteShareInvite(input): Promise<ShareInviteCreated> {
+    return (await invokeShareFunction('issue-site-share', {
+      site_id: input.siteId,
+      guest_company_name: input.guestCompanyName,
+      drawings: input.sections.drawings,
+      variations: input.sections.variations,
+      snags: input.sections.snags,
+      sign_in: input.sections.sign_in,
+      inductions: input.sections.inductions,
+    })) as ShareInviteCreated;
+  },
+
+  async listSiteShares(siteId) {
+    return shareRpc<SiteShareList>('list_site_shares', { p_site_id: siteId });
+  },
+
+  async setSiteShareSections(shareId, sections) {
+    await shareRpc('set_site_share_sections', { p_share_id: shareId, ...sectionArgs(sections) });
+  },
+
+  async revokeSiteShare(shareId) {
+    await shareRpc('revoke_site_share', { p_share_id: shareId });
+  },
+
+  async revokeSiteShareInvite(inviteId) {
+    await shareRpc('revoke_site_share_invite', { p_invite_id: inviteId });
+  },
+
+  async redeemSiteShare(code) {
+    const row = (await invokeShareFunction('redeem-site-share', { code })) as {
+      share_id: string;
+      site_id: string;
+      site_name: string;
+      status?: string;
+    };
+    return { shareId: row.share_id, siteId: row.site_id, siteName: row.site_name, status: row.status ?? 'pending' };
+  },
+
+  async previewSiteShare(code) {
+    return (await invokeShareFunction('redeem-site-share', { code, preview: true })) as ShareCodePreview;
+  },
+
+  async approveSiteShare(shareId) {
+    await shareRpc('approve_site_share', { p_share_id: shareId });
+  },
+
+  async declineSiteShare(shareId) {
+    await shareRpc('decline_site_share', { p_share_id: shareId });
+  },
+
+  async myShareNotices() {
+    return shareRpc<ShareNotice[]>('my_share_notices', {});
+  },
+
+  async mySharedSites() {
+    return shareRpc<SharedSiteCard[]>('my_shared_sites', {});
+  },
+
+  async sharedSiteView(siteId) {
+    return shareRpc<SharedSiteView>('shared_site_view', { p_site_id: siteId });
+  },
+
+  async sharedDrawings(siteId) {
+    return shareRpc<SharedDrawing[]>('shared_drawings', { p_site_id: siteId });
+  },
+
+  async sharedDrawingUrl(siteId, drawingId): Promise<ShareDrawingUrl> {
+    return (await invokeShareFunction('share-drawing-url', { site_id: siteId, drawing_id: drawingId })) as ShareDrawingUrl;
+  },
+
+  async sharedVariations(siteId) {
+    return shareRpc<SharedVariation[]>('shared_variations', { p_site_id: siteId });
+  },
+
+  async sharedSnags(siteId) {
+    return shareRpc<SharedSnag[]>('shared_snags', { p_site_id: siteId });
+  },
+
+  async sharedSignInRegister(siteId) {
+    return shareRpc<SharedSignInRow[]>('shared_sign_in_register', { p_site_id: siteId });
+  },
+
+  async sharedInductionRegister(siteId) {
+    return shareRpc<SharedInductionRow[]>('shared_induction_register', { p_site_id: siteId });
   },
 };
 

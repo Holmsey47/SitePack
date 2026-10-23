@@ -49,6 +49,7 @@ test('codes are normalised, formatted, and shared without a pepper in the client
   assert.equal(resetShared.includes('  '), false);
   assert.equal(publicCodePath('/join/K7QM4XPR'), '/join');
   assert.equal(publicCodePath('/reset/K7QM4XPR'), '/reset');
+  assert.equal(publicCodePath('/share/K7QM4XPR'), '/share');
   assert.equal(publicCodePath('/join'), null);
   assert.equal(joinFailureMessage('join_rejected'), joinFailureMessage('nope'));
 });

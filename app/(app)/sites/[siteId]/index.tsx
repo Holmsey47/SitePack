@@ -6,13 +6,14 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawi
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import { pendingShareRequestLabel, shareRenameNote, sharedSectionLine, type ShareNotice } from '@/data/sharing';
 import type { TalkBadge } from '@/data/talks';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { dismissTalkNotice, getTalkQueue, retryQueuedTalk, type TalkNotice } from '@/lib/talkQueue';
 import { refreshTalks } from '@/lib/talkSync';
-import { formatDate, formatWhen } from '@/lib/format';
+import { formatDate, formatUkDateTime, formatWhen } from '@/lib/format';
 import { PACK_DOWNLOAD_ERROR } from '@/data/walk';
 import { setDownloadBackNote } from '@/lib/backRegistry';
 import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
@@ -21,7 +22,7 @@ import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from 
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
-import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
@@ -47,11 +48,21 @@ export default function SitePackScreen() {
   const [talkBadge, setTalkBadge] = useState<TalkBadge | null>(null);
   const [talkNotices, setTalkNotices] = useState<TalkNotice[]>([]);
   const [inductionNames, setInductionNames] = useState<string[]>([]);
+  const [shareNotices, setShareNotices] = useState<ShareNotice[]>([]);
+  const [guestShare, setGuestShare] = useState(false);
 
   const load = useCallback(async () => {
     if (!siteId) return;
     try {
       const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
+      if (!nextSite) {
+        const shared = await repo.mySharedSites().catch(() => []);
+        if (shared.some((row) => row.site_id === siteId)) {
+          setGuestShare(true);
+          setLoaded(true);
+          return;
+        }
+      }
       setSite(nextSite);
       setDrawings(nextDrawings);
       if (person && canManageSite(person.role)) {
@@ -85,11 +96,22 @@ export default function SitePackScreen() {
       if (manageNow) {
         const gaps = await repo.inductionSignInGaps(siteId).catch(() => null);
         setInductionNames(gaps?.map((row) => row.person_name) ?? []);
-      } else setInductionNames([]);
+        const asks = await repo.myShareNotices().catch(() => []);
+        setShareNotices(asks.filter((row) => row.site_id === siteId));
+      } else {
+        setInductionNames([]);
+        setShareNotices([]);
+      }
     } catch {
       const cached = readCachedSites().find((row) => row.id === siteId) ?? null;
       const meta = readPackMeta(siteId);
       if (!cached && !meta) {
+        const shared = await repo.mySharedSites().catch(() => []);
+        if (shared.some((row) => row.site_id === siteId)) {
+          setGuestShare(true);
+          setLoaded(true);
+          return;
+        }
         setError('Could not load the pack.');
         return;
       }
@@ -186,6 +208,8 @@ export default function SitePackScreen() {
     }
   }
 
+  if (guestShare && siteId) return <Redirect href={`/sites/${siteId}/shared`} />;
+
   if (!site && !loaded && !error) {
     return (
       <Screen>
@@ -200,6 +224,10 @@ export default function SitePackScreen() {
         <EmptyState title={error ? 'Could not load the pack.' : 'This site is not assigned to you.'} />
       </Screen>
     );
+  }
+
+  if (person && site.company_id !== person.company_id) {
+    return <Redirect href={`/sites/${siteId}/shared`} />;
   }
 
   return (
@@ -325,6 +353,20 @@ export default function SitePackScreen() {
             onPress={() => router.push(`/sites/${siteId}/invite-code`)}
           />
           <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
+          {shareNotices.map((row) => (
+            <Card key={row.share_id}>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{pendingShareRequestLabel(row)}</Text>
+              <Muted>{sharedSectionLine(row.sections)}</Muted>
+              {row.code_expires_at ? <Muted>{`Expires ${formatUkDateTime(row.code_expires_at)}`}</Muted> : null}
+              {shareRenameNote(row) ? <Muted>{shareRenameNote(row)}</Muted> : null}
+              <Button label="Review" minHeight={56} onPress={() => router.push(`/sites/${siteId}/share`)} />
+            </Card>
+          ))}
+          <Button
+            label="Share with main contractor"
+            minHeight={56}
+            onPress={() => router.push(`/sites/${siteId}/share`)}
+          />
         </View>
       ) : null}
       {manage && newJoiners > 0 ? (
