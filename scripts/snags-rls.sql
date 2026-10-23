@@ -723,11 +723,11 @@ select pg_temp.ok(
           and signer_role = 'Site manager'
           and signer_company = 'Northbuild'
           and kind = 'contractor'
-          and confirmation_text = 'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
+          and confirmation_text = 'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and left(signature_png, 22) = 'data:image/png;base64,'
        from public.snag_signatures
        where snag_id = (select (v->>'snag_id')::uuid from probe where k = 'b'))
-  and (select confirmation_text = 'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
+  and (select confirmation_text = 'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.'
           and jsonb_array_length(outstanding) = 0
        from public.snag_signoffs
        where id = 'c3333333-3333-4333-8333-333333333333'::uuid),

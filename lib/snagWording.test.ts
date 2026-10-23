@@ -4,22 +4,22 @@ import test from 'node:test';
 import { contractorPadEnabled, outstandingHeading, outstandingLine, signoffFormOpen, snagConfirmation } from './snagWording.ts';
 
 const CONTRACTOR_ONE =
-  'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
-const CONTRACTOR_MANY =
-  'I confirm the 4 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
+  'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
+const CONTRACTOR_TWO =
+  'I confirm the 2 snags marked complete above have been put right to my satisfaction, on behalf of Northbuild. Snags listed as outstanding are not signed off.';
 const INTERNAL_ONE =
-  "I've checked the 1 snags marked complete above and I'm satisfied they've been put right. This is an internal check for Ashfield Finishes, not sign-off by the main contractor.";
-const INTERNAL_MANY =
+  "I've checked the 1 snag marked complete above and I'm satisfied they've been put right. This is an internal check for Ashfield Finishes, not sign-off by the main contractor.";
+const INTERNAL_TWO =
   "I've checked the 2 snags marked complete above and I'm satisfied they've been put right. This is an internal check for Northbuild, not sign-off by the main contractor.";
 
 test('the sign-off sentence names the snapshot count and the typed company', () => {
   assert.equal(snagConfirmation('Northbuild', 'contractor', 1), CONTRACTOR_ONE);
-  assert.equal(snagConfirmation('Northbuild', 'contractor', 4), CONTRACTOR_MANY);
-  assert.equal(snagConfirmation('  Northbuild  ', 'internal', 2), INTERNAL_MANY);
+  assert.equal(snagConfirmation('Northbuild', 'contractor', 2), CONTRACTOR_TWO);
+  assert.equal(snagConfirmation('  Northbuild  ', 'internal', 2), INTERNAL_TWO);
   assert.equal(snagConfirmation('Ashfield Finishes', 'internal', 1), INTERNAL_ONE);
   assert.equal(
     snagConfirmation('', 'contractor', 1),
-    'I confirm the 1 snags marked complete above have been put right to my satisfaction, on behalf of your company. Snags listed as outstanding are not signed off.'
+    'I confirm the 1 snag marked complete above have been put right to my satisfaction, on behalf of your company. Snags listed as outstanding are not signed off.'
   );
   assert.equal(
     snagConfirmation('   ', 'internal', 3),
@@ -30,7 +30,7 @@ test('the sign-off sentence names the snapshot count and the typed company', () 
     snagConfirmation('North £build', 'contractor', 2),
     'I confirm the 2 snags marked complete above have been put right to my satisfaction, on behalf of North build. Snags listed as outstanding are not signed off.'
   );
-  for (const sentence of [CONTRACTOR_ONE, CONTRACTOR_MANY, INTERNAL_ONE, INTERNAL_MANY]) {
+  for (const sentence of [CONTRACTOR_ONE, CONTRACTOR_TWO, INTERNAL_ONE, INTERNAL_TWO]) {
     assert.equal(sentence.includes('£'), false);
   }
   assert.equal(snagConfirmation('', 'contractor', 1).includes('Ashfield'), false);
@@ -64,11 +64,12 @@ test('the server stores the same sentence the screen shows', () => {
   const screen = fs.readFileSync('app/(app)/sites/[siteId]/snags/sign.tsx', 'utf8');
   const pdf = fs.readFileSync('lib/snagPdf.ts', 'utf8');
   const wording = fs.readFileSync('lib/snagWording.ts', 'utf8');
-  assert.match(sql, /I confirm the ' \|\| p_count::text \|\| ' snags marked complete above have been put right to my satisfaction, on behalf of /);
+  assert.match(sql, /v_noun := case when p_count = 1 then 'snag' else 'snags' end;/);
+  assert.match(sql, /I confirm the ' \|\| p_count::text \|\| ' ' \|\| v_noun \|\| ' marked complete above have been put right to my satisfaction, on behalf of /);
   assert.match(sql, /Snags listed as outstanding are not signed off\./);
   assert.match(
     sql,
-    /I''ve checked the ' \|\| p_count::text \|\| ' snags marked complete above and I''m satisfied they''ve been put right\. This is an internal check for /
+    /I''ve checked the ' \|\| p_count::text \|\| ' ' \|\| v_noun \|\| ' marked complete above and I''m satisfied they''ve been put right\. This is an internal check for /
   );
   assert.match(sql, /, not sign-off by the main contractor\./);
   assert.match(sql, /coalesce\(array_length\(v_fixed_ids, 1\), 0\)/);
