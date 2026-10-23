@@ -32,6 +32,7 @@ import type {
   UnseenDrawing,
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
+import type { CreateSnagInput, CreateSnagResult, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
 
 export type SignInResult = {
   person: Person;
@@ -130,7 +131,18 @@ export type SitePackRepo = {
     siteId: string;
     bytes: Uint8Array;
     contentType: string;
+    folder?: 'variations' | 'snags';
+    snagId?: string;
   }): Promise<{ storagePath: string; fileSizeBytes: number; contentType: string }>;
+  listSnags(siteId: string): Promise<SnagList>;
+  snagReport(siteId: string): Promise<SnagReport>;
+  getSnag(snagId: string): Promise<SnagDetail | null>;
+  createSnag(input: CreateSnagInput): Promise<CreateSnagResult>;
+  fixSnag(snagId: string, fixedAt: string, photos: SnagPhotoInput[], fixId?: string | null): Promise<{ alreadyFixed?: boolean }>;
+  removeSitePhotos(storagePaths: string[]): Promise<void>;
+  signOffSnagsInternal(input: SignOffSnagsInput): Promise<SnagSignoff>;
+  signOffSnagsContractor(input: SignOffSnagsInput): Promise<SnagSignoff>;
+  snagTradeLabels(siteId: string): Promise<string[]>;
   signSitePhotoUrl(storagePath: string): Promise<{ url: string; expiresAt: string }>;
   listMyUnseenDrawings(): Promise<UnseenDrawing[]>;
   myDrawingProof(drawingId: string): Promise<DrawingProof>;
@@ -206,6 +218,12 @@ export function rpcErrorCode(error: string | RpcErrorLike | undefined | null): s
     'not_opened',
     'not_current',
     'drawing_not_found',
+    'snag_locked',
+    'invalid_time',
+    'after_photo_required',
+    'closed',
+    'snag_list_changed',
+    'not_found',
   ]) {
     if (text.includes(known)) return known;
   }
