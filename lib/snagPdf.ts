@@ -7,9 +7,8 @@ import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 export const SNAG_PDF_PAGE_W = 595;
 export const SNAG_PDF_PAGE_H = 842;
-/** A put-right photo never draws narrower than this, and never at a negative size. */
-export const SNAG_PDF_MIN_PHOTO = 160;
-export const SNAG_PDF_UNSHOWN_NOTE = 'Some characters could not be shown; see the app record.';
+export const SNAG_PDF_UNSHOWN_NOTE = "Some characters can't be shown in this PDF. See the app record.";
+export const SNAG_PDF_OUTSTANDING_CONTINUED = 'Outstanding (not signed off), continued';
 const PAGE_W = SNAG_PDF_PAGE_W;
 const PAGE_H = SNAG_PDF_PAGE_H;
 const MARGIN = 40;
@@ -20,9 +19,7 @@ const BOTTOM = 48;
 export const SNAG_PDF_SIGN_BOTTOM = 64;
 const SIGN_BOTTOM = SNAG_PDF_SIGN_BOTTOM;
 const GAP = 8;
-const CAPTION_BLOCK = 18;
-/** A continued outstanding page should not be left holding only a handful of rows. */
-const MIN_OUTSTANDING_ROWS = 8;
+const CAPTION_LINE = 13;
 
 export type SnagPdfPhoto = {
   bytes: Uint8Array | null;
@@ -92,9 +89,9 @@ export type SnagPdfTrace = {
 
 type Face = PDFFont;
 
-export function snagPhotoCaption(snagSeq: number, index: number, total: number, kind: 'before' | 'after'): string {
+export function snagPhotoCaption(snagSeq: number, title: string, index: number, total: number, kind: 'before' | 'after'): string {
   const label = kind === 'before' ? 'Before' : 'After';
-  return `${snagNumber(snagSeq)} ${label}, photo ${index + 1} of ${total}`;
+  return `${snagNumber(snagSeq)} ${title.trim()}, ${label} · Photo ${index + 1} of ${total}`;
 }
 
 export function snagPhotoMissing(index: number, total: number, kind: 'before' | 'after'): string {
@@ -284,34 +281,22 @@ async function drawReport(
     return Math.max(...items.map((item) => (item.image.height / item.image.width) * width));
   }
 
-  type RowPlan = { visual: Visual; width: number; height: number; block: number };
+  type RowPlan = { visual: Visual; width: number; height: number; block: number; captions: string[][] };
 
-  function layoutVisuals(visuals: Visual[], maxStack: number): { rows: RowPlan[]; total: number } {
-    const natural: RowPlan[] = visuals.map((visual) => {
+  /** Photos stay at their column width. A single image uses the content width; a landscape pair shares it. */
+  function naturalRows(visuals: Visual[]): { rows: RowPlan[]; total: number } {
+    const rows: RowPlan[] = visuals.map((visual) => {
       if (visual.type === 'missing') {
         const block = linesHeight(expanded([{ text: visual.text, size: 11, weight: 'regular' }], font, bold, showText));
-        return { visual, width: 0, height: 0, block };
+        return { visual, width: 0, height: 0, block, captions: [] };
       }
       const pair = visual.items.length === 2;
       const width = pair ? (CONTENT_W - GAP) / 2 : CONTENT_W;
       const height = rowHeight(visual.items, width);
-      return { visual, width, height, block: height + CAPTION_BLOCK };
-    });
-    const naturalTotal = natural.reduce((sum, row) => sum + row.block, 0);
-    if (naturalTotal <= maxStack || naturalTotal === 0) return { rows: natural, total: naturalTotal };
-    const photoRows = natural.filter((row) => row.visual.type === 'photos');
-    const fixed = naturalTotal - photoRows.reduce((sum, row) => sum + row.block, 0) + photoRows.length * CAPTION_BLOCK;
-    const imageBudget = Math.max(0, maxStack - fixed);
-    const naturalImages = photoRows.reduce((sum, row) => sum + row.height, 0);
-    const scale = naturalImages > 0 ? imageBudget / naturalImages : 1;
-    const rows = natural.map((row) => {
-      if (row.visual.type !== 'photos') return row;
-      const naturalW = row.width;
-      let width = naturalW * scale;
-      if (width < SNAG_PDF_MIN_PHOTO) width = Math.min(naturalW, SNAG_PDF_MIN_PHOTO);
-      if (width > naturalW) width = naturalW;
-      const height = Math.max(1, rowHeight(row.visual.items, width));
-      return { visual: row.visual, width, height, block: height + CAPTION_BLOCK };
+      const captions = visual.items.map((item) => wrap(item.caption, bold, 9, width, showText));
+      const captionLines = Math.max(1, ...captions.map((lines) => lines.length));
+      const block = height + 12 + Math.max(0, captionLines - 1) * CAPTION_LINE + 6;
+      return { visual, width, height, block, captions };
     });
     return { rows, total: rows.reduce((sum, row) => sum + row.block, 0) };
   }
@@ -330,9 +315,13 @@ async function drawReport(
       const x = MARGIN + index * ((CONTENT_W - gap) / 2 + gap);
       const imageY = top - (row.height - itemH) - itemH;
       page.drawImage(item.image, { x, y: imageY, width: row.width, height: itemH });
-      const captionBaseline = imageY - 12;
-      page.drawText(showText(item.caption), { x, y: captionBaseline, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
-      mark('photo', { snagSeq, width: row.width, height: itemH, pair, baseline: captionBaseline, x, y: imageY });
+      const lines = row.captions[index] ?? [];
+      let captionBaseline = imageY - 12;
+      for (const line of lines) {
+        page.drawText(line, { x, y: captionBaseline, size: 9, font: bold, color: rgb(0.15, 0.15, 0.15) });
+        captionBaseline -= CAPTION_LINE;
+      }
+      mark('photo', { snagSeq, width: row.width, height: itemH, pair, baseline: imageY - 12, x, y: imageY });
     });
     y = top - row.block;
   }
@@ -343,7 +332,7 @@ async function drawReport(
     let index = 0;
     const prepared: Array<{ image: PDFImage | null; caption: string; missing: string }> = [];
     for (const photo of snag.photos) {
-      const caption = snagPhotoCaption(snag.snagSeq, index, total, photo.kind);
+      const caption = snagPhotoCaption(snag.snagSeq, snag.note, index, total, photo.kind);
       prepared.push({ image: await embed(photo), caption, missing: snagPhotoMissing(index, total, photo.kind) });
       index += 1;
     }
@@ -388,7 +377,8 @@ async function drawReport(
   y -= 8;
 
   const signerLines = options.signoff ? signerBlock(options.signoff, font, bold, showText) : [];
-  const outstanding = options.signoff ? outstandingParts(options.signoff, font, bold, showText) : null;
+  const outstanding = options.signoff ? outstandingParts(options.signoff, font, bold, showText, 11) : null;
+  const outstandingCompact = options.signoff ? outstandingParts(options.signoff, font, bold, showText, 8) : null;
   let signoffImage: PDFImage | null = null;
   if (options.signoff?.signaturePng) {
     try {
@@ -407,25 +397,14 @@ async function drawReport(
     ? expanded([{ text: SNAG_SIGN_OFF_DISCLAIMER, size: 8, weight: 'regular', mark: 'disclaimer' }], font, bold, showText)
     : [];
   const continuedLines = expanded(
-    [{ text: 'Outstanding (continued)', size: 12, weight: 'bold', mark: 'outstanding' }],
+    [{ text: SNAG_PDF_OUTSTANDING_CONTINUED, size: 12, weight: 'bold', mark: 'outstanding' }],
     font,
     bold,
     showText
   );
   const closingH = linesHeight(signerLines) + signatureImageHeight(signoffImage) + linesHeight(disclaimerLines);
-  const outstandingItems = outstanding?.items ?? [];
   const rowsHeight = (rows: LineSpec[][]) => rows.reduce((sum, row) => sum + linesHeight(row), 0);
-  const outstandingHeadingH = outstanding ? linesHeight(outstanding.heading) : 0;
   const pageBudget = TOP - bottom;
-  const wholeFitsPage = Boolean(
-    outstanding && outstandingHeadingH + rowsHeight(outstandingItems) + closingH <= pageBudget
-  );
-  // Keep a short outstanding list with the last snag when the photos can stay at least 160pt.
-  // A long list is drawn after the snags, and its last rows share the signer page.
-  const closeH =
-    options.signoff && outstanding && wholeFitsPage
-      ? 10 + outstandingHeadingH + rowsHeight(outstandingItems) + closingH
-      : 0;
 
   function paintSignoffClose() {
     paint(signerLines);
@@ -468,32 +447,14 @@ async function drawReport(
     const sigImage = signatureImage ? signatureImageHeight(signatureImage) : 0;
     const detailH = linesHeight(detail) + 4;
     const chrome = detailH + linesHeight(sigLines) + sigImage + 10;
-    const reserve = snag === input.snags[input.snags.length - 1] ? closeH : 0;
-    const fresh = TOP - bottom;
-
-    function plan(room: number, hold: number): { rows: RowPlan[]; height: number } | null {
-      const stackLimit = room - chrome - hold;
-      if (stackLimit < 0) return null;
-      const laid = layoutVisuals(visuals, stackLimit);
-      if (laid.rows.some((row) => row.visual.type === 'photos' && row.width < SNAG_PDF_MIN_PHOTO - 0.01)) return null;
-      const height = chrome + laid.total + hold;
-      if (height > room + 0.5) return null;
-      return { rows: laid.rows, height };
-    }
-
-    let laid = reserve > 0 ? plan(y - bottom, reserve) : null;
-    if (!laid && reserve > 0 && plan(fresh, reserve)) {
-      newPage();
-      laid = plan(fresh, reserve);
-    }
-    if (!laid) laid = plan(y - bottom, 0);
-    if (!laid) {
-      newPage();
-      laid = plan(fresh, 0);
-    }
-    if (!laid) {
-      const fallback = layoutVisuals(visuals, 0);
-      laid = { rows: fallback.rows, height: chrome + fallback.total };
+    const laid = naturalRows(visuals);
+    const blockH = chrome + laid.total;
+    // Move the heading and its photos together. Draw them at full size once, even when a tall photo passes the content bottom.
+    if (y - blockH < bottom && y < TOP - 0.5) newPage();
+    const overflow = bottom - (y - blockH);
+    if (overflow > 0) {
+      const roomAbove = PAGE_H - 12 - y;
+      if (roomAbove > 0) y += Math.min(overflow, roomAbove);
     }
 
     paint(detail, snag.snagSeq);
@@ -512,66 +473,40 @@ async function drawReport(
 
   if (input.snags.length === 0) drawWrapped('No snags in this report.', 12, 'regular');
 
-  if (options.signoff && outstanding) {
-    const itemH = outstandingItems.map((row) => linesHeight(row));
-    const headH = linesHeight(outstanding.heading);
-    const contH = linesHeight(continuedLines);
-    const closeRoom = pageBudget - contH - closingH;
-    let maxKeep = 0;
-    {
+  if (options.signoff && outstanding && outstandingCompact) {
+    const blockHeight = (parts: { heading: LineSpec[]; items: LineSpec[][] }) =>
+      linesHeight(parts.heading) + rowsHeight(parts.items) + closingH;
+    const chosen = blockHeight(outstanding) <= pageBudget ? outstanding : outstandingCompact;
+    const itemH = chosen.items.map((row) => linesHeight(row));
+    const allH = blockHeight(chosen);
+    if (allH <= pageBudget) {
+      if (y - allH < bottom) newPage();
+      paint(chosen.heading);
+      for (const item of chosen.items) paint(item);
+      paintSignoffClose();
+    } else {
+      const contH = linesHeight(continuedLines);
+      const closeRoom = pageBudget - contH - closingH;
+      let keep = 0;
       let used = 0;
       for (let index = itemH.length - 1; index >= 0; index -= 1) {
         const height = itemH[index] ?? 0;
-        if (maxKeep > 0 && used + height > closeRoom) break;
+        if (keep > 0 && used + height > closeRoom) break;
         used += height;
-        maxKeep += 1;
-        if (maxKeep === 1 && height > closeRoom) break;
+        keep += 1;
+        if (keep === 1 && height > closeRoom) break;
       }
-    }
-    function prefixOrphan(prefixLen: number): number {
-      if (prefixLen <= 0) return 0;
-      let index = 0;
-      let pageRows = 0;
-      let used = headH;
-      while (index < prefixLen) {
-        const height = itemH[index] ?? 0;
-        if (pageRows > 0 && used + height > pageBudget) {
-          pageRows = 0;
-          used = contH;
-          continue;
-        }
-        used += height;
-        pageRows += 1;
-        index += 1;
-      }
-      return pageRows < MIN_OUTSTANDING_ROWS ? pageRows : 0;
-    }
-    let keep = Math.min(maxKeep, itemH.length);
-    if (itemH.length > keep) {
-      const floor = Math.min(MIN_OUTSTANDING_ROWS, Math.max(maxKeep, 1));
-      let guard = 0;
-      while (guard < itemH.length) {
-        guard += 1;
-        const orphan = prefixOrphan(itemH.length - keep);
-        if (orphan === 0) break;
-        const need = MIN_OUTSTANDING_ROWS - orphan;
-        if (keep - need < floor) break;
-        keep -= need;
-      }
-    }
-    const allH = headH + itemH.reduce((sum, height) => sum + height, 0) + closingH;
-    if (itemH.length <= keep && allH <= pageBudget) {
-      if (y - allH < bottom) newPage();
-      paint(outstanding.heading);
-      for (const item of outstandingItems) paint(item);
-      paintSignoffClose();
-    } else {
       if (keep < 1) keep = Math.min(1, itemH.length);
-      const prefix = outstandingItems.slice(0, outstandingItems.length - keep);
-      const suffix = outstandingItems.slice(outstandingItems.length - keep);
-      if (y < TOP - 0.5) newPage();
-      if (prefix.length > 0) {
-        paint(outstanding.heading);
+      const prefix = chosen.items.slice(0, chosen.items.length - keep);
+      const suffix = chosen.items.slice(chosen.items.length - keep);
+      if (prefix.length === 0) {
+        if (y - allH < bottom) newPage();
+        paint(chosen.heading);
+        for (const item of suffix) paint(item);
+        paintSignoffClose();
+      } else {
+        if (y - linesHeight(chosen.heading) < bottom) newPage();
+        paint(chosen.heading);
         for (const item of prefix) {
           if (y - linesHeight(item) < bottom) {
             newPage();
@@ -579,16 +514,14 @@ async function drawReport(
           }
           paint(item);
         }
+        const suffixBody = rowsHeight(suffix) + closingH;
+        if (y - suffixBody < bottom) {
+          newPage();
+          paint(continuedLines);
+        }
+        for (const item of suffix) paint(item);
+        paintSignoffClose();
       }
-      const suffixHead = prefix.length > 0 ? continuedLines : outstanding.heading;
-      const suffixH = linesHeight(suffixHead) + rowsHeight(suffix) + closingH;
-      const pageBefore = pageNo;
-      if (y - suffixH < bottom) newPage();
-      const headingAlreadyHere =
-        pageNo === pageBefore && trace.some((item) => item.page === pageNo && item.kind === 'outstanding');
-      if (!headingAlreadyHere) paint(suffixHead);
-      for (const item of suffix) paint(item);
-      paintSignoffClose();
     }
   }
 
@@ -641,7 +574,8 @@ function outstandingParts(
   input: SnagSignoffPdfInput,
   font: Face,
   bold: Face,
-  prepare: Prepare
+  prepare: Prepare,
+  rowSize: number
 ): { heading: LineSpec[]; items: LineSpec[][] } {
   const heading = expanded(
     [
@@ -661,7 +595,7 @@ function outstandingParts(
       [
         {
           text: outstandingLine(row.snagSeq, row.note, row.levelArea),
-          size: 11,
+          size: rowSize,
           weight: 'regular',
           mark: 'outstanding',
           snagSeq: row.snagSeq,

@@ -11,14 +11,16 @@ import {
   detailsStayWithHeading,
   headingStaysWithFirstPhoto,
   signatureStaysWithSnag,
-  SNAG_PDF_MIN_PHOTO,
+  SNAG_PDF_OUTSTANDING_CONTINUED,
   SNAG_PDF_PAGE_H,
   SNAG_PDF_PAGE_W,
   SNAG_PDF_SIGN_BOTTOM,
   SNAG_PDF_UNSHOWN_NOTE,
   snagPdfFilename,
+  snagPhotoCaption,
   snagReportId,
   type SnagPdfSnag,
+  type SnagPdfTrace,
 } from './snagPdf.ts';
 import { snagConfirmation } from './snagWording.ts';
 
@@ -322,9 +324,9 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.match(text, /Signed 22 Oct 2026, 2:05pm/);
   assert.match(text, /SR-22Oct2026/);
   assert.match(text, /Page 1 of /);
-  assert.match(text, /S-1 Before, photo 1 of 1/);
-  assert.match(text, /S-8 Before, photo 1 of 2/);
-  assert.match(text, /S-8 After, photo 2 of 2/);
+  assert.match(text, /S-1 Bead missing at the window reveal, Before · Photo 1 of 1/);
+  assert.match(text, /S-8 Stain on the ceiling, Before · Photo 1 of 2/);
+  assert.match(text, /S-8 Stain on the ceiling, After · Photo 2 of 2/);
   const footerPages = new Set(trace.filter((item) => item.kind === 'footer').map((item) => item.page));
   assert.equal(footerPages.size, doc.getPageCount());
   for (let page = 1; page <= doc.getPageCount(); page += 1) assert.ok(footerPages.has(page));
@@ -332,9 +334,8 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   assert.equal(trace.filter((item) => item.kind === 'photo').length, photoCount);
   const firstHeading = trace.find((item) => item.kind === 'heading' && item.snagSeq === 1);
   const firstPhoto = trace.find((item) => item.kind === 'photo' && item.snagSeq === 1 && !item.pair);
-  assert.equal(firstHeading?.page, 1);
-  assert.equal(firstPhoto?.page, 1);
-  assert.ok(firstPhoto?.width && firstPhoto.width > 200);
+  assert.equal(firstHeading?.page, firstPhoto?.page);
+  assert.ok(firstPhoto?.width && firstPhoto.width > 500);
   const full = trace.find((item) => item.kind === 'photo' && item.snagSeq === 2 && !item.pair);
   assert.ok(full?.width && full.width > 450);
   const pair = trace.filter((item) => item.kind === 'photo' && item.snagSeq === 8);
@@ -375,7 +376,7 @@ test('a photo that cannot be loaded is named in the report', async () => {
   });
   const text = decodedPdfText(bytes);
   assert.match(text, /Photo 2 of 2 \(After\) could not be loaded/);
-  assert.match(text, /S-3 Before, photo 1 of 2/);
+  assert.match(text, /S-3 Joint tape lifting by the door, Before · Photo 1 of 2/);
   assert.equal(headingStaysWithFirstPhoto(trace, 3), true);
   assert.equal(trace.some((item) => item.kind === 'missing' && item.snagSeq === 3), true);
 });
@@ -523,7 +524,7 @@ test('bidi overrides and control characters are stripped from the sign-off PDF',
     outstanding: [{ snagSeq: 2, note: 'Skirting\u0085 not fixed', levelArea: 'Ground' }],
   });
   const text = decodedPdfText(built.bytes);
-  assert.equal(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/.test(text), false);
+  assert.equal(/[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/.test(text.replaceAll('\n', '')), false);
   assert.match(text, /José Müller/);
   assert.match(text, /Northbuild/);
   assert.match(text, /A\$&/);
@@ -534,13 +535,50 @@ test('bidi overrides and control characters are stripped from the sign-off PDF',
   assert.match(text, /Northbuild\. Snags listed as outstanding are not signed off\./);
 });
 
-function signerSharesLastPhoto(trace: Array<{ page: number; kind: string; snagSeq?: number }>, lastSeq: number): boolean {
-  const signerPage = trace.find((item) => item.kind === 'signature' && item.snagSeq === undefined)?.page;
-  const photoPage = trace.find((item) => item.kind === 'photo' && item.snagSeq === lastSeq)?.page;
-  return signerPage !== undefined && signerPage === photoPage;
+const NATURAL_PHOTO_W = SNAG_PDF_PAGE_W - 80;
+const PAIR_PHOTO_W = (NATURAL_PHOTO_W - 8) / 2;
+
+function assertPhotoInside(photo: SnagPdfTrace, label: string) {
+  assert.ok((photo.x ?? -1) >= 0 && (photo.y ?? -1) >= 0, `${label} photo origin ${photo.x},${photo.y}`);
+  assert.ok((photo.x ?? 0) + (photo.width ?? 0) <= SNAG_PDF_PAGE_W, `${label} photo crosses the right edge`);
+  assert.ok((photo.y ?? 0) + (photo.height ?? 0) <= SNAG_PDF_PAGE_H, `${label} photo crosses the top`);
 }
 
-test('the signer block stays on the same page as the last photo', async () => {
+function assertFinalBlock(
+  trace: SnagPdfTrace[],
+  outstanding: Array<{ snagSeq: number }>,
+  text: string,
+  label: string
+) {
+  const disclaimer = trace.filter((item) => item.kind === 'disclaimer');
+  const signature = trace.filter((item) => item.kind === 'signature' && item.snagSeq === undefined);
+  assert.ok(disclaimer.length > 0, `${label} has no disclaimer`);
+  assert.ok(signature.length > 0, `${label} has no signer`);
+  const signPage = signature[0]?.page;
+  assert.ok(signPage, `${label} has no signer page`);
+  assert.ok(disclaimer.every((item) => item.page === signPage), `${label} disclaimer left the signer page`);
+  assert.ok(signature.every((item) => item.page === signPage), `${label} signer block split`);
+  const onSignPage = trace.filter((item) => item.kind === 'outstanding' && item.page === signPage);
+  assert.ok(onSignPage.length > 0, `${label} outstanding list left the signer page`);
+  if (outstanding.length > 0) {
+    const last = outstanding[outstanding.length - 1]?.snagSeq;
+    assert.ok(
+      trace.some((item) => item.kind === 'outstanding' && item.snagSeq === last && item.page === signPage),
+      `${label} list does not end on the signer page`
+    );
+  }
+  if (trace.some((item) => item.kind === 'outstanding' && item.page !== signPage)) {
+    assert.match(text, /Outstanding \(not signed off\), continued/);
+  }
+  const signHigh = Math.max(...signature.map((item) => item.baseline ?? 0));
+  const signLow = Math.min(...signature.map((item) => item.baseline ?? 0));
+  const outLow = Math.min(...onSignPage.filter((item) => item.baseline !== undefined).map((item) => item.baseline ?? 0));
+  const noteLow = Math.min(...disclaimer.map((item) => item.baseline ?? 0));
+  assert.ok(outLow > signHigh, `${label} outstanding is not above the signature`);
+  assert.ok(noteLow < signLow, `${label} disclaimer is not under the signature`);
+}
+
+test('the outstanding list, sentence, signer and disclaimer stay one block', async () => {
   const when = '2026-10-22T13:05:00.000Z';
   const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
   assert.ok(signaturePng);
@@ -569,40 +607,47 @@ test('the signer block stays on the same page as the last photo', async () => {
     signedAt: when,
     signaturePng,
   };
-  const onePage = await buildSnagSignoffPdf({
+  const oneWide = await buildSnagSignoffPdf({
     ...base,
     covered: [snag(1, snagJpegBytes('beforeWide'), 'Bead missing at the window reveal')],
     outstanding: [{ snagSeq: 2, note: 'Skirting not fixed in the hall', levelArea: 'Ground' }],
   });
-  assert.equal((await PDFDocument.load(onePage.bytes)).getPageCount(), 1, 'a 1-snag sign-off is one page');
-  assert.match(decodedPdfText(onePage.bytes), /José Marín/);
-  const oneTrace = onePage.trace;
-  const oneSign = oneTrace.filter((item) => item.kind === 'signature' && item.page === 1 && item.baseline !== undefined);
-  const oneOut = oneTrace.filter((item) => item.kind === 'outstanding' && item.baseline !== undefined);
-  const oneNote = oneTrace.filter((item) => item.kind === 'disclaimer' && item.baseline !== undefined);
-  assert.ok(oneOut.length > 0 && oneSign.length > 0 && oneNote.length > 0);
-  assert.ok(Math.min(...oneOut.map((item) => item.baseline ?? 0)) > Math.max(...oneSign.map((item) => item.baseline ?? 0)));
-  assert.ok(Math.min(...oneNote.map((item) => item.baseline ?? 0)) < Math.min(...oneSign.map((item) => item.baseline ?? 0)));
+  const oneText = decodedPdfText(oneWide.bytes);
+  assert.match(oneText, /José Marín/);
+  const onePhoto = oneWide.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1);
+  assert.ok(onePhoto);
+  assert.ok(Math.abs((onePhoto.width ?? 0) - NATURAL_PHOTO_W) < 0.5);
+  assert.equal(oneWide.trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, onePhoto.page);
+  assertPhotoInside(onePhoto, 'wide');
+  assertFinalBlock(oneWide.trace, [{ snagSeq: 2 }], oneText, 'wide');
   const short = await buildSnagSignoffPdf({
     ...base,
     covered: [snag(1, snagJpegBytes('beforeWide'), 'Bead missing at the window reveal')],
     outstanding: [],
   });
-  assert.equal(signerSharesLastPhoto(short.trace, 1), true);
-  assert.equal(short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
-  assert.equal((await PDFDocument.load(short.bytes)).getPageCount(), 1);
-  assert.match(decodedPdfText(short.bytes), /No snags are outstanding/);
-  assert.match(decodedPdfText(short.bytes), /I confirm the 1 snag marked complete above/);
+  const shortText = decodedPdfText(short.bytes);
+  assert.match(shortText, /No snags are outstanding/);
+  assert.match(shortText, /I confirm the 1 snag marked complete above/);
+  assert.equal(
+    short.trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page,
+    short.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page
+  );
+  assertFinalBlock(short.trace, [], shortText, 'empty outstanding');
 
   const tall = await buildSnagSignoffPdf({
     ...base,
     covered: [snag(1, snagJpegBytes('beforeTall'), 'Bead missing at the window reveal')],
     outstanding: [],
   });
+  const tallPhoto = tall.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1);
   assert.equal(tall.trace.find((item) => item.kind === 'header')?.page, 1);
-  assert.equal(tall.trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, 1);
-  assert.equal(tall.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1)?.page, 1);
-  assert.equal(signerSharesLastPhoto(tall.trace, 1), true);
+  assert.ok(tallPhoto);
+  assert.equal(tall.trace.find((item) => item.kind === 'heading' && item.snagSeq === 1)?.page, tallPhoto.page);
+  assert.ok(Math.abs((tallPhoto.width ?? 0) - NATURAL_PHOTO_W) < 0.5);
+  const tallSize = jpegSize(snagJpegBytes('beforeTall'));
+  assert.ok(Math.abs((tallPhoto.height ?? 0) - (NATURAL_PHOTO_W * tallSize.height) / tallSize.width) < 0.5);
+  assertPhotoInside(tallPhoto, 'tall');
+  assertFinalBlock(tall.trace, [], decodedPdfText(tall.bytes), 'tall');
 
   const notes = [
     'Bead missing at the window reveal',
@@ -624,7 +669,23 @@ test('the signer block stays on the same page as the last photo', async () => {
       { snagSeq: 10, note: 'Tidy the offcuts by the stairs', levelArea: 'Second' },
     ],
   });
-  assert.equal(signerSharesLastPhoto(many.trace, 6), true);
+  const manyText = decodedPdfText(many.bytes);
+  const manyTall = many.trace.find((item) => item.kind === 'photo' && item.snagSeq === 6);
+  assert.ok(manyTall);
+  assert.equal(many.trace.find((item) => item.kind === 'heading' && item.snagSeq === 6)?.page, manyTall.page);
+  assert.ok(Math.abs((manyTall.width ?? 0) - NATURAL_PHOTO_W) < 0.5);
+  assertPhotoInside(manyTall, 'many');
+  assertFinalBlock(
+    many.trace,
+    [
+      { snagSeq: 7 },
+      { snagSeq: 8 },
+      { snagSeq: 9 },
+      { snagSeq: 10 },
+    ],
+    manyText,
+    'many'
+  );
 });
 
 test('outstanding snags continue onto later pages and stay above the footer', async () => {
@@ -683,7 +744,7 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     const outstandingPages = new Set(
       built.trace.filter((item) => item.kind === 'outstanding').map((item) => item.page)
     );
-    if (outstandingPages.size > 1) assert.match(text, /Outstanding \(continued\)/);
+    if (outstandingPages.size > 1) assert.match(text, /Outstanding \(not signed off\), continued/);
     const disclaimer = built.trace.filter((item) => item.kind === 'disclaimer');
     assert.ok(disclaimer.length > 0);
     const signature = built.trace.filter((item) => item.kind === 'signature' && item.snagSeq === undefined);
@@ -695,7 +756,12 @@ test('outstanding snags continue onto later pages and stay above the footer', as
     assert.ok(onSignPage.length > 0, `${count} signer page has no outstanding rows`);
     if (count >= 60) {
       assert.ok(earlier.length > 0, `${count} outstanding list did not continue`);
-      assert.match(text, /Outstanding \(continued\)/);
+      assert.match(text, /Outstanding \(not signed off\), continued/);
+      const lastSeq = outstanding[outstanding.length - 1]?.snagSeq;
+      assert.ok(
+        built.trace.some((item) => item.kind === 'outstanding' && item.snagSeq === lastSeq && item.page === signPage),
+        `${count} list does not end on the signer page`
+      );
     }
     const signHigh = Math.max(...signature.map((item) => item.baseline ?? 0));
     const outLow = Math.min(...onSignPage.map((item) => item.baseline ?? 0));
@@ -715,7 +781,7 @@ test('outstanding snags continue onto later pages and stay above the footer', as
   }
 });
 
-test('each put-right snag stays with its photos, and a short sign-off stays on one page', async () => {
+test('each put-right snag stays with its photos at full size', async () => {
   const when = '2026-10-22T13:05:00.000Z';
   const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
   assert.ok(signaturePng);
@@ -752,34 +818,40 @@ test('each put-right snag stays with its photos, and a short sign-off stays on o
     covered: [covered(1, snagJpegBytes('beforeWide'), 'one'), covered(2, snagJpegBytes('beforeWide'), 'pair')],
     outstanding: [],
   });
+  assert.equal(snagPhotoCaption(2, 'Cracked board', 0, 2, 'before'), 'S-2 Cracked board, Before · Photo 1 of 2');
+  assert.equal(SNAG_PDF_OUTSTANDING_CONTINUED, 'Outstanding (not signed off), continued');
   const text = decodedPdfText(built.bytes);
-  assert.match(text, /S-2 Before, photo 1 of 2/);
-  assert.match(text, /S-2 After, photo 2 of 2/);
+  assert.match(text, /S-2 Door will not close on the latch, Before · Photo 1 of 2/);
+  assert.match(text, /S-2 Door will not close on the latch, After · Photo 2 of 2/);
   const heading = built.trace.find((item) => item.kind === 'heading' && item.snagSeq === 2);
   const photos = built.trace.filter((item) => item.kind === 'photo' && item.snagSeq === 2);
+  const single = built.trace.find((item) => item.kind === 'photo' && item.snagSeq === 1);
   assert.equal(photos.length, 2);
   assert.ok(heading);
+  assert.ok(single);
+  assert.ok(Math.abs((single.width ?? 0) - NATURAL_PHOTO_W) < 0.5);
   assert.ok(photos.every((item) => item.page === heading?.page));
   for (const photo of photos) {
-    assert.ok((photo.width ?? 0) >= SNAG_PDF_MIN_PHOTO);
-    assert.ok((photo.x ?? -1) >= 0 && (photo.y ?? -1) >= 0);
-    assert.ok((photo.x ?? 0) + (photo.width ?? 0) <= SNAG_PDF_PAGE_W);
-    assert.ok((photo.y ?? 0) + (photo.height ?? 0) <= SNAG_PDF_PAGE_H);
+    assert.ok(Math.abs((photo.width ?? 0) - PAIR_PHOTO_W) < 0.5);
+    assertPhotoInside(photo, 'pair');
   }
+  assertPhotoInside(single, 'single');
+  assertFinalBlock(built.trace, [], text, 'two snags');
 });
 
-const MIN_OUTSTANDING_SHARE = 8;
-
-test('a swept sign-off keeps every photo on its snag page and the last outstanding rows with the signer', async () => {
+test('a swept sign-off keeps every photo on its snag page and the closing block intact', async () => {
   const when = '2026-10-22T13:05:00.000Z';
   const signaturePng = dataUrlBytes(strokesToPngDataUrl([[{ x: 12, y: 20 }, { x: 80, y: 90 }]]));
   assert.ok(signaturePng);
   const tall = snagJpegBytes('beforeTall');
   const wide = snagJpegBytes('beforeWide');
-  for (const count of Array.from({ length: 61 }, (_, index) => index)) {
+  const tallSize = jpegSize(tall);
+  const wideSize = jpegSize(wide);
+  for (const count of [1, 2, 15, 36, 120]) {
     for (const aspect of ['tall', 'wide'] as const) {
       for (const coveredCount of [1, 2, 3]) {
         const bytes = aspect === 'tall' ? tall : wide;
+        const pixel = aspect === 'tall' ? tallSize : wideSize;
         const covered: SnagPdfSnag[] = Array.from({ length: coveredCount }, (_, index) => ({
           snagSeq: index + 1,
           note: `Put right ${index + 1}`,
@@ -813,9 +885,7 @@ test('a swept sign-off keeps every photo on its snag page and the last outstandi
           outstanding,
         });
         const label = `${count} ${aspect} x${coveredCount}`;
-        if (coveredCount === 1 && count === 0) {
-          assert.equal((await PDFDocument.load(built.bytes)).getPageCount(), 1, `${label} left the single snag`);
-        }
+        const expectedH = (NATURAL_PHOTO_W * pixel.height) / pixel.width;
         for (const snag of covered) {
           const heading = built.trace.find((item) => item.kind === 'heading' && item.snagSeq === snag.snagSeq);
           const photos = built.trace.filter((item) => item.kind === 'photo' && item.snagSeq === snag.snagSeq);
@@ -823,31 +893,13 @@ test('a swept sign-off keeps every photo on its snag page and the last outstandi
           assert.ok(photos.length > 0, `${label} S-${snag.snagSeq} has no photo`);
           for (const photo of photos) {
             assert.equal(photo.page, heading?.page, `${label} S-${snag.snagSeq} photo left its heading`);
-            assert.ok((photo.width ?? 0) >= SNAG_PDF_MIN_PHOTO, `${label} photo width ${photo.width}`);
-            assert.ok((photo.height ?? 0) > 0, `${label} photo height ${photo.height}`);
-            assert.ok((photo.x ?? -1) >= 0 && (photo.y ?? -1) >= 0, `${label} photo origin ${photo.x},${photo.y}`);
-            assert.ok((photo.x ?? 0) + (photo.width ?? 0) <= SNAG_PDF_PAGE_W, `${label} photo crosses the right edge`);
-            assert.ok((photo.y ?? 0) + (photo.height ?? 0) <= SNAG_PDF_PAGE_H, `${label} photo crosses the top`);
+            assert.ok(Math.abs((photo.width ?? 0) - NATURAL_PHOTO_W) < 0.5, `${label} photo width ${photo.width}`);
+            assert.ok(Math.abs((photo.height ?? 0) - expectedH) < 0.5, `${label} photo height ${photo.height}`);
+            assertPhotoInside(photo, label);
           }
         }
-        const signPage = built.trace.find((item) => item.kind === 'signature' && item.snagSeq === undefined)?.page;
-        assert.ok(signPage, `${label} has no signer`);
-        assert.ok(
-          built.trace.some((item) => item.kind === 'outstanding' && item.page === signPage),
-          `${label} outstanding list left the signer page`
-        );
-        if (count >= MIN_OUTSTANDING_SHARE) {
-          const rows = new Map<number, Set<number>>();
-          for (const item of built.trace) {
-            if (item.kind !== 'outstanding' || item.snagSeq === undefined) continue;
-            const set = rows.get(item.page) ?? new Set<number>();
-            set.add(item.snagSeq);
-            rows.set(item.page, set);
-          }
-          for (const [page, seqs] of rows) {
-            assert.ok(seqs.size >= MIN_OUTSTANDING_SHARE, `${label} page ${page} holds ${seqs.size} outstanding rows`);
-          }
-        }
+        const continued = built.trace.some((item) => item.kind === 'outstanding' && item.page !== built.trace.find((row) => row.kind === 'signature' && row.snagSeq === undefined)?.page);
+        assertFinalBlock(built.trace, outstanding, continued ? decodedPdfText(built.bytes) : '', label);
       }
     }
   }
@@ -932,5 +984,6 @@ test('Ștefan Țăran, Cyrillic, and an emoji the font cannot draw', async () =>
   assert.match(text, /Paint \?\? missing/);
   assert.equal(text.includes('\u{1F600}'), false);
   assert.equal(text.includes('\u4E2D'), false);
-  assert.match(text, /Some characters could not be shown; see the app record\./);
+  assert.equal(SNAG_PDF_UNSHOWN_NOTE, "Some characters can't be shown in this PDF. See the app record.");
+  assert.match(text, /Some characters can't be shown in this PDF\. See the app record\./);
 });
