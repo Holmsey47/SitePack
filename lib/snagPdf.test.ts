@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import test from 'node:test';
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument } from 'pdf-lib';
+import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from './snagPdfFonts.ts';
 import { formatUkDateTime } from './format.ts';
 import { snagJpegBytes, type SnagJpegName } from './snagJpegFixtures.ts';
 import { strokesToPngDataUrl, dataUrlBytes } from './signaturePng.ts';
@@ -941,19 +943,79 @@ test('a footer cuts a long company with an ellipsis', async () => {
   assert.equal(text.includes(SNAG_PDF_UNSHOWN_NOTE), false);
 });
 
-test('Ștefan Țăran, Cyrillic, and an emoji the font cannot draw', async () => {
+function embeddedFontBytes(encoded: string): Uint8Array {
+  const binary = globalThis.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+test('the sign-off font includes Romanian comma-below letters', async () => {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  for (const encoded of [SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD]) {
+    const face = await doc.embedFont(embeddedFontBytes(encoded));
+    const chars = new Set(face.getCharacterSet());
+    for (const code of [0x0218, 0x0219, 0x021a, 0x021b]) {
+      assert.ok(chars.has(code), `missing U+${code.toString(16).toUpperCase()}`);
+    }
+  }
+});
+
+test('Ștefan Țăran prints in the signer, the company and the sentence, with no fallback note', async () => {
   const when = '2026-10-22T13:05:00.000Z';
   const company = '\u0218tefan \u021A\u0103ran SRL';
-  const signer = '\u0418\u0432\u0430\u043D \u041F\u0435\u0442\u0440\u043E\u0432';
-  const note = 'Paint \u{1F600}\u4E2D missing';
+  const sentence = snagConfirmation(company, 'contractor', 1);
   const built = await buildSnagSignoffPdf({
     reportId: 'SO-22Oct2026',
     kind: 'contractor',
     companyName: company,
+    siteName: '\u0418\u0432\u0430\u043D \u041F\u0435\u0442\u0440\u043E\u0432',
+    generatedAt: when,
+    confirmationText: sentence,
+    signerName: company,
+    signerRole: 'Site manager',
+    signerCompany: company,
+    signedAt: when,
+    signaturePng: null,
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Bead missing at the window reveal',
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  const text = decodedPdfText(built.bytes);
+  assert.equal(sentence, 'I confirm the 1 snag marked complete above has been put right to my satisfaction, on behalf of Ștefan Țăran SRL. Snags listed as outstanding are not signed off.');
+  assert.match(text, /Snag sign-offȘtefan Țăran SRL/);
+  assert.match(text, /ofȘtefan Țăran SRL\. Snags listed as outstanding are not signed off\./);
+  assert.match(text, /Ștefan Țăran SRLSite manager/);
+  assert.match(text, /Иван Петров/);
+  assert.equal(text.includes('?'), false);
+  assert.equal(text.includes(SNAG_PDF_UNSHOWN_NOTE), false);
+});
+
+test('an emoji or a CJK name adds the fallback note, and a plain name does not', async () => {
+  const when = '2026-10-22T13:05:00.000Z';
+  const note = 'Paint \u{1F600}\u4E2D missing';
+  const cjkName = '\u738B\u4F1F';
+  const built = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
     siteName: 'Jos\u00e9 M\u00fcller',
     generatedAt: when,
     confirmationText: snagConfirmation('\u0141ukasz W\u00f3jcik', 'contractor', 1),
-    signerName: signer,
+    signerName: cjkName,
     signerRole: 'Site manager',
     signerCompany: '\u0141ukasz W\u00f3jcik',
     signedAt: when,
@@ -976,14 +1038,47 @@ test('Ștefan Țăran, Cyrillic, and an emoji the font cannot draw', async () =>
   });
   const text = decodedPdfText(built.bytes);
   assert.equal(note, 'Paint \u{1F600}\u4E2D missing');
-  assert.equal(company, '\u0218tefan \u021A\u0103ran SRL');
-  assert.match(text, /Ștefan Țăran SRL/);
-  assert.match(text, /Иван Петров/);
+  assert.equal(cjkName, '\u738B\u4F1F');
   assert.match(text, /José Müller/);
   assert.match(text, /Łukasz Wójcik/);
   assert.match(text, /Paint \?\? missing/);
+  assert.match(text, /\?\?Site manager/);
   assert.equal(text.includes('\u{1F600}'), false);
   assert.equal(text.includes('\u4E2D'), false);
-  assert.equal(SNAG_PDF_UNSHOWN_NOTE, "Some characters can't be shown in this PDF. See the app record.");
-  assert.match(text, /Some characters can't be shown in this PDF\. See the app record\./);
+  assert.equal(text.includes('\u738B'), false);
+  assert.equal(SNAG_PDF_UNSHOWN_NOTE, "Some characters can't be shown in this PDF and appear as ?. The signed record in SitePack shows the full text.");
+  assert.match(text, /Some characters can't be shown in this PDF and appear as \?\. The signed record in SitePack shows the full text\./);
+
+  const plain = await buildSnagSignoffPdf({
+    reportId: 'SO-22Oct2026',
+    kind: 'contractor',
+    companyName: 'Ashfield Finishes',
+    siteName: 'Plot 12 - Oak Estate',
+    generatedAt: when,
+    confirmationText: snagConfirmation('Northbuild', 'contractor', 1),
+    signerName: '\u0418\u0432\u0430\u043D \u041F\u0435\u0442\u0440\u043E\u0432',
+    signerRole: 'Site manager',
+    signerCompany: 'Northbuild',
+    signedAt: when,
+    signaturePng: null,
+    covered: [
+      {
+        snagSeq: 1,
+        note: 'Bead missing at the window reveal',
+        levelArea: 'Ground',
+        tradeLabel: 'dryliner',
+        status: 'Fixed',
+        raisedByName: 'Amy Keane',
+        raisedAt: '2026-10-22T08:15:00.000Z',
+        fixedAt: '2026-10-22T11:40:00.000Z',
+        photos: [{ bytes: snagJpegBytes('beforeWide'), contentType: 'image/jpeg', kind: 'before' }],
+        signature: null,
+      },
+    ],
+    outstanding: [],
+  });
+  const plainText = decodedPdfText(plain.bytes);
+  assert.match(plainText, /Иван Петров/);
+  assert.match(plainText, /Ashfield Finishes/);
+  assert.equal(plainText.includes(SNAG_PDF_UNSHOWN_NOTE), false);
 });

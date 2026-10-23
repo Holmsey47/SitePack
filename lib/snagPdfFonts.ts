@@ -1,5 +1,5 @@
 // Noto Sans (SIL OFL 1.1, no Reserved Font Name), subset for the sign-off PDF.
-// Latin, Latin Extended-A, Latin Extended-B, and Cyrillic.
+// Latin, Latin Extended-A, Latin Extended-B (including U+0218–U+021B, Ș ș Ț ț), and Cyrillic.
 // Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
 // Source files and the full license: assets/fonts/NotoSans-Regular.ttf, assets/fonts/NotoSans-Bold.ttf, assets/fonts/OFL.txt
 

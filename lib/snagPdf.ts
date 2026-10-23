@@ -7,7 +7,8 @@ import { SNAG_PDF_SANS, SNAG_PDF_SANS_BOLD } from '@/lib/snagPdfFonts';
 
 export const SNAG_PDF_PAGE_W = 595;
 export const SNAG_PDF_PAGE_H = 842;
-export const SNAG_PDF_UNSHOWN_NOTE = "Some characters can't be shown in this PDF. See the app record.";
+export const SNAG_PDF_UNSHOWN_NOTE =
+  "Some characters can't be shown in this PDF and appear as ?. The signed record in SitePack shows the full text.";
 export const SNAG_PDF_OUTSTANDING_CONTINUED = 'Outstanding (not signed off), continued';
 const PAGE_W = SNAG_PDF_PAGE_W;
 const PAGE_H = SNAG_PDF_PAGE_H;
