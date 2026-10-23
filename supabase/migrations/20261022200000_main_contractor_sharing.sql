@@ -601,7 +601,9 @@ create policy site_talk_versions_select
   );
 
 -- A table-level select cannot be narrowed by revoking one column. Grant every
--- column except the image. Security-definer talk functions still read it.
+-- column except the image. Security-definer talk functions still read it for
+-- the host. Guests have no policy on this table: names, times, and meaning
+-- come only from shared_induction_register, which does not return the image.
 revoke select on table public.site_talk_signatures from public, anon, authenticated;
 grant select (
   id,
@@ -626,22 +628,11 @@ drop policy if exists site_talk_signatures_select on public.site_talk_signatures
 create policy site_talk_signatures_select
   on public.site_talk_signatures for select to authenticated
   using (
-    (
-      company_id = private.my_company_id()
-      and private.can_access_site(site_id)
-      and (
-        person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
-        or private.my_role() in ('owner', 'cm')
-      )
-    )
-    or (
-      private.can_view_shared_section(site_id, 'inductions')
-      and exists (
-        select 1
-        from public.site_talks t
-        where t.id = talk_id
-          and t.kind = 'induction'
-      )
+    company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and (
+      person_id = (select p.id from public.people p where p.auth_user_id = (select auth.uid()))
+      or private.my_role() in ('owner', 'cm')
     )
   );
 

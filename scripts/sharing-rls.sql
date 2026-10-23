@@ -322,7 +322,7 @@ insert into public.site_talk_signatures (
 values (
   'cc111111-1111-4111-8111-111111111111', 'dd111111-1111-4111-8111-111111111111', :'sitea', :'firmx',
   :'opx', 'Łukasz Wójcik', :'opx', 'session-1',
-  false, 'attendee', 'I have read the induction.', repeat('a', 40), now(), now(), 'hash-induction'
+  false, 'attendee', 'I have read the induction.', 'SIGIMAGE-SECRET-' || repeat('Z', 24), now(), now(), 'hash-induction'
 );
 
 insert into public.site_talk_questions (
@@ -602,21 +602,159 @@ select pg_temp.ok(
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'person_name') = 'Łukasz Wójcik'
   and (public.shared_induction_register(:'sitea'::uuid) -> 0 ->> 'id') is not null
   and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%QUESTION-SECRET%')
-  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%' || repeat('a', 40) || '%')
-  and not has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select')
-  and has_column_privilege('authenticated', 'public.site_talk_signatures', 'person_name', 'select')
-  and pg_temp.raises(
-    'select signature_png from public.site_talk_signatures',
-    'permission denied for table site_talk_signatures'
-  )
-  and (select person_name from public.site_talk_signatures) = 'Łukasz Wójcik'
-  and (select meaning from public.site_talk_signatures) = 'I have read the induction.'
-  and (select received_at from public.site_talk_signatures) is not null
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%SIGIMAGE-SECRET%')
+  and not ((public.shared_induction_register(:'sitea'::uuid)::text) like '%signature_png%')
   and (select count(*) from public.site_talk_versions where body = 'OLD-INDUCTION-SECRET') = 0
   and (select count(*) from public.site_talk_versions where body = 'Read this induction.') = 1
   and (select count(*) from public.site_talk_versions) = 1,
   'turning a section on shows the register names and still hides the toolbox, questions, and old induction text'
 );
+
+-- Probe guest_signature_image.
+-- Assertion: guest owner, cm, and operative get no signature image from a direct select or any rpc.
+do $guest_signature_image$
+declare
+  v_role uuid;
+  v_roles uuid[] := array[
+    'a2222222-2222-4222-8222-222222222221'::uuid,
+    'a2222222-2222-4222-8222-222222222222'::uuid,
+    'a2222222-2222-4222-8222-222222222223'::uuid
+  ];
+  v_site uuid := '51111111-1111-4111-8111-111111111111';
+  v_talk uuid := 'cc111111-1111-4111-8111-111111111111';
+  v_png text;
+  v_fn record;
+  v_fill uuid;
+  v_fills uuid[];
+  v_args text;
+  v_sql text;
+  v_text text;
+  v_calls integer := 0;
+  v_state text;
+begin
+  execute 'reset role';
+  select s.signature_png into v_png
+  from public.site_talk_signatures s
+  where s.person_name = 'Łukasz Wójcik';
+  if v_png is null or position('SIGIMAGE-SECRET' in v_png) = 0 then
+    raise exception 'FAIL: seeded signature image is missing';
+  end if;
+
+  foreach v_role in array v_roles loop
+    perform set_config('request.jwt.claim.sub', v_role::text, true);
+    perform set_config('request.jwt.claim.role', 'authenticated', true);
+    perform set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_role::text, 'role', 'authenticated')::text,
+      true
+    );
+    execute 'set local role authenticated';
+
+    if has_column_privilege('authenticated', 'public.site_talk_signatures', 'signature_png', 'select') then
+      raise exception 'FAIL: % still has signature_png', v_role;
+    end if;
+
+    begin
+      perform signature_png from public.site_talk_signatures;
+      raise exception 'FAIL: % read signature_png', v_role;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        raise exception 'FAIL: % signature_png select -> %', v_role, sqlerrm;
+    end;
+
+    begin
+      perform to_jsonb(s) from public.site_talk_signatures s;
+      raise exception 'FAIL: % read a signature row as jsonb', v_role;
+    exception
+      when insufficient_privilege then
+        null;
+      when others then
+        raise exception 'FAIL: % signature jsonb -> %', v_role, sqlerrm;
+    end;
+
+    if exists (select 1 from public.site_talk_signatures) then
+      raise exception 'FAIL: % direct select returned signature rows', v_role;
+    end if;
+
+    v_text := public.shared_induction_register(v_site)::text;
+    if position('Łukasz Wójcik' in coalesce(v_text, '')) = 0
+       or position('SIGIMAGE-SECRET' in coalesce(v_text, '')) > 0
+       or position('"signature_png"' in coalesce(v_text, '')) > 0 then
+      raise exception 'FAIL: % induction register returned signature data', v_role;
+    end if;
+
+    v_fills := array[null::uuid, v_site, v_talk];
+    foreach v_fill in array v_fills loop
+      for v_fn in
+        select p.proname, p.prokind, p.proargtypes
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.prokind in ('f', 'p')
+          and has_function_privilege('authenticated', p.oid, 'execute')
+          and pg_catalog.pg_get_function_result(p.oid) not in ('trigger', 'event_trigger')
+      loop
+        select coalesce(string_agg(
+          case
+            when v_fill is not null and format_type(u.t, null) = 'uuid'
+              then quote_literal(v_fill) || '::uuid'
+            else 'null::' || format_type(u.t, null)
+          end,
+          ', ' order by u.ord
+        ), '')
+        into v_args
+        from unnest(v_fn.proargtypes) with ordinality as u(t, ord);
+
+        if v_fn.prokind = 'p' then
+          v_sql := format('call public.%I(%s)', v_fn.proname, v_args);
+        else
+          v_sql := format('select t::text from public.%I(%s) as t', v_fn.proname, v_args);
+        end if;
+
+        -- Raising rolls this call back, so a write cannot change the rest of the probe.
+        begin
+          if v_fn.prokind = 'p' then
+            execute v_sql;
+          else
+            for v_text in execute v_sql loop
+              if position('SIGIMAGE-SECRET' in coalesce(v_text, '')) > 0
+                 or position('"signature_png"' in coalesce(v_text, '')) > 0 then
+                raise exception 'returned signature data in %', v_fn.proname;
+              end if;
+            end loop;
+          end if;
+          raise exception 'rollback_call';
+        exception
+          when others then
+            get stacked diagnostics v_state = returned_sqlstate;
+            if v_state in ('42601', '42883')
+               or position('SIGIMAGE-SECRET' in sqlerrm) > 0
+               or position('returned signature data' in sqlerrm) > 0 then
+              raise exception 'FAIL: % as % -> %', v_fn.proname, v_role, sqlerrm;
+            end if;
+            v_calls := v_calls + 1;
+        end;
+      end loop;
+    end loop;
+  end loop;
+
+  if v_calls < 100 then
+    raise exception 'FAIL: signature rpc sweep only made % calls', v_calls;
+  end if;
+
+  perform set_config('request.jwt.claim.sub', 'a2222222-2222-4222-8222-222222222221', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', 'a2222222-2222-4222-8222-222222222221', 'role', 'authenticated')::text,
+    true
+  );
+  execute 'set local role authenticated';
+  raise notice 'ok: guest owner, cm, and operative get no signature image from a direct select or any rpc';
+end
+$guest_signature_image$;
 
 do $write$
 declare
