@@ -460,6 +460,32 @@ export const supabaseRepo: SitePackRepo = {
     return unwrap((data ?? []) as DrawingRequest[], error);
   },
 
+  async listSiteRequests(siteId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('drawing_requests')
+      .select('*, people!drawing_requests_requester_id_fkey(display_name)')
+      .eq('site_id', siteId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      const { data: plain, error: plainError } = await supabase
+        .from('drawing_requests')
+        .select('*')
+        .eq('site_id', siteId)
+        .order('created_at', { ascending: false });
+      return unwrap((plain ?? []) as DrawingRequest[], plainError);
+    }
+    return (
+      (data ?? []) as Array<DrawingRequest & { people?: { display_name: string | null } | { display_name: string | null }[] }>
+    ).map((row) => {
+      const person = Array.isArray(row.people) ? row.people[0] : row.people;
+      return {
+        ...row,
+        requester_name: person?.display_name?.trim() || undefined,
+      };
+    });
+  },
+
   async listInboxRequests() {
     const supabase = getSupabase();
     const { data, error } = await supabase

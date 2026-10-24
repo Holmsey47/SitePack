@@ -1,9 +1,11 @@
+import { SiteBar } from '@/components/site-bar';
 import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import { DRAWINGS_LIST_BOTTOM_PAD, type SiteListKind } from '@/data/siteListSeen';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
@@ -14,6 +16,7 @@ import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
 import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
+import { siteBarCounts } from '@/lib/siteListSeenSync';
 import { theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -34,7 +37,7 @@ export default function SitePackScreen() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [newJoiners, setNewJoiners] = useState(0);
+  const [barCounts, setBarCounts] = useState<Partial<Record<SiteListKind, number>> | null>(null);
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
@@ -47,14 +50,10 @@ export default function SitePackScreen() {
       const [nextSite, nextDrawings] = await Promise.all([repo.getSite(siteId), repo.listDrawings(siteId)]);
       setSite(nextSite);
       setDrawings(nextDrawings);
-      if (person && canManageSite(person.role)) {
-        const joiners = await repo.listJoiners(siteId).catch(() => []);
-        const week = 7 * 24 * 60 * 60 * 1000;
-        setNewJoiners(
-          joiners.filter((row) => !row.removed_at && Date.now() - new Date(row.joined_at).getTime() < week).length
-        );
-      }
       setLoaded(true);
+      void siteBarCounts(siteId).then((counts) => {
+        if (mounted.current) setBarCounts(counts);
+      });
       setError('');
       const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
       setReady(isPackReady(siteId, currentIds));
@@ -88,6 +87,7 @@ export default function SitePackScreen() {
         }
       );
       setDrawings([]);
+      setBarCounts(null);
       setLoaded(true);
       setError('');
       setReady(Boolean(meta && meta.items.length > 0));
@@ -184,7 +184,9 @@ export default function SitePackScreen() {
   }
 
   return (
-    <Screen>
+    <Screen
+      footer={siteId ? <SiteBar siteId={siteId} counts={barCounts} /> : null}
+      contentPaddingBottom={DRAWINGS_LIST_BOTTOM_PAD}>
       {person?.role === 'operative' ? (
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Pressable
@@ -201,6 +203,12 @@ export default function SitePackScreen() {
           </Pressable>
         </View>
       ) : null}
+      <Button
+        label="People"
+        variant="secondary"
+        minHeight={48}
+        onPress={() => router.push(`/sites/${siteId}/people`)}
+      />
       <Title>{site.name}</Title>
       {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
         <GlanceRow
@@ -264,21 +272,6 @@ export default function SitePackScreen() {
           ))}
         </View>
       ) : null}
-      {manage ? (
-        <View style={{ gap: 8 }}>
-          <Button
-            label="Invite to this site"
-            minHeight={56}
-            onPress={() => router.push(`/sites/${siteId}/invite-code`)}
-          />
-          <Button label="Who joined" variant="secondary" onPress={() => router.push(`/sites/${siteId}/joined`)} />
-        </View>
-      ) : null}
-      {manage && newJoiners > 0 ? (
-        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', alignSelf: 'flex-start', borderRadius: 8, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6 }}>
-          {newJoiners === 1 ? 'New joiner' : `${newJoiners} new joiners`}
-        </Text>
-      ) : null}
       {site.address_line ? <Muted>{site.address_line}</Muted> : null}
       {site.main_contractor ? <Muted>Main contractor · {site.main_contractor}</Muted> : null}
       {site.what_it_is ? <Muted>{site.what_it_is}</Muted> : null}
@@ -293,15 +286,7 @@ export default function SitePackScreen() {
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
-      <Button label="Variations" variant="secondary" onPress={() => router.push(`/sites/${siteId}/variations`)} />
-      <Button label="Snags" variant="secondary" onPress={() => router.push(`/sites/${siteId}/snags`)} />
-      <Button label="Request a drawing" variant="secondary" onPress={() => router.push(`/sites/${siteId}/request`)} />
-      {manage ? (
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
-          <Button label="Assigned people" variant="ghost" onPress={() => router.push(`/sites/${siteId}/assignments`)} />
-        </View>
-      ) : null}
+      {manage ? <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} /> : null}
       {person?.role === 'owner' ? (
         confirmArchive ? (
           <View style={{ gap: 8 }}>
@@ -338,13 +323,7 @@ export default function SitePackScreen() {
       {folders.length === 0 && phoneRows.length === 0 ? (
         <EmptyState
           title="No drawings yet"
-          action={
-            manage ? (
-              <Button label="Upload" onPress={() => router.push(`/sites/${siteId}/upload`)} />
-            ) : (
-              <Button label="Request drawing" onPress={() => router.push(`/sites/${siteId}/request`)} />
-            )
-          }
+          action={manage ? <Button label="Upload" onPress={() => router.push(`/sites/${siteId}/upload`)} /> : undefined}
         />
       ) : (
         folders.map((folder) => (

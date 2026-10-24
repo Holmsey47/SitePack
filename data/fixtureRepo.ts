@@ -823,6 +823,19 @@ export const fixtureRepo: SitePackRepo = {
       .map(requestView);
   },
 
+  async listSiteRequests(siteId) {
+    const person = meOrThrow();
+    if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
+    return store.requests
+      .filter((row) => {
+        if (row.site_id !== siteId) return false;
+        if (person.role === 'operative') return row.requester_id === person.id;
+        return true;
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map(requestView);
+  },
+
   async listInboxRequests() {
     const person = meOrThrow();
     if (person.role === 'operative') throw new Error('not_authorized');

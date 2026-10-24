@@ -17,14 +17,20 @@ export function Screen({
   children,
   scroll = true,
   footer,
+  contentPaddingBottom,
 }: {
   children: ReactNode;
   scroll?: boolean;
   footer?: ReactNode;
+  /** Extra space at the end of a scrolling page, so a footer bar does not cover the last row. */
+  contentPaddingBottom?: number;
 }) {
   const edges = footer ? (['top'] as const) : (['top', 'bottom'] as const);
   const body = scroll ? (
-    <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={footer ? { flex: 1 } : undefined}
+      contentContainerStyle={[styles.scroll, contentPaddingBottom != null ? { paddingBottom: contentPaddingBottom } : null]}
+      keyboardShouldPersistTaps="handled">
       {children}
     </ScrollView>
   ) : (

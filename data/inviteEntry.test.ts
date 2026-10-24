@@ -156,12 +156,12 @@ test('operatives never see the invite buttons', () => {
   assert.doesNotMatch(invite, /console\.(log|debug|info|warn)/);
 
   const site = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/index.tsx', import.meta.url), 'utf8');
-  const inviteAt = site.indexOf('Invite to this site');
-  const whoAt = site.indexOf('Who joined');
-  const downloadAt = site.indexOf('Download for offline');
-  assert.equal(inviteAt > 0 && whoAt > inviteAt && downloadAt > whoAt, true);
-  assert.match(site, /\{manage \? \([\s\S]*Invite to this site/);
-  assert.doesNotMatch(site.slice(0, site.indexOf('const manage')), /Invite to this site/);
+  assert.equal(site.includes('Invite to this site'), false);
+  assert.equal(site.includes('Who joined'), false);
+  assert.match(site, /label="People"/);
+  const people = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/people.tsx', import.meta.url), 'utf8');
+  assert.match(people, /\{manage \? \([\s\S]*Invite to this site/);
+  assert.doesNotMatch(people.slice(0, people.indexOf('const manage')), /Invite to this site/);
 
   const panel = fs.readFileSync(new URL('../components/JoinSharePanel.tsx', import.meta.url), 'utf8');
   const whatsAppAt = panel.indexOf('Share on WhatsApp');

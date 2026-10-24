@@ -19,6 +19,7 @@ import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayTex
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
+import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -69,6 +70,7 @@ export default function SnagsScreen() {
     try {
       setList(await repo.listSnags(siteId));
       if (!signInRequired) setError('');
+      void markSiteListSeen(siteId, 'snags');
     } catch (err) {
       if (!signInRequired) setError(snagError(err instanceof Error ? err.message : 'unknown'));
     }
