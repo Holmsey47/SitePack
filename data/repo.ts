@@ -56,6 +56,8 @@ export type SitePackRepo = {
   createRequest(input: CreateRequestInput): Promise<DrawingRequest>;
   listMyRequests(): Promise<DrawingRequest[]>;
   listInboxRequests(): Promise<DrawingRequest[]>;
+  /** Requests on this site that the caller can already select. */
+  listSiteRequests(siteId: string): Promise<DrawingRequest[]>;
   getRequest(requestId: string): Promise<DrawingRequest | null>;
   updateRequest(
     requestId: string,

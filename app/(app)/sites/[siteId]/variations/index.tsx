@@ -5,6 +5,7 @@ import { canSeeVariationValue, filterVariations, variationError, variationNumber
 import { variationListAmount } from '@/lib/variationWording';
 import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
+import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -30,6 +31,7 @@ export default function VariationsScreen() {
     try {
       setList(await repo.listVariations(siteId));
       setError('');
+      void markSiteListSeen(siteId, 'variations');
     } catch (err) {
       setError(variationError(err instanceof Error ? err.message : 'unknown'));
     }
