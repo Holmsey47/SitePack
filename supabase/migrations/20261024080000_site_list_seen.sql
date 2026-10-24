@@ -35,12 +35,18 @@ create policy site_list_seen_select
 
 create policy site_list_seen_insert
   on public.site_list_seen for insert to authenticated
-  with check (user_id = (select auth.uid()));
+  with check (
+    user_id = (select auth.uid())
+    and private.can_access_site(site_id)
+  );
 
 create policy site_list_seen_update
   on public.site_list_seen for update to authenticated
   using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
+  with check (
+    user_id = (select auth.uid())
+    and private.can_access_site(site_id)
+  );
 
 -- People on a site. Owner, CM, and operative can read assignments for a site
 -- they can already open. Insert and delete stay on the existing owner/CM policies.

@@ -80,6 +80,20 @@ test('site page is drawings, a People button, and a three-item bar', () => {
 
   assert.match(migration, /enable row level security/);
   assert.match(migration, /user_id = \(select auth\.uid\(\)\)/);
+  const insertPolicy = migration.slice(
+    migration.indexOf('create policy site_list_seen_insert'),
+    migration.indexOf('create policy site_list_seen_update')
+  );
+  const updatePolicy = migration.slice(
+    migration.indexOf('create policy site_list_seen_update'),
+    migration.indexOf('-- People on a site')
+  );
+  assert.match(insertPolicy, /user_id = \(select auth\.uid\(\)\)/);
+  assert.match(insertPolicy, /private\.can_access_site\(site_id\)/);
+  assert.match(updatePolicy, /using \(user_id = \(select auth\.uid\(\)\)\)/);
+  assert.equal(updatePolicy.slice(0, updatePolicy.indexOf('with check')).includes('can_access_site'), false);
+  assert.match(updatePolicy.slice(updatePolicy.indexOf('with check')), /user_id = \(select auth\.uid\(\)\)/);
+  assert.match(updatePolicy.slice(updatePolicy.indexOf('with check')), /private\.can_access_site\(site_id\)/);
   assert.match(migration, /grant select, insert, update on table public\.site_list_seen to authenticated/);
   assert.equal(migration.includes('for delete'), false);
   assert.equal(migration.includes('grant delete'), false);
