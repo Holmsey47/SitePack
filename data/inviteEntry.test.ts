@@ -158,7 +158,7 @@ test('operatives never see the invite buttons', () => {
   const site = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/index.tsx', import.meta.url), 'utf8');
   assert.equal(site.includes('Invite to this site'), false);
   assert.equal(site.includes('Who joined'), false);
-  assert.match(site, /label="People"/);
+  assert.match(site, /<PeoplePill /);
   const people = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/people.tsx', import.meta.url), 'utf8');
   assert.match(people, /\{manage \? \([\s\S]*Invite to this site/);
   assert.doesNotMatch(people.slice(0, people.indexOf('const manage')), /Invite to this site/);

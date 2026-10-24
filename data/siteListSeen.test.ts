@@ -4,7 +4,10 @@ import test from 'node:test';
 import {
   DRAWINGS_LIST_BOTTOM_PAD,
   SITE_BAR,
+  SITE_BAR_BADGE_FONT,
+  SITE_BAR_BADGE_SIZE,
   SITE_BAR_MIN_HEIGHT,
+  SITE_HEADER_HIT,
   countNewSince,
   isMissingSeenTable,
 } from './siteListSeen.ts';
@@ -21,7 +24,14 @@ test('site bar is Snags, Variations, and Requests', () => {
   );
   assert.equal(SITE_BAR.map((item) => `${item.kind}:${item.label}`).join(' ').includes('drawings'), false);
   assert.equal(SITE_BAR.map((item) => item.label).join(' ').includes('Drawings'), false);
+  assert.deepEqual(
+    SITE_BAR.map((item) => item.icon),
+    ['report-problem', 'compare-arrows', 'assignment']
+  );
   assert.equal(SITE_BAR_MIN_HEIGHT >= 48, true);
+  assert.equal(SITE_HEADER_HIT >= 48, true);
+  assert.equal(SITE_BAR_BADGE_SIZE >= 20 && SITE_BAR_BADGE_SIZE <= 22, true);
+  assert.equal(SITE_BAR_BADGE_FONT, 12);
   assert.equal(DRAWINGS_LIST_BOTTOM_PAD >= SITE_BAR_MIN_HEIGHT, true);
   assert.deepEqual(
     SITE_BAR.map((item) => item.path('oak')),
@@ -56,9 +66,12 @@ test('site page is drawings, a People button, and a three-item bar', () => {
   const migration = fs.readFileSync('supabase/migrations/20261024080000_site_list_seen.sql', 'utf8');
 
   assert.match(site, /<SiteBar /);
+  assert.match(site, /siteName=\{site\.name\}/);
   assert.match(site, /contentPaddingBottom=\{DRAWINGS_LIST_BOTTOM_PAD\}/);
-  assert.match(site, /label="People"/);
-  assert.match(site, /minHeight=\{48\}/);
+  assert.match(site, /headerBackVisible: false/);
+  assert.match(site, /<SitesBackButton \/>/);
+  assert.match(site, /<PeoplePill /);
+  assert.equal(site.includes('label="People"'), false);
   assert.equal(site.includes('Invite to this site'), false);
   assert.equal(site.includes('Who joined'), false);
   assert.equal(site.includes('label="Snags"'), false);
@@ -70,8 +83,19 @@ test('site page is drawings, a People button, and a three-item bar', () => {
   assert.match(bar, /useSafeAreaInsets/);
   assert.match(bar, /minHeight: SITE_BAR_MIN_HEIGHT/);
   assert.match(bar, /paddingBottom: Math\.max\(insets\.bottom, 8\)/);
+  assert.match(bar, /On this site/);
+  assert.match(bar, /name=\{item\.icon\}/);
+  assert.match(bar, /color: theme\.text/);
+  assert.match(bar, /SITE_BAR_BADGE_SIZE/);
+  assert.match(bar, /fontSize: SITE_BAR_BADGE_FONT/);
   assert.equal(bar.includes('Drawings'), false);
-  assert.equal(bar.includes('label:'), false);
+  assert.equal(bar.includes('color: theme.muted, fontWeight: \'800\' }>{item.label}'), false);
+  const header = fs.readFileSync('components/site-header.tsx', 'utf8');
+  assert.match(header, /← Sites/);
+  assert.match(header, /minWidth: SITE_HEADER_HIT/);
+  assert.match(header, /minHeight: SITE_HEADER_HIT/);
+  assert.match(header, />People</);
+  assert.match(header, /borderRadius: 999/);
 
   assert.match(people, /canManageSite/);
   assert.match(people, /Invite to this site/);

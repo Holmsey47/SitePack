@@ -1,4 +1,5 @@
 import { SiteBar } from '@/components/site-bar';
+import { PeoplePill, SitesBackButton } from '@/components/site-header';
 import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
@@ -20,7 +21,7 @@ import { siteBarCounts } from '@/lib/siteListSeenSync';
 import { theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitePackScreen() {
@@ -28,6 +29,14 @@ export default function SitePackScreen() {
   const { person, signOut } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerBackVisible: false,
+      headerLeft: () => <SitesBackButton />,
+      headerRight: () => (siteId ? <PeoplePill siteId={siteId} /> : null),
+    });
+  }, [navigation, siteId]);
   const [allowDownloadLeave, setAllowDownloadLeave] = useState(false);
   const pendingDownloadLeave = useRef<NavigationAction | null>(null);
   const mounted = useRef(true);
@@ -185,16 +194,10 @@ export default function SitePackScreen() {
 
   return (
     <Screen
-      footer={siteId ? <SiteBar siteId={siteId} counts={barCounts} /> : null}
+      footer={siteId ? <SiteBar siteId={siteId} siteName={site.name} counts={barCounts} /> : null}
       contentPaddingBottom={DRAWINGS_LIST_BOTTOM_PAD}>
       {person?.role === 'operative' ? (
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.replace('/sites')}
-            style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>← Sites</Text>
-          </Pressable>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' }}>
           <Pressable
             accessibilityRole="button"
             onPress={() => void signOut()}
@@ -203,12 +206,6 @@ export default function SitePackScreen() {
           </Pressable>
         </View>
       ) : null}
-      <Button
-        label="People"
-        variant="secondary"
-        minHeight={48}
-        onPress={() => router.push(`/sites/${siteId}/people`)}
-      />
       <Title>{site.name}</Title>
       {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
         <GlanceRow
