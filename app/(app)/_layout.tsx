@@ -13,7 +13,10 @@ export default function AppLayout() {
       }}>
       <Stack.Screen name="home" options={{ headerShown: false }} />
       <Stack.Screen name="create-site" options={{ title: 'Create site' }} />
-      <Stack.Screen name="sites/index" options={{ title: 'Sites' }} />
+      <Stack.Screen
+        name="sites/index"
+        options={{ title: 'Sites', headerBackVisible: false, headerLeft: () => null }}
+      />
       <Stack.Screen name="sites/[siteId]/index" options={{ title: 'Site pack' }} />
       <Stack.Screen name="sites/[siteId]/people" options={{ title: 'People' }} />
       <Stack.Screen name="sites/[siteId]/requests" options={{ title: 'Requests' }} />

@@ -8,9 +8,14 @@ import {
   SITE_BAR_BADGE_SIZE,
   SITE_BAR_MIN_HEIGHT,
   SITE_HEADER_HIT,
+  SITE_HEADER_INSET,
+  badgeReadIsCurrent,
   countNewSince,
+  countUnseen,
   isMissingSeenTable,
+  saveSeenWithRetry,
 } from './siteListSeen.ts';
+import { visibleSiteOwner } from './walk.ts';
 
 test('site bar is Snags, Variations, and Requests', () => {
   assert.equal(SITE_BAR.length, 3);
@@ -30,6 +35,7 @@ test('site bar is Snags, Variations, and Requests', () => {
   );
   assert.equal(SITE_BAR_MIN_HEIGHT >= 48, true);
   assert.equal(SITE_HEADER_HIT >= 48, true);
+  assert.equal(SITE_HEADER_INSET, 8);
   assert.equal(SITE_BAR_BADGE_SIZE >= 20 && SITE_BAR_BADGE_SIZE <= 22, true);
   assert.equal(SITE_BAR_BADGE_FONT, 12);
   assert.equal(DRAWINGS_LIST_BOTTOM_PAD >= SITE_BAR_MIN_HEIGHT, true);
@@ -49,6 +55,67 @@ test('new-since counts only rows after this user last opened the list', () => {
   assert.equal(countNewSince(rows, '2026-10-24T12:00:00.000Z'), 0);
   assert.equal(countNewSince(['nope', '2026-10-24T12:00:00.000Z'], '2026-10-01T00:00:00.000Z'), 1);
   assert.equal(countNewSince([], null), 0);
+});
+
+test('own rows stay off the badge, and a missing self still counts everyone', () => {
+  const rows = [
+    { at: '2026-10-24T12:00:00.000Z', by: 'me' },
+    { at: '2026-10-24T13:00:00.000Z', by: 'them' },
+    { at: '2026-10-01T00:00:00.000Z', by: 'them' },
+  ];
+  assert.equal(countUnseen(rows, null, 'me'), 2);
+  assert.equal(countUnseen(rows, '2026-10-20T00:00:00.000Z', 'me'), 1);
+  assert.equal(countUnseen(rows, '2026-10-24T13:00:00.000Z', 'me'), 0);
+  assert.equal(countUnseen(rows, null, null), 3);
+  assert.equal(countUnseen(rows, null, ''), 3);
+  assert.equal(countUnseen([{ at: '2026-10-24T12:00:00.000Z', by: null }], null, 'me'), 1);
+});
+
+test('a seen save is tried twice, and a success is not repeated', async () => {
+  let failed = 0;
+  const recovered = await saveSeenWithRetry(async () => {
+    failed += 1;
+    return failed > 1;
+  });
+  assert.equal(recovered, true);
+  assert.equal(failed, 2);
+
+  let thrown = 0;
+  const gaveUp = await saveSeenWithRetry(async () => {
+    thrown += 1;
+    throw new Error('offline');
+  });
+  assert.equal(gaveUp, false);
+  assert.equal(thrown, 2);
+
+  let once = 0;
+  assert.equal(
+    await saveSeenWithRetry(async () => {
+      once += 1;
+      return true;
+    }),
+    true,
+  );
+  assert.equal(once, 1);
+});
+
+test('a newer badge read wins over one that started earlier', () => {
+  assert.equal(badgeReadIsCurrent(2, 2), true);
+  assert.equal(badgeReadIsCurrent(1, 2), false);
+});
+
+test('the site owner is shown only from a row this caller can already see', () => {
+  const owner = { id: 'owner', role: 'owner' as const, display_name: 'Jordan Hale' };
+  const cm = { id: 'cm', role: 'cm' as const, display_name: 'Pat' };
+  assert.deepEqual(visibleSiteOwner(owner, []), { id: 'owner', name: 'Jordan Hale' });
+  assert.equal(visibleSiteOwner(cm, []), null);
+  assert.equal(visibleSiteOwner({ id: 'op', role: 'operative', display_name: 'Sam' }, []), null);
+  assert.deepEqual(
+    visibleSiteOwner(cm, [{ person_id: 'owner', person: { role: 'owner', display_name: 'Jordan Hale' } }]),
+    { id: 'owner', name: 'Jordan Hale' },
+  );
+  const blank = visibleSiteOwner(owner, [{ person_id: 'owner', person: { role: 'owner', display_name: '' } }]);
+  assert.equal(blank?.name, 'Unknown');
 });
 
 test('a missing seen table is the signal to hide the badge', () => {
@@ -92,14 +159,50 @@ test('site page is drawings, a People button, and a three-item bar', () => {
   assert.equal(bar.includes('color: theme.muted, fontWeight: \'800\' }>{item.label}'), false);
   const header = fs.readFileSync('components/site-header.tsx', 'utf8');
   assert.match(header, /← Sites/);
+  assert.match(header, /dismissTo\('\/sites'\)/);
+  assert.equal(header.includes("navigate('/sites')"), false);
   assert.match(header, /minWidth: SITE_HEADER_HIT/);
   assert.match(header, /minHeight: SITE_HEADER_HIT/);
+  assert.match(header, /marginLeft: SITE_HEADER_INSET/);
+  assert.match(header, /marginRight: SITE_HEADER_INSET/);
   assert.match(header, />People</);
   assert.match(header, /borderRadius: 999/);
+
+  const layout = fs.readFileSync('app/(app)/_layout.tsx', 'utf8');
+  const sitesScreen = layout.slice(layout.indexOf('name="sites/index"'), layout.indexOf('name="sites/[siteId]/index"'));
+  assert.match(sitesScreen, /headerBackVisible: false/);
+  assert.match(sitesScreen, /headerLeft: \(\) => null/);
+
+  assert.match(site, /onOpen=\{openList\}/);
+  assert.match(site, /pendingSiteListSaves/);
+  assert.match(site, /badgeReadIsCurrent/);
+  assert.match(site, /\[kind\]: 0/);
+
+  const sync = fs.readFileSync('lib/siteListSeenSync.ts', 'utf8');
+  assert.equal(sync.includes('toISOString'), false);
+  assert.equal(sync.includes('seen_at:'), false);
+  assert.match(sync, /saveSeenWithRetry/);
+  assert.match(sync, /pendingSaves/);
+  assert.match(sync, /raised_by/);
+  assert.match(sync, /created_by/);
+  assert.match(sync, /requester_id/);
+  assert.match(sync, /countUnseen/);
+
+  const requests = fs.readFileSync('app/(app)/sites/[siteId]/requests.tsx', 'utf8');
+  assert.equal(requests.indexOf('markSiteListSeen') < requests.indexOf('listSiteRequests'), true);
+
+  const stamp = fs.readFileSync('supabase/migrations/20261026120000_site_list_seen_server_time.sql', 'utf8');
+  assert.match(stamp, /new\.seen_at := now\(\)/);
+  assert.match(stamp, /before insert or update/);
+  assert.match(stamp, /grant execute on function private\.stamp_site_list_seen\(\) to authenticated/);
+  assert.equal(stamp.includes('create policy'), false);
+  assert.equal(stamp.includes('people_select'), false);
 
   assert.match(people, /canManageSite/);
   assert.match(people, /Invite to this site/);
   assert.match(people, /listAssignments/);
+  assert.match(people, /visibleSiteOwner/);
+  assert.match(people, />Owner</);
   assert.doesNotMatch(people.slice(0, people.indexOf('const manage')), /Invite to this site/);
 
   assert.match(migration, /enable row level security/);

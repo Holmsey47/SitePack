@@ -26,12 +26,13 @@ export default function VariationsScreen() {
   const load = useCallback(async () => {
     const userId = person?.auth_user_id;
     if (!siteId || !userId) return;
+    const seen = markSiteListSeen(siteId, 'variations');
     const pending = await flushVariationQueue(userId, siteId, await deviceIsOnline(), sendQueuedVariation);
     setQueued(pending);
     try {
       setList(await repo.listVariations(siteId));
       setError('');
-      void markSiteListSeen(siteId, 'variations');
+      await seen;
     } catch (err) {
       setError(variationError(err instanceof Error ? err.message : 'unknown'));
     }

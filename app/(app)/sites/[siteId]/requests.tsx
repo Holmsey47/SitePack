@@ -17,11 +17,12 @@ export default function SiteRequestsScreen() {
 
   const load = useCallback(async () => {
     if (!siteId) return;
+    const seen = markSiteListSeen(siteId, 'requests');
     const next = await repo.listSiteRequests(siteId);
     setRows(next);
     setLoaded(true);
     setError('');
-    await markSiteListSeen(siteId, 'requests');
+    await seen;
   }, [siteId]);
 
   useFocusEffect(

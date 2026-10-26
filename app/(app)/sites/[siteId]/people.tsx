@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { SiteAssignment } from '@/data/types';
-import { assignmentRank, contactLine, occupationLine, personLabel } from '@/data/walk';
+import { assignmentRank, contactLine, occupationLine, personLabel, visibleSiteOwner } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -35,6 +35,11 @@ export default function SitePeopleScreen() {
       assignmentRank(left.person?.role) - assignmentRank(right.person?.role) ||
       personLabel(left.person).localeCompare(personLabel(right.person))
   );
+  const owner = visibleSiteOwner(
+    person ? { id: person.id, role: person.role, display_name: person.display_name } : null,
+    ordered,
+  );
+  const crew = ordered.filter((row) => row.person_id !== owner?.id);
 
   return (
     <Screen>
@@ -55,8 +60,14 @@ export default function SitePeopleScreen() {
           />
         </View>
       ) : null}
-      {ordered.length === 0 && !error ? <EmptyState title="Nobody assigned yet" /> : null}
-      {ordered.map((row) => (
+      {owner ? (
+        <Card>
+          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{owner.name}</Text>
+          <Muted>Owner</Muted>
+        </Card>
+      ) : null}
+      {crew.length === 0 && !owner && !error ? <EmptyState title="Nobody assigned yet" /> : null}
+      {crew.map((row) => (
         <Card key={row.id}>
           <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{personLabel(row.person)}</Text>
           {contactLine(row.person) ? <Muted>{contactLine(row.person)}</Muted> : null}
