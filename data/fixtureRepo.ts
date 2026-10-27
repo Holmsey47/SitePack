@@ -1066,6 +1066,15 @@ export const fixtureRepo: SitePackRepo = {
       .sort();
   },
 
+  async companyOwnerLabel() {
+    const person = meOrThrow();
+    const canOpen = store.sites.some((site) => canAccessSite(person, site.id));
+    if (!canOpen) return null;
+    const owner = store.people.find((row) => row.company_id === person.company_id && row.role === 'owner');
+    if (!owner) return null;
+    return { display_name: owner.display_name, role: 'owner' as const };
+  },
+
   async listAssignments(siteId) {
     const person = meOrThrow();
     if (!canAccessSite(person, siteId)) throw new Error('not_authorized');

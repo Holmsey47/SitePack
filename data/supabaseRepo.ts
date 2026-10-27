@@ -620,6 +620,17 @@ export const supabaseRepo: SitePackRepo = {
     return Array.isArray(data) ? data.filter((name): name is string => typeof name === 'string') : [];
   },
 
+  async companyOwnerLabel() {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('company_owner_label')
+      .select('display_name, role')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data || data.role !== 'owner') return null;
+    return { display_name: data.display_name ?? null, role: 'owner' as const };
+  },
+
   async listAssignments(siteId) {
     const supabase = getSupabase();
     const { data, error } = await supabase

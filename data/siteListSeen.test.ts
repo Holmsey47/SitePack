@@ -15,7 +15,7 @@ import {
   isMissingSeenTable,
   saveSeenWithRetry,
 } from './siteListSeen.ts';
-import { visibleSiteOwner } from './walk.ts';
+import { sitePeopleOwnerName, visibleSiteOwner } from './walk.ts';
 
 test('site bar is Snags, Variations, and Requests', () => {
   assert.equal(SITE_BAR.length, 3);
@@ -116,6 +116,16 @@ test('the site owner is shown only from a row this caller can already see', () =
   );
   const blank = visibleSiteOwner(owner, [{ person_id: 'owner', person: { role: 'owner', display_name: '' } }]);
   assert.equal(blank?.name, 'Unknown');
+  assert.equal(
+    sitePeopleOwnerName({ display_name: 'Jordan Hale', role: 'owner' }, cm, []),
+    'Jordan Hale',
+  );
+  assert.equal(sitePeopleOwnerName(null, cm, []), null);
+  assert.equal(
+    sitePeopleOwnerName({ display_name: '   ', role: 'owner' }, { id: 'op', role: 'operative', display_name: 'Sam' }, []),
+    'Unknown',
+  );
+  assert.equal(sitePeopleOwnerName({ display_name: 'Pat', role: 'cm' }, cm, []), null);
 });
 
 test('a missing seen table is the signal to hide the badge', () => {
@@ -201,6 +211,8 @@ test('site page is drawings, a People button, and a three-item bar', () => {
   assert.match(people, /canManageSite/);
   assert.match(people, /Invite to this site/);
   assert.match(people, /listAssignments/);
+  assert.match(people, /companyOwnerLabel/);
+  assert.match(people, /sitePeopleOwnerName/);
   assert.match(people, /visibleSiteOwner/);
   assert.match(people, />Owner</);
   assert.doesNotMatch(people.slice(0, people.indexOf('const manage')), /Invite to this site/);

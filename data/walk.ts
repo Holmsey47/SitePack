@@ -56,6 +56,20 @@ export function visibleSiteOwner(
   return null;
 }
 
+/**
+ * Name for the Owner card on a site People list.
+ * The label is display name and role only. An assigned owner, or the signed-in
+ * owner, is the fallback when that label is missing.
+ */
+export function sitePeopleOwnerName(
+  label: { display_name?: string | null; role?: string | null } | null,
+  viewer: OwnerViewer | null,
+  assigned: readonly AssignedPerson[],
+): string | null {
+  if (label?.role === 'owner') return personLabel({ display_name: label.display_name ?? null });
+  return visibleSiteOwner(viewer, assigned)?.name ?? null;
+}
+
 /** Display name, then email when the caller is allowed to see it, otherwise Unknown. */
 export function personLabel(
   person: { display_name?: string | null; email?: string | null } | null | undefined,

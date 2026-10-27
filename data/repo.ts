@@ -79,6 +79,8 @@ export type SitePackRepo = {
   /** Owner only. Deletes leftover drawing files from a previous storage failure. */
   sweepDrawingOrphans(): Promise<void>;
   listAssignments(siteId: string): Promise<SiteAssignment[]>;
+  /** Own-company owner display name and role. Null when this member cannot open a site. */
+  companyOwnerLabel(): Promise<{ display_name: string | null; role: 'owner' } | null>;
   contractsManagerNames(siteId: string): Promise<string[]>;
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;

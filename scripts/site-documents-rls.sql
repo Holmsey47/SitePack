@@ -645,4 +645,109 @@ select pg_temp.ok(
   'the owner cannot delete another company site photo'
 );
 
+insert into auth.users (id, email)
+values ('a1111111-1111-4111-8111-111111111114', 'cmu@firmx.test');
+
+insert into public.people (id, auth_user_id, company_id, role, display_name, email)
+values (
+  'a1111111-1111-4111-8111-111111111114',
+  'a1111111-1111-4111-8111-111111111114',
+  :'firmx', 'cm', 'CM Unassigned', 'cmu@firmx.test'
+);
+
+insert into public.sites (id, company_id, name)
+values ('51111111-1111-4111-8111-111111111113', :'firmy', 'Site Y');
+
+select pg_temp.ok(
+  to_regprocedure('private.company_owner_label()') is not null
+    and to_regprocedure('public.company_owner_label()') is null
+    and has_function_privilege('authenticated', 'private.company_owner_label()', 'execute')
+    and not has_function_privilege('anon', 'private.company_owner_label()', 'execute')
+    and has_table_privilege('authenticated', 'public.company_owner_label', 'select')
+    and not has_table_privilege('anon', 'public.company_owner_label', 'select')
+    and not has_table_privilege('authenticated', 'public.company_owner_label', 'insert')
+    and not has_table_privilege('authenticated', 'public.company_owner_label', 'update')
+    and not has_table_privilege('authenticated', 'public.company_owner_label', 'delete')
+    and (
+      select array_agg(column_name::text order by column_name::text)
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'company_owner_label'
+    ) = array['display_name', 'role']::text[],
+  'the owner label is a two-column view and the helper stays out of the API roles'
+);
+
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select display_name = 'Owner X' and role = 'owner' from private.company_owner_label())
+    and position('ownerx@firmx.test' in coalesce((select row_to_json(o)::text from private.company_owner_label() o), '')) = 0,
+  'the private helper returns only this company owner name and role'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select email from public.company_owner_label',
+    'column "email" does not exist'
+  )
+  and pg_temp.raises(
+    'select phone from public.company_owner_label',
+    'column "phone" does not exist'
+  ),
+  'the owner label has no email or phone column'
+);
+
+select pg_temp.ok(
+  (select display_name = 'Owner X' and role = 'owner' from public.company_owner_label)
+    and (select count(*) from public.company_owner_label) = 1
+    and (select count(*) from public.people where id = :'ownerx'::uuid) = 0
+    and position('ownerx@firmx.test' in coalesce((select row_to_json(o)::text from public.company_owner_label o), '')) = 0
+    and position('Owner Y' in coalesce((select row_to_json(o)::text from public.company_owner_label o), '')) = 0,
+  'a contracts manager sees only their own company owner name and role'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select display_name = 'Owner X' and role = 'owner' from public.company_owner_label)
+    and (select count(*) from public.people where role = 'owner') = 0
+    and position('Owner Y' in coalesce((select string_agg(row_to_json(o)::text, '') from public.company_owner_label o), '')) = 0,
+  'an operative sees only their own company owner name and role'
+);
+
+reset role;
+select pg_temp.jwt('a1111111-1111-4111-8111-111111111114'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select count(*) from public.company_owner_label) = 0,
+  'a member who cannot open a site does not see the owner'
+);
+
+reset role;
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  (select display_name = 'Owner Y' and role = 'owner' from public.company_owner_label)
+    and (select count(*) from public.company_owner_label) = 1
+    and position('Owner X' in coalesce((select row_to_json(o)::text from public.company_owner_label o), '')) = 0
+    and (select count(*) from public.people where id = :'ownerx'::uuid) = 0,
+  'another company owner is not visible'
+);
+
+reset role;
+set local role anon;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'select display_name from public.company_owner_label',
+    'permission denied for view company_owner_label'
+  ),
+  'anon cannot read the owner label'
+);
+
 rollback;
