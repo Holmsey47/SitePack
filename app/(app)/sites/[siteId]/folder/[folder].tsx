@@ -1,4 +1,4 @@
-import { Card, EmptyState, FilterBar, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, SeenRejectNotice } from '@/components/ui';
+import { Card, EmptyState, FilterBar, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountChip, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
@@ -147,7 +147,7 @@ export default function FolderScreen() {
         ))
       ) : (
         <>
-          <Text style={{ ...textStyle.label }}>CURRENT</Text>
+          <SectionLabel>Current</SectionLabel>
           {showOld ? null : visibleCurrent.length === 0 ? (
             <EmptyState icon="description" title="No drawings in this folder" />
           ) : showOld ? null : (

@@ -1,5 +1,5 @@
 import { useBackOverlay } from '@/components/useBackOverlay';
-import { Button, Card, ErrorText, Field, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
+import { Button, Card, ErrorText, Field, Muted, NoLoginBadge, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { occupationLine } from '@/data/companyPeople';
 import { repo } from '@/data/index';
@@ -19,7 +19,7 @@ import { Icon } from '@/components/icon';
 import { iconSize, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function GroupScreen() {
@@ -43,6 +43,11 @@ export default function GroupScreen() {
   const pendingAction = useRef<NavigationAction | null>(null);
   const leaveToGroups = useRef(false);
   const navigation = useNavigation();
+
+  useLayoutEffect(() => {
+    const title = assigning ? 'Assign to sites' : group?.name || 'Group';
+    navigation.setOptions({ title });
+  }, [assigning, group?.name, navigation]);
 
   const load = useCallback(async () => {
     if (!groupId) return;
@@ -242,7 +247,6 @@ export default function GroupScreen() {
     return (
       <View style={{ flex: 1 }}>
       <Screen>
-        <Title>Assign to sites</Title>
         <Muted>
           {group.name}. {memberIds.length} {memberIds.length === 1 ? 'person' : 'people'} go on every site you tick.
         </Muted>
@@ -276,7 +280,6 @@ export default function GroupScreen() {
   return (
     <View style={{ flex: 1 }}>
     <Screen footer={editor ? saveBar : null}>
-      <Title>{group?.name ?? 'Group'}</Title>
       <ErrorText>{error}</ErrorText>
       {notice ? <Text style={{ color: theme.sent, fontWeight: '700' }}>{notice}</Text> : null}
       {editor ? (
@@ -374,9 +377,5 @@ function MarkRow({
 }
 
 function EmptyMissing() {
-  return (
-    <View>
-      <Title>That group is not in the company</Title>
-    </View>
-  );
+  return <Muted>That group is not in the company.</Muted>;
 }

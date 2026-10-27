@@ -7,21 +7,23 @@ import {
   siteDocumentBytesError,
   siteDocumentKindLabel,
   siteDocumentPickError,
+  siteDocumentSignLabel,
   type SiteDocumentDetail,
 } from '@/data/siteDocuments';
-import { formatUkDateTime } from '@/lib/format';
-import { textStyle, theme } from '@/lib/theme';
+import { formatSignedWhen, formatUkDateTime } from '@/lib/format';
+import { space, textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import * as DocumentPicker from 'expo-document-picker';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useState } from 'react';
-import { Platform, Text } from 'react-native';
+import { useCallback, useLayoutEffect, useState } from 'react';
+import { Platform, Text, View } from 'react-native';
 
 export default function SiteDocumentScreen() {
   const { siteId, documentId } = useLocalSearchParams<{ siteId: string; documentId: string }>();
   const { person } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
   const [detail, setDetail] = useState<SiteDocumentDetail | null>(null);
   const [roster, setRoster] = useState<{ person_id: string; name: string; signed_at: string | null }[]>([]);
   const [error, setError] = useState('');
@@ -45,6 +47,10 @@ export default function SiteDocumentScreen() {
     }
     setError('');
   }, [documentId, person?.role, siteId]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: detail?.title || 'Document' });
+  }, [detail?.title, navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -183,19 +189,23 @@ export default function SiteDocumentScreen() {
     );
   }
 
+  const signedAt = detail.signatures.find((row) => row.person_id === person?.id)?.signed_at;
+  const signedWhen = formatSignedWhen(signedAt);
+
   return (
     <Screen>
-      <Text style={textStyle.title}>{detail.title}</Text>
       <Text style={textStyle.bodyStrong}>{siteDocumentKindLabel(detail.kind)}</Text>
       <Text style={textStyle.metaStrong}>Version {detail.version_no}</Text>
-      {detail.archived_at ? <Text style={textStyle.metaStrong}>Archived</Text> : null}
+      {detail.archived_at ? <Text style={{ ...textStyle.metaStrong, color: theme.muted }}>Archived</Text> : null}
       <Button label="Open PDF" variant="secondary" minHeight={48} onPress={() => void openPdf()} />
       {opened ? <Text style={{ ...textStyle.body }}>{opened}</Text> : null}
       {mustSign && !detail.archived_at && !detail.signed_by_me ? (
-        <Button label="I have read and understood" minHeight={56} loading={busy} onPress={() => void sign()} />
+        <Button label={siteDocumentSignLabel(detail.kind)} minHeight={56} loading={busy} onPress={() => void sign()} />
       ) : null}
       {mustSign && !detail.archived_at && detail.signed_by_me ? (
-        <Text style={{ ...textStyle.bodyStrong, color: theme.sent }}>Signed</Text>
+        <Text style={{ ...textStyle.bodyStrong, color: theme.sent }}>
+          {signedWhen ? `Signed ${signedWhen}` : 'Signed'}
+        </Text>
       ) : null}
       <ErrorText>{error}</ErrorText>
       {owner ? (
@@ -216,22 +226,24 @@ export default function SiteDocumentScreen() {
               {bytes ? (
                 <Button label="Save new version" variant="secondary" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
               ) : null}
-              {confirmDelete ? (
-                <Text style={textStyle.body}>
-                  {detail.signatures.length > 0 ? `Archive ${detail.title}?` : `Delete ${detail.title}?`}
-                </Text>
-              ) : null}
-              {detail.signatures.length > 0 ? (
-                confirmDelete ? (
-                  <Button label="Archive this document" variant="danger" minHeight={48} loading={busy} onPress={() => void archive()} />
+              <View style={{ marginTop: space.xl, paddingTop: space.xl, borderTopWidth: 1, borderTopColor: theme.line, gap: space.md }}>
+                {confirmDelete ? (
+                  <Text style={textStyle.body}>
+                    {detail.signatures.length > 0 ? `Archive ${detail.title}?` : `Delete ${detail.title}?`}
+                  </Text>
+                ) : null}
+                {detail.signatures.length > 0 ? (
+                  confirmDelete ? (
+                    <Button label="Archive this document" variant="danger" minHeight={48} loading={busy} onPress={() => void archive()} />
+                  ) : (
+                    <Button label="Archive document" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(true)} />
+                  )
+                ) : confirmDelete ? (
+                  <Button label="Delete this document" variant="danger" minHeight={48} loading={busy} onPress={() => void remove()} />
                 ) : (
-                  <Button label="Archive document" variant="danger" minHeight={48} onPress={() => setConfirmDelete(true)} />
-                )
-              ) : confirmDelete ? (
-                <Button label="Delete this document" variant="danger" minHeight={48} loading={busy} onPress={() => void remove()} />
-              ) : (
-                <Button label="Delete document" variant="danger" minHeight={48} onPress={() => setConfirmDelete(true)} />
-              )}
+                  <Button label="Delete document" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(true)} />
+                )}
+              </View>
             </>
           )}
         </>

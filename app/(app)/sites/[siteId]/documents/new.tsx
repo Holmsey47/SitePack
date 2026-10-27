@@ -79,7 +79,7 @@ export default function NewSiteDocumentScreen() {
   return (
     <Screen>
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="sentences" maxLength={120} />
-      <Text style={{ ...textStyle.bodyStrong }}>Type</Text>
+      <Text style={textStyle.metaStrong}>Type</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {SITE_DOCUMENT_KINDS.map((item) => (
           <ChoiceChip

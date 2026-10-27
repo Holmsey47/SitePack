@@ -17,7 +17,7 @@ export function SitesBackButton() {
         marginLeft: SITE_HEADER_INSET,
         paddingRight: 8,
       }}>
-      <Text style={textStyle.bodyStrong}>← Sites</Text>
+      <Text style={textStyle.bodyStrong} numberOfLines={1}>← Sites</Text>
     </Pressable>
   );
 }
@@ -41,7 +41,7 @@ export function PeoplePill({ siteId }: { siteId: string }) {
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      <Text style={textStyle.bodyStrong}>People</Text>
+      <Text style={textStyle.bodyStrong} numberOfLines={1}>People</Text>
     </Pressable>
   );
 }

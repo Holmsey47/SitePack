@@ -16,6 +16,25 @@ export function siteDocumentKindLabel(kind: string): string {
   return SITE_DOCUMENT_KINDS.find((item) => item.kind === kind)?.label ?? 'Document';
 }
 
+/** What the person is agreeing to. Sentence case, one line per kind. */
+export function siteDocumentSignLabel(kind: string): string {
+  if (kind === 'toolbox') return "I've read the toolbox talk and understand it";
+  if (kind === 'rams') return "I've read the RAMS and understand it";
+  if (kind === 'induction') return "I've read the site induction and understand it";
+  return "I've read this and understand it";
+}
+
+/** Live documents first, archived at the bottom, then title. */
+export function orderedSiteDocuments<T extends { title: string; archived_at: string | null }>(
+  rows: readonly T[],
+): T[] {
+  return [...rows].sort((left, right) => {
+    const archived = Number(left.archived_at != null) - Number(right.archived_at != null);
+    if (archived !== 0) return archived;
+    return left.title.localeCompare(right.title, 'en');
+  });
+}
+
 /** Assigned contracts managers and operatives sign. The owner reads the roster. */
 export function memberMustSign(role: Role | undefined): boolean {
   return role === 'operative' || role === 'cm';

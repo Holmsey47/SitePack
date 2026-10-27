@@ -145,7 +145,7 @@ export default function InviteScreen() {
       ) : null}
       {loaded && openChoice.kind !== 'none' ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.muted, fontWeight: '700' }}>
+          <Text style={textStyle.metaStrong}>
             {openChoice.kind === 'one' ? 'Site' : 'Which site?'}
           </Text>
           {openSites.map((site) => {
@@ -207,7 +207,7 @@ export default function InviteScreen() {
             <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
             <Field label="Name" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
             <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
-            <Text style={{ color: theme.muted, fontWeight: '700' }}>Role</Text>
+            <Text style={textStyle.metaStrong}>Role</Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               {allowedRoles.map((value) => (
                 <Pressable
@@ -227,7 +227,7 @@ export default function InviteScreen() {
                 </Pressable>
               ))}
             </View>
-            <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+            <Text style={textStyle.metaStrong}>Sites</Text>
             {openSites.map((site) => {
               const on = siteIds.includes(site.id);
               return (

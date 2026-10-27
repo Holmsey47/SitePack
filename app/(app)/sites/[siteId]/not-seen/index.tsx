@@ -3,13 +3,14 @@ import { notSeenPersonLine, notSeenYetHeading, personLabel } from '@/data/drawin
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { textStyle, theme } from '@/lib/theme';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SiteNotSeenScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const [people, setPeople] = useState<NotSeenPerson[]>([]);
   const [error, setError] = useState('');
 
@@ -29,11 +30,13 @@ export default function SiteNotSeenScreen() {
     }, [load])
   );
 
+  const heading = notSeenYetHeading(people.length);
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: heading });
+  }, [heading, navigation]);
+
   return (
     <Screen>
-      <Text style={{ ...textStyle.title }} accessibilityRole="header">
-        {notSeenYetHeading(people.length)}
-      </Text>
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
       {people.length === 0 && !error ? <Muted>Every operative has seen the current sheets.</Muted> : null}
       <View style={{ gap: 8 }}>

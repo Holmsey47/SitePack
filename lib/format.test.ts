@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { formatCodeExpiry } from './format.ts';
+import { formatCodeExpiry, formatSignedWhen } from './format.ts';
 
 test('a code expiry names today, tomorrow, or a later London day, and a past time is Ended', () => {
   const now = '2026-10-22T12:00:00.000Z';
@@ -35,6 +35,12 @@ test('the BST to GMT change on 25 Oct 2026 01:00 UTC stays on the London day', (
   const beforeFallback = '2026-10-25T00:30:00.000Z';
   assert.equal(formatCodeExpiry('2026-10-25T01:30:00.000Z', beforeFallback), 'Ends today 1:30am');
   assert.equal(formatCodeExpiry('2026-10-25T23:30:00.000Z', change), 'Ends today 11:30pm');
+});
+
+test('a signature time is London wall time without the year', () => {
+  assert.equal(formatSignedWhen('2026-10-27T22:08:00.000Z'), '27 Oct, 10:08pm');
+  assert.equal(formatSignedWhen('2026-10-22T21:08:00.000Z'), '22 Oct, 10:08pm');
+  assert.equal(formatSignedWhen(''), '');
 });
 
 test('the share panel and the active code list use the same expiry helper', () => {

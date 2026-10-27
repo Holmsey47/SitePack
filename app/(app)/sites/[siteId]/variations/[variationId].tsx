@@ -1,5 +1,5 @@
 import { SignaturePad } from '@/components/SignaturePad';
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
@@ -22,9 +22,9 @@ import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
 import { textStyle, theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Image, Platform, Text, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
@@ -42,6 +42,7 @@ async function bytesFor(photo: VariationPhoto): Promise<Uint8Array | null> {
 
 export default function VariationDetailScreen() {
   const { variationId } = useLocalSearchParams<{ variationId: string; siteId: string }>();
+  const navigation = useNavigation();
   const { person } = useAuth();
   const [detail, setDetail] = useState<VariationDetail | null>(null);
   const [company, setCompany] = useState('');
@@ -81,6 +82,11 @@ export default function VariationDetailScreen() {
   const manager = person ? canSetVariationValue(person.role) : false;
   const seeValue = person ? canSeeVariationValue(person.role) : false;
   const current = detail?.current;
+
+  useLayoutEffect(() => {
+    const name = detail && current ? `${variationNumber(detail.vo_seq)} · ${current.title}` : 'Variation';
+    navigation.setOptions({ title: signing ? 'Hand the phone over' : name });
+  }, [current, detail, navigation, signing]);
 
   async function onSign() {
     if (!current || !signature) return;
@@ -233,9 +239,6 @@ export default function VariationDetailScreen() {
 
   return (
     <Screen>
-      <Title>
-        {variationNumber(detail.vo_seq)} · {current.title}
-      </Title>
       <Text style={{ ...textStyle.metaStrong }}>{current.status}</Text>
       {locked ? (
         <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 }}>
@@ -294,7 +297,6 @@ export default function VariationDetailScreen() {
       ) : null}
       {signing && !locked ? (
         <View style={{ gap: 8 }}>
-          <Title>Hand the phone over</Title>
           <Muted>The site manager types their name and signs.</Muted>
           <Text style={{ ...textStyle.metaStrong }}>
             {variationHandoverSummary(detail.vo_seq, current.title, seeValue ? current.value_pence : null, current.photos.length)}

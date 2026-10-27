@@ -121,7 +121,7 @@ function SettingsRow({ label, value }: { label: string; value: string }) {
         }}
       />
       <View style={{ flex: 1, gap: space.xs }}>
-        <Text style={textStyle.label}>{label}</Text>
+        <Text style={textStyle.metaStrong}>{label}</Text>
         <Text style={textStyle.bodyStrong}>{value}</Text>
       </View>
     </View>

@@ -78,7 +78,7 @@ export function Button({
   /** Glove target. Defaults to the shared thumb height. */
   minHeight?: number;
 }) {
-  const primaryOff = variant === 'primary' && disabled && !loading;
+  const quiet = Boolean(disabled) && !loading;
   return (
     <Pressable
       accessibilityRole="button"
@@ -86,13 +86,12 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.btn,
-        variant === 'primary' && !primaryOff && styles.btnPrimary,
-        primaryOff && styles.btnPrimaryOff,
+        variant === 'primary' && styles.btnPrimary,
         minHeight != null && { minHeight: Math.max(minHeight, variant === 'primary' ? hit.primary : hit.secondary) },
         variant === 'secondary' && styles.btnSecondary,
         variant === 'ghost' && styles.btnGhost,
         variant === 'danger' && styles.btnDanger,
-        (disabled || loading) && variant !== 'primary' && styles.btnDisabled,
+        quiet && styles.btnQuiet,
         pressed && !disabled && styles.btnPressed,
       ]}>
       {loading ? (
@@ -104,9 +103,9 @@ export function Button({
           style={[
             styles.btnText,
             Platform.OS === 'web' ? ({ overflowWrap: 'anywhere' } as object) : null,
-            (variant === 'primary' && !primaryOff) || variant === 'danger' ? { color: theme.currentInk } : null,
-            primaryOff && { color: theme.muted },
-            variant === 'ghost' && { color: theme.muted },
+            !quiet && (variant === 'primary' || variant === 'danger') ? { color: theme.currentInk } : null,
+            !quiet && variant === 'ghost' ? { color: theme.muted } : null,
+            quiet && { color: theme.muted },
           ]}>
           {label}
         </Text>
@@ -341,7 +340,9 @@ export function LevelMenu({
         onPress={() => setOpen(true)}
         style={({ pressed }) => [styles.levelBtn, pressed && styles.btnPressed]}>
         <Text style={styles.levelLabel}>Level</Text>
-        <Text style={styles.levelValue}>{current}</Text>
+        <Text style={styles.levelValue} numberOfLines={1}>
+          {current}
+        </Text>
         <Icon name="expand_more" color={theme.text} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -470,11 +471,11 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   btnPrimary: { backgroundColor: theme.current, minHeight: hit.primary },
-  btnPrimaryOff: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line, minHeight: hit.primary },
+  /** Darker than a surface button, muted text. Reads as off, and stays above 4.5:1. */
+  btnQuiet: { backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.line },
   btnSecondary: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line, minHeight: hit.secondary },
   btnGhost: { backgroundColor: 'transparent' },
   btnDanger: { backgroundColor: theme.danger, minHeight: hit.secondary },
-  btnDisabled: { opacity: 0.5 },
   btnPressed: { transform: [{ scale: 0.99 }] },
   btnText: {
     color: theme.text,
@@ -483,9 +484,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontWeight: '700',
     textAlign: 'center',
-    width: '100%',
+    alignSelf: 'stretch',
   },
-  fieldLabel: textStyle.label,
+  fieldLabel: textStyle.metaStrong,
   input: {
     backgroundColor: theme.surface,
     borderColor: theme.line,
@@ -544,8 +545,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
   },
-  levelLabel: textStyle.label,
-  levelValue: { ...textStyle.bodyStrong, flex: 1 },
+  levelLabel: textStyle.metaStrong,
+  levelValue: { ...textStyle.bodyStrong, flex: 1, flexShrink: 1 },
   noLogin: {
     alignSelf: 'flex-start',
     backgroundColor: theme.surface,

@@ -96,6 +96,15 @@ export function formatUkDateTime(iso: string | null | undefined): string {
   return `${clock.day} ${clock.month} ${year}, ${clock.time}`;
 }
 
+/** Short London time for a lad's signature. Example: 27 Oct, 10:08pm. */
+export function formatSignedWhen(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const clock = londonClock(date);
+  return `${clock.day} ${clock.month}, ${clock.time}`;
+}
+
 export function timeAgo(iso: string): string {
   const delta = Date.now() - new Date(iso).getTime();
   const hours = Math.round(delta / (1000 * 60 * 60));

@@ -23,13 +23,14 @@ import { space, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text, useWindowDimensions, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const { person } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
+  const { width: windowWidth } = useWindowDimensions();
   const [allowDownloadLeave, setAllowDownloadLeave] = useState(false);
   const pendingDownloadLeave = useRef<NavigationAction | null>(null);
   const mounted = useRef(true);
@@ -49,8 +50,14 @@ export default function SitePackScreen() {
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   useLayoutEffect(() => {
+    const rightReserve = person?.role === 'owner' ? 160 : 108;
+    const titleWidth = Math.max(96, windowWidth - 80 - rightReserve);
     navigation.setOptions({
       title: site?.name || 'Site',
+      headerTitleAlign: 'left',
+      headerTitleContainerStyle: { width: titleWidth, flexGrow: 0, flexShrink: 0 },
+      headerLeftContainerStyle: { maxWidth: 88 },
+      headerRightContainerStyle: { maxWidth: rightReserve },
       headerBackVisible: false,
       headerLeft: () => <SitesBackButton />,
       headerRight: () => (
@@ -71,7 +78,7 @@ export default function SitePackScreen() {
         </View>
       ),
     });
-  }, [navigation, person?.role, site, siteId]);
+  }, [navigation, person?.role, site, siteId, windowWidth]);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -329,7 +336,6 @@ export default function SitePackScreen() {
       ) : null}
       {person?.role === 'owner' && confirmArchive ? (
         <View style={{ gap: space.md }}>
-          <Text style={textStyle.title}>{site.name}</Text>
           <Text style={textStyle.body}>
             {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
           </Text>

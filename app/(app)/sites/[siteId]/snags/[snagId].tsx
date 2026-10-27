@@ -1,5 +1,5 @@
 import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
-import { Button, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
@@ -9,13 +9,14 @@ import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag } from '@/lib/snagQueue';
 import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
 import { textStyle, theme } from '@/lib/theme';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 
 export default function SnagDetailScreen() {
   const { snagId, siteId } = useLocalSearchParams<{ snagId: string; siteId: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const { person } = useAuth();
   const [detail, setDetail] = useState<SnagDetail | null>(null);
   const [error, setError] = useState('');
@@ -47,6 +48,12 @@ export default function SnagDetailScreen() {
         .catch(() => setSignQueued(false));
     }, [person?.auth_user_id, siteId, snagId])
   );
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: detail ? `${snagNumber(detail.snag_seq)} · ${detail.trade_label}` : 'Snag',
+    });
+  }, [detail, navigation]);
 
   function addAfterPhotos(picked: PickedPhoto[]) {
     setAfterPhotos((current) => {
@@ -133,9 +140,6 @@ export default function SnagDetailScreen() {
 
   return (
     <Screen>
-      <Title>
-        {snagNumber(detail.snag_seq)} · {detail.trade_label}
-      </Title>
       <Text style={{ ...textStyle.metaStrong }}>{detail.status}</Text>
       <Muted>{snagDisplayText(detail.note)}</Muted>
       {detail.level_area ? <Muted>Level or area · {snagDisplayText(detail.level_area)}</Muted> : null}

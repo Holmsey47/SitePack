@@ -1,5 +1,5 @@
 import { JoinSharePanel } from '@/components/JoinSharePanel';
-import { Button, Card, ChoiceChip, ErrorText, Field, Muted, Screen } from '@/components/ui';
+import { Button, Card, ChoiceChip, ErrorText, Field, Muted, Screen, SectionLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
@@ -144,7 +144,7 @@ export default function InviteCodeScreen() {
         />
       ) : null}
 
-      <Text style={{ ...textStyle.label }}>ACTIVE CODES</Text>
+      <SectionLabel>Active codes</SectionLabel>
       {active.length === 0 ? <Muted>No active codes.</Muted> : null}
       {active.map((row) => (
         <Card key={row.id}>

@@ -1,7 +1,7 @@
 import { Button, Card, EmptyState, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { siteDocumentKindLabel, type SiteDocumentSummary } from '@/data/siteDocuments';
+import { orderedSiteDocuments, siteDocumentKindLabel, type SiteDocumentSummary } from '@/data/siteDocuments';
 import { textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -52,15 +52,15 @@ export default function SiteDocumentsScreen() {
           }
         />
       ) : null}
-      {rows.map((row) => {
-        const status = row.archived_at ? 'Archived' : owner ? `Version ${row.version_no}` : row.signed_by_me ? 'Signed' : 'To sign';
+      {orderedSiteDocuments(rows).map((row) => {
+        const archived = row.archived_at != null;
+        const status = archived ? 'Archived' : owner ? `Version ${row.version_no}` : row.signed_by_me ? 'Signed' : 'To sign';
+        const statusColor = archived ? theme.muted : row.signed_by_me || owner ? theme.text : theme.danger;
         return (
           <Card key={row.id} onPress={() => router.push(`/sites/${siteId}/documents/${row.id}`)}>
-            <Text style={{ ...textStyle.bodyStrong }}>{row.title}</Text>
+            <Text style={{ ...textStyle.bodyStrong, color: archived ? theme.muted : theme.text }}>{row.title}</Text>
             <Muted>{siteDocumentKindLabel(row.kind)}</Muted>
-            <Text style={{ ...textStyle.bodyStrong, color: row.signed_by_me || owner ? theme.text : theme.danger }}>
-              {status}
-            </Text>
+            <Text style={{ ...textStyle.bodyStrong, color: statusColor }}>{status}</Text>
           </Card>
         );
       })}
