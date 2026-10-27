@@ -1,10 +1,10 @@
 import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
-import { Button, ErrorText, Muted } from '@/components/ui';
+import { Button, ErrorText, Muted, Wordmark } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { logoFailureMessage, LOGO_MAX_BYTES, LOGO_MAX_EDGE } from '@/data/companyLogo';
 import { repo } from '@/data/index';
 import { Icon } from '@/components/icon';
-import { logo, textStyle, theme } from '@/lib/theme';
+import { logo, space, textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
@@ -50,22 +50,32 @@ export function CompanyLogo() {
       style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
     />
   ) : (
-    <Text style={[textStyle.title, { flex: 1 }]}>{name}</Text>
+    <Text style={textStyle.title} numberOfLines={2}>
+      {name}
+    </Text>
   );
 
   if (!owner) {
-    return <View style={{ minHeight: 48, justifyContent: 'center' }}>{mark}</View>;
+    return (
+      <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
+        <Wordmark />
+        <View style={{ minHeight: 48, justifyContent: 'center' }}>{mark}</View>
+      </View>
+    );
   }
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={name || 'Company'}
-        onPress={() => router.push('/company')}
-        style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}>
-        {mark}
-      </Pressable>
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+      <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
+        <Wordmark />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={name || 'Company'}
+          onPress={() => router.push('/company')}
+          style={{ minHeight: 48, justifyContent: 'center' }}>
+          {mark}
+        </Pressable>
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Company settings"
@@ -144,7 +154,6 @@ export function CompanyLogoEditor() {
         />
       ) : null}
       <Text style={textStyle.title}>{name}</Text>
-      <Muted>The company name stays as it is.</Muted>
       {showLogo && !picking ? (
         <Button label="Change logo" variant="secondary" minHeight={48} disabled={saving} onPress={() => setPicking(true)} />
       ) : null}

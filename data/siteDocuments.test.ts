@@ -178,7 +178,9 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   const detail = fs.readFileSync('app/(app)/sites/[siteId]/documents/[documentId].tsx', 'utf8');
   const migration = fs.readFileSync('supabase/migrations/20261027120000_site_documents.sql', 'utf8');
 
-  assert.match(site, /label="Induction & RAMS"/);
+  assert.match(site, /Induction & RAMS/);
+  assert.match(site, /numberOfLines=\{2\}/);
+  assert.match(site, /headerTitle: \(\) => null/);
   assert.match(site, /minHeight=\{48\}/);
   assert.match(list, /To sign/);
   assert.match(upload, /person\.role !== 'owner'/);

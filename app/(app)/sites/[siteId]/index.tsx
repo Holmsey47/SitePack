@@ -23,14 +23,14 @@ import { space, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Text, useWindowDimensions, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
   const { person } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
-  const { width: windowWidth } = useWindowDimensions();
+  const manage = person ? canManageSite(person.role) : false;
   const [allowDownloadLeave, setAllowDownloadLeave] = useState(false);
   const pendingDownloadLeave = useRef<NavigationAction | null>(null);
   const mounted = useRef(true);
@@ -50,35 +50,34 @@ export default function SitePackScreen() {
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   useLayoutEffect(() => {
-    const rightReserve = person?.role === 'owner' ? 160 : 108;
-    const titleWidth = Math.max(96, windowWidth - 80 - rightReserve);
+    const items: { label: string; danger?: boolean; onPress: () => void }[] = [];
+    if (manage && siteId) {
+      items.push({
+        label: 'Upload',
+        onPress: () => router.push(`/sites/${siteId}/upload`),
+      });
+    }
+    if (person?.role === 'owner' && site) {
+      items.push({
+        label: site.archived_at ? 'Restore site' : 'Archive site',
+        danger: !site.archived_at,
+        onPress: () => setConfirmArchive(true),
+      });
+    }
     navigation.setOptions({
-      title: site?.name || 'Site',
-      headerTitleAlign: 'left',
-      headerTitleContainerStyle: { width: titleWidth, flexGrow: 0, flexShrink: 0 },
-      headerLeftContainerStyle: { maxWidth: 88 },
-      headerRightContainerStyle: { maxWidth: rightReserve },
+      title: '',
+      headerTitle: () => null,
       headerBackVisible: false,
+      headerTitleContainerStyle: { width: 0, maxWidth: 0 },
       headerLeft: () => <SitesBackButton />,
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {person?.role === 'owner' && site ? (
-            <OverflowMenu
-              label={site.archived_at ? 'Restore site' : 'Archive site'}
-              items={[
-                {
-                  label: site.archived_at ? 'Restore site' : 'Archive site',
-                  danger: !site.archived_at,
-                  onPress: () => setConfirmArchive(true),
-                },
-              ]}
-            />
-          ) : null}
+          {items.length > 0 ? <OverflowMenu label="Site menu" items={items} /> : null}
           {siteId ? <PeoplePill siteId={siteId} /> : null}
         </View>
       ),
     });
-  }, [navigation, person?.role, site, siteId, windowWidth]);
+  }, [manage, navigation, person?.role, router, site, siteId]);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -159,7 +158,6 @@ export default function SitePackScreen() {
   );
 
   const folders = packFolders(drawings);
-  const manage = person ? canManageSite(person.role) : false;
   const meta = siteId ? readPackMeta(siteId) : null;
   const currentSheets = drawings
     .filter((drawing) => drawing.is_current)
@@ -247,18 +245,12 @@ export default function SitePackScreen() {
         siteId ? <SiteBar siteId={siteId} siteName={site.name} counts={barCounts} onOpen={openList} /> : null
       }
       contentPaddingBottom={DRAWINGS_LIST_BOTTOM_PAD}>
-      <Button
-        label="Induction & RAMS"
-        variant="secondary"
-        minHeight={48}
-        onPress={() => router.push(`/sites/${siteId}/documents`)}
-      />
-      {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
-        <GlanceRow
-          label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
-          onPress={() => router.push(`/sites/${siteId}/not-seen`)}
-        />
-      ) : null}
+      <Text style={textStyle.display} numberOfLines={2}>
+        {site.name}
+      </Text>
+      <Text style={textStyle.meta} numberOfLines={1}>
+        {[site.address_line, formatWhen(site.updated_at)].filter(Boolean).join(' · ')}
+      </Text>
       {(() => {
         const fresh = unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision));
         const freshLine = manage ? null : newDrawingsLine(fresh.length);
@@ -282,81 +274,18 @@ export default function SitePackScreen() {
           </View>
         );
       })()}
-      {phoneRows.length > 0 ? (
-        <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <SectionLabel>On this phone</SectionLabel>
-            {outOfDate ? <OutOfDateBadge /> : null}
-          </View>
-          {outOfDate ? (
-            <Text style={[textStyle.body, { width: '100%' }]}>
-              {changeCount > 0 && meta
-                ? phoneCopyOutOfDateLine(changeCount, meta.downloadedAt)
-                : 'Phone copy is out of date.'}
-            </Text>
-          ) : null}
-          {outOfDate ? (
-            <Button
-              label="Update phone copy"
-              minHeight={56}
-              loading={downloading}
-              onPress={() => void onDownload()}
-            />
-          ) : null}
-          {phoneRows.map((item) => (
-            <Card key={item.drawingId} onPress={() => router.push(`/sites/${siteId}/drawing/${item.drawingId}`)}>
-              <Text style={textStyle.bodyStrong}>
-                {item.changedLabel ?? item.title}
-              </Text>
-              {item.changedLabel ? null : <Muted>Rev {item.revision}</Muted>}
-            </Card>
-          ))}
+      <Card onPress={() => router.push(`/sites/${siteId}/documents`)}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 48 }}>
+          <Text style={[textStyle.bodyStrong, { flex: 1 }]}>Induction & RAMS</Text>
+          <Icon name="chevron_right" color={theme.muted} />
         </View>
+      </Card>
+      {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
+        <GlanceRow
+          label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
+          onPress={() => router.push(`/sites/${siteId}/not-seen`)}
+        />
       ) : null}
-      {site.address_line ? <Muted>{site.address_line}</Muted> : null}
-      {site.main_contractor ? <Muted>Main contractor · {site.main_contractor}</Muted> : null}
-      {site.what_it_is ? <Muted>{site.what_it_is}</Muted> : null}
-      <Muted>{formatWhen(site.updated_at)}</Muted>
-      <Muted>Download the current pack before you lose signal.</Muted>
-      {ready ? (
-        <Text style={[textStyle.metaStrong, textStyle.tabular]}>
-          Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
-        </Text>
-      ) : null}
-      {progress ? <Muted>{progress}</Muted> : null}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
-
-      <Button
-        label={ready ? 'Re-download current pack' : 'Download for offline'}
-        variant={outOfDate ? 'secondary' : 'primary'}
-        onPress={() => void onDownload()}
-      />
-      {manage && folders.length > 0 ? (
-        <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
-      ) : null}
-      {person?.role === 'owner' && confirmArchive ? (
-        <View style={{ gap: space.md }}>
-          <Text style={textStyle.body}>
-            {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
-          </Text>
-          <Button
-            label={site.archived_at ? 'Restore site' : 'Archive site'}
-            variant={site.archived_at ? 'secondary' : 'danger'}
-            minHeight={48}
-            onPress={() => {
-              void repo
-                .archiveSite(site.id, !site.archived_at)
-                .then(() => {
-                  setConfirmArchive(false);
-                  return load();
-                })
-                .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
-            }}
-          />
-          <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmArchive(false)} />
-        </View>
-      ) : null}
-
       <SectionLabel>Folders</SectionLabel>
       {folders.length === 0 && phoneRows.length === 0 ? (
         <EmptyState
@@ -391,6 +320,72 @@ export default function SitePackScreen() {
           </Card>
         ))
       )}
+      {phoneRows.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <SectionLabel>On this phone</SectionLabel>
+            {outOfDate ? <OutOfDateBadge /> : null}
+          </View>
+          {outOfDate ? (
+            <Text style={[textStyle.body, { width: '100%' }]}>
+              {changeCount > 0 && meta
+                ? phoneCopyOutOfDateLine(changeCount, meta.downloadedAt)
+                : 'Phone copy is out of date.'}
+            </Text>
+          ) : null}
+          {outOfDate ? (
+            <Button
+              label="Update phone copy"
+              minHeight={56}
+              loading={downloading}
+              onPress={() => void onDownload()}
+            />
+          ) : null}
+          {phoneRows.map((item) => (
+            <Card key={item.drawingId} onPress={() => router.push(`/sites/${siteId}/drawing/${item.drawingId}`)}>
+              <Text style={textStyle.bodyStrong}>
+                {item.changedLabel ?? item.title}
+              </Text>
+              {item.changedLabel ? null : <Muted>Rev {item.revision}</Muted>}
+            </Card>
+          ))}
+        </View>
+      ) : null}
+      <Muted>Download the current pack before you lose signal.</Muted>
+      {ready ? (
+        <Text style={[textStyle.metaStrong, textStyle.tabular]}>
+          Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
+        </Text>
+      ) : null}
+      {progress ? <Muted>{progress}</Muted> : null}
+      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      <Button
+        label={ready ? 'Re-download current pack' : 'Download for offline'}
+        variant={outOfDate ? 'secondary' : 'primary'}
+        onPress={() => void onDownload()}
+      />
+      {person?.role === 'owner' && confirmArchive ? (
+        <View style={{ gap: space.md }}>
+          <Text style={textStyle.body}>
+            {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
+          </Text>
+          <Button
+            label={site.archived_at ? 'Restore site' : 'Archive site'}
+            variant={site.archived_at ? 'secondary' : 'danger'}
+            minHeight={48}
+            onPress={() => {
+              void repo
+                .archiveSite(site.id, !site.archived_at)
+                .then(() => {
+                  setConfirmArchive(false);
+                  return load();
+                })
+                .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
+            }}
+          />
+          <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmArchive(false)} />
+        </View>
+      ) : null}
     </Screen>
   );
 }

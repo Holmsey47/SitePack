@@ -2,13 +2,13 @@ import { AppTabs } from '@/components/app-tabs';
 import { CompanyLogo } from '@/components/CompanyLogo';
 import { Icon } from '@/components/icon';
 import { PhoneStatus } from '@/components/phone-status';
-import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title, Wordmark } from '@/components/ui';
+import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
+import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
-import { contractsManagerLine, operativesLine, workingRows } from '@/data/walk';
+import { workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
 import { packIsStale } from '@/lib/offlinePack';
 import { syncAssignedPacks } from '@/lib/syncPacks';
@@ -101,9 +101,9 @@ export default function SitesScreen() {
     );
     const waiting = queued.some((item) => item.kind === 'confirm' && item.siteId === siteId);
     const gap = gaps.find((row) => row.site_id === siteId);
-    const line = manager && gap ? siteUnseenLine(gap.not_seen_by_everyone) : null;
+    const unseenDrawings = manager && gap ? gap.not_seen_by_everyone : 0;
     const rejections = notices.filter((notice) => notice.siteId === siteId);
-    return { badges, waiting, line, rejections };
+    return { badges, waiting, unseenDrawings, rejections };
   }
 
   const working = useMemo(() => workingRows(rows), [rows]);
@@ -159,7 +159,7 @@ export default function SitesScreen() {
             <View key={site.id} style={{ gap: space.md }}>
               <SiteCard
                 name={site.name}
-                meta={[site.address_line, formatWhen(site.updated_at)].filter(Boolean).join(' · ')}
+                meta={siteMeta(site.address_line, site.updated_at)}
                 stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
                 pills={
                   <CountPill icon="assignment" count={site.my_open_request_count ?? 0} label="open requests you raised" />
@@ -169,7 +169,6 @@ export default function SitesScreen() {
               <SeenNotes
                 manager={false}
                 notes={seenNotes(site.id)}
-                onTeam={() => router.push(`/sites/${site.id}/not-seen`)}
                 onNew={() => router.push(`/sites/${site.id}/new`)}
                 onNotice={(notice) => void followNotice(router, notice)}
               />
@@ -208,20 +207,16 @@ export default function SitesScreen() {
           <View key={row.site_id} style={{ gap: space.md }}>
             <SiteCard
               name={row.name}
-              meta={[
-                row.address_line,
-                `${row.assignee_count} ${row.assignee_count === 1 ? 'person' : 'people'}`,
-                contractsManagerLine(row.contracts_manager_names),
-                operativesLine(row.operative_count),
-                formatWhen(row.last_pack_update),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              meta={siteMeta(row.address_line, row.last_pack_update)}
               stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
               pills={
-                <View style={{ flexDirection: 'row', gap: space.md }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
                   <CountPill icon="assignment" count={row.open_request_count} label="open requests" />
-                  <CountPill icon="person_add" count={row.new_joiner_count ?? 0} label="new joiners" />
+                  <CountPill
+                    icon="description"
+                    count={seenNotes(row.site_id).unseenDrawings}
+                    label="drawings not seen by everyone"
+                  />
                 </View>
               }
               onPress={() => router.push(`/sites/${row.site_id}`)}
@@ -229,7 +224,6 @@ export default function SitesScreen() {
             <SeenNotes
               manager
               notes={seenNotes(row.site_id)}
-              onTeam={() => router.push(`/sites/${row.site_id}/not-seen`)}
               onNew={() => router.push(`/sites/${row.site_id}/new`)}
               onNotice={(notice) => void followNotice(router, notice)}
             />
@@ -240,17 +234,15 @@ export default function SitesScreen() {
   );
 }
 
+function siteMeta(address: string | null | undefined, updatedAt: string | null | undefined): string {
+  return [address, formatWhen(updatedAt)].filter(Boolean).join(' · ');
+}
+
 function SitesHeader({ memberSettings, onSettings }: { memberSettings?: boolean; onSettings?: () => void }) {
   return (
-    <View style={{ gap: space.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Wordmark />
-        {memberSettings && onSettings ? (
-          <PressableSettings onPress={onSettings} />
-        ) : null}
-      </View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
       <CompanyLogo />
-      <Title>Sites</Title>
+      {memberSettings && onSettings ? <PressableSettings onPress={onSettings} /> : null}
     </View>
   );
 }
@@ -283,14 +275,14 @@ function SiteCard({
   return (
     <Card onPress={onPress}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <View style={{ flex: 1, gap: space.xs }}>
+        <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
           <Text style={textStyle.bodyStrong}>{name}</Text>
           {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
+          {pills}
         </View>
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
-      {pills}
     </Card>
   );
 }
@@ -314,21 +306,18 @@ function followNotice(router: { push(path: `/sites/${string}/drawing/${string}`)
 function SeenNotes({
   manager,
   notes,
-  onTeam,
   onNew,
   onNotice,
 }: {
   manager: boolean;
-  notes: { badges: UnseenDrawing[]; waiting: boolean; line: string | null; rejections: SeenNotice[] };
-  onTeam: () => void;
+  notes: { badges: UnseenDrawing[]; waiting: boolean; unseenDrawings: number; rejections: SeenNotice[] };
   onNew: () => void;
   onNotice: (notice: SeenNotice) => void;
 }) {
   const fresh = manager ? null : newDrawingsLine(notes.badges.length);
-  if (!fresh && !notes.waiting && !notes.line && notes.rejections.length === 0) return null;
+  if (!fresh && !notes.waiting && notes.rejections.length === 0) return null;
   return (
     <View style={{ gap: 8 }}>
-      {notes.line ? <GlanceRow label={notes.line} onPress={onTeam} /> : null}
       {notes.rejections.map((notice) => (
         <SeenRejectNotice key={notice.id} message={notice.message} onPress={() => onNotice(notice)} />
       ))}

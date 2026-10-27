@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { formatCodeExpiry, formatSignedWhen } from './format.ts';
+import { drawingFooterLine, formatCodeExpiry, formatSheetDay, formatSignedWhen } from './format.ts';
 
 test('a code expiry names today, tomorrow, or a later London day, and a past time is Ended', () => {
   const now = '2026-10-22T12:00:00.000Z';
@@ -35,6 +35,21 @@ test('the BST to GMT change on 25 Oct 2026 01:00 UTC stays on the London day', (
   const beforeFallback = '2026-10-25T00:30:00.000Z';
   assert.equal(formatCodeExpiry('2026-10-25T01:30:00.000Z', beforeFallback), 'Ends today 1:30am');
   assert.equal(formatCodeExpiry('2026-10-25T23:30:00.000Z', change), 'Ends today 11:30pm');
+});
+
+test('a drawing footer is one London line without the year', () => {
+  assert.equal(formatSheetDay('2026-10-01'), '1 Oct');
+  assert.equal(
+    drawingFooterLine({ current: true, day: '1 Oct', level: 'Ground', seen: '0 of 2 seen' }),
+    'Current · 1 Oct · Ground · 0 of 2 seen',
+  );
+  assert.equal(drawingFooterLine({ current: false, day: '1 Oct' }), 'Superseded · 1 Oct');
+  assert.equal(drawingFooterLine({ current: null, stale: true }), 'Out of date · On this phone');
+  const drawing = fs.readFileSync('app/(app)/sites/[siteId]/drawing/[drawingId].tsx', 'utf8');
+  assert.match(drawing, /drawingFooterLine/);
+  assert.doesNotMatch(drawing, /Phone online/);
+  assert.doesNotMatch(fs.readFileSync('components/phone-status.tsx', 'utf8'), /Phone online/);
+  assert.doesNotMatch(fs.readFileSync('components/fixture-offline.tsx', 'utf8'), /Phone online/);
 });
 
 test('a signature time is London wall time without the year', () => {

@@ -96,6 +96,34 @@ export function formatUkDateTime(iso: string | null | undefined): string {
   return `${clock.day} ${clock.month} ${year}, ${clock.time}`;
 }
 
+/** Day and short month in London, with no year. Drawing footers use this. */
+export function formatSheetDay(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const clock = londonClock(date);
+  return `${clock.day} ${clock.month}`;
+}
+
+/** One line under a drawing: Current · 1 Oct · Ground · 0 of 2 seen. */
+export function drawingFooterLine(input: {
+  current: boolean | null;
+  day?: string | null;
+  level?: string | null;
+  seen?: string | null;
+  stale?: boolean;
+}): string {
+  const parts: string[] = [];
+  if (input.stale) parts.push('Out of date');
+  if (input.current === true) parts.push('Current');
+  else if (input.current === false) parts.push('Superseded');
+  else parts.push('On this phone');
+  if (input.day) parts.push(input.day);
+  if (input.level) parts.push(input.level);
+  if (input.seen) parts.push(input.seen);
+  return parts.join(' · ');
+}
+
 /** Short London time for a lad's signature. Example: 27 Oct, 10:08pm. */
 export function formatSignedWhen(iso: string | null | undefined): string {
   if (!iso) return '';

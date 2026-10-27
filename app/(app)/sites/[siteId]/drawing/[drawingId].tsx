@@ -1,7 +1,7 @@
 import { DrawingFrame } from '@/components/drawing-frame';
 import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
 import { Icon } from '@/components/icon';
-import { Button, Muted, NewRevBadge, OverflowMenu, RevBadge, Screen, OutOfDateBadge, SeenCountChip, SeenRejectNotice } from '@/components/ui';
+import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   seenButtonLabel,
@@ -29,7 +29,7 @@ import {
   type SeenNotice,
 } from '@/lib/drawingSeenQueue';
 import { clearNoticesAfterOpen, currentRevisionAfter, flushQueuedDrawingSeen, openReplacedNotice } from '@/lib/drawingSeenSync';
-import { formatDate, formatUkDateTime } from '@/lib/format';
+import { drawingFooterLine, formatSheetDay, formatUkDateTime } from '@/lib/format';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { localDrawingUri, readCachedSites, readPackMeta } from '@/lib/offline';
 import { drawingCopyIsStale } from '@/lib/offlinePack';
@@ -369,15 +369,28 @@ export default function DrawingViewerScreen() {
       : []),
   ];
 
+  const statusLine =
+    drawing || revision
+      ? drawingFooterLine({
+          current: drawing ? drawing.is_current : null,
+          day: drawing ? formatSheetDay(drawing.dated) : '',
+          level: drawing ? displayLevel(drawing.level) : null,
+          seen:
+            manage && drawing?.is_current && roster
+              ? `${roster.seen_count} of ${roster.assigned_count} seen`
+              : drawing?.is_current && proof?.seen_at
+                ? `Seen ${formatUkDateTime(proof.seen_at)}`
+                : null,
+          stale,
+        })
+      : '';
+  const openSeen = manage && drawing?.is_current && roster && siteId
+    ? () => router.push(`/sites/${siteId}/seen/${drawing.id}`)
+    : null;
+
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {uri ? (
-        <View style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}>
-          <DrawingFrame uri={uri} onError={setError} />
-        </View>
-      ) : null}
-      <View pointerEvents="box-none" style={{ flex: 1, paddingTop: insets.top }}>
-      <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.sm, backgroundColor: theme.bg }}>
+    <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: insets.top }}>
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, backgroundColor: theme.bg }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: hit.secondary }}>
           <Pressable
             accessibilityRole="button"
@@ -400,29 +413,26 @@ export default function DrawingViewerScreen() {
           />
         </View>
       </View>
-      <View pointerEvents="none" style={{ flex: 1 }} />
+      <View style={{ flex: 1, minHeight: 0 }}>
+        {uri ? <DrawingFrame uri={uri} onError={setError} /> : (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            {error ? null : <ActivityIndicator color={theme.text} />}
+          </View>
+        )}
+      </View>
       <View
         style={{
           paddingHorizontal: space.lg,
-          paddingTop: space.sm,
-          paddingBottom: Math.max(insets.bottom, space.md),
-          gap: space.sm,
+          paddingBottom: Math.max(insets.bottom, space.sm),
           backgroundColor: theme.bg,
+          gap: space.sm,
         }}>
-        {stale ? <OutOfDateBadge /> : null}
         <FixtureOfflineSwitch />
         {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <FixtureReplaceRev
             drawingId={drawing.id}
             onReplaced={() => router.replace('/sites')}
           />
-        ) : null}
-        {drawing || revision ? (
-          <Muted>
-            {drawing ? (drawing.is_current ? 'Current' : 'Superseded') : 'On this phone'}
-            {drawing ? ` · ${formatDate(drawing.dated)}` : ''}
-            {drawing && displayLevel(drawing.level) ? ` · ${displayLevel(drawing.level)}` : ''}
-          </Muted>
         ) : null}
         {drawing?.is_current && proof?.assigned && !proof.seen_at && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <NewRevBadge sheet={sheetLabel(drawing)} revision={drawing.revision} />
@@ -445,22 +455,15 @@ export default function DrawingViewerScreen() {
             accessibilityRole="text"
             accessibilityLabel={SAVED_ON_PHONE}
             style={{
-              minHeight: 56,
+              minHeight: hit.secondary,
               borderRadius: 14,
               backgroundColor: theme.surfaceAlt,
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: 18,
-              paddingVertical: 12,
             }}>
             <Text style={[textStyle.bodyStrong, { textAlign: 'center' }]}>{SAVED_ON_PHONE}</Text>
           </View>
-        ) : null}
-        {drawing?.is_current && proof?.seen_at && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
-          <Text style={textStyle.metaStrong}>
-            You saw rev {drawing.revision}
-            {formatUkDateTime(proof.seen_at) ? ` · ${formatUkDateTime(proof.seen_at)}` : ''}
-          </Text>
         ) : null}
         {drawing?.is_current &&
         proof?.assigned !== false &&
@@ -475,13 +478,6 @@ export default function DrawingViewerScreen() {
           />
         ) : null}
         {seenNote && seenNote !== SAVED_ON_PHONE ? <Text style={{ color: theme.danger }}>{seenNote}</Text> : null}
-        {manage && drawing?.is_current && roster ? (
-          <SeenCountChip
-            seen={roster.seen_count}
-            total={roster.assigned_count}
-            onPress={() => router.push(`/sites/${siteId}/seen/${drawing.id}`)}
-          />
-        ) : null}
         {person?.role === 'owner' && drawing && confirmDelete ? (
           <View style={{ gap: space.sm }}>
             <Text style={textStyle.bodyStrong}>{DELETE_DRAWING_CONFIRM}</Text>
@@ -498,7 +494,23 @@ export default function DrawingViewerScreen() {
         {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
         {error ? <Button label="Retry" variant="secondary" onPress={() => setRetrying((value) => !value)} /> : null}
         {saveError ? <Text style={{ color: theme.danger }}>{saveError}</Text> : null}
-      </View>
+        {statusLine && openSeen ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={statusLine}
+            onPress={openSeen}
+            style={{ minHeight: hit.secondary, justifyContent: 'center' }}>
+            <Text style={textStyle.metaStrong} numberOfLines={1}>
+              {statusLine}
+            </Text>
+          </Pressable>
+        ) : statusLine ? (
+          <View accessibilityRole="text" accessibilityLabel={statusLine} style={{ minHeight: hit.secondary, justifyContent: 'center' }}>
+            <Text style={textStyle.metaStrong} numberOfLines={1}>
+              {statusLine}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );

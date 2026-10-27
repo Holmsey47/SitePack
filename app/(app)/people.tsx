@@ -1,5 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
-import { Button, Card, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Field, Muted, OverflowMenu, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   canAddNoLogin,
@@ -28,7 +28,7 @@ export default function PeopleScreen() {
   const [trade, setTrade] = useState('');
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [inviteFor, setInviteFor] = useState<string | null>(null);
-  const [removeFor, setRemoveFor] = useState<string | null>(null);
+  const [removeFor, setRemoveFor] = useState<{ personId: string; siteId: string } | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -105,6 +105,7 @@ export default function PeopleScreen() {
       setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not remove them from that site'));
       return;
     }
+    setRemoveFor(null);
     await refreshAfterWrite();
   }
 
@@ -142,41 +143,37 @@ export default function PeopleScreen() {
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
         return (
           <Card key={row.id}>
-            <Text style={{ ...textStyle.bodyStrong }}>{personLabel(row)}</Text>
-            <Muted>{occupationLine(row.role, row.trade)}</Muted>
-            <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
-            {mine.length === 1 ? (
-              <View style={{ alignItems: 'flex-end', gap: space.sm }}>
-                {removeFor === row.id ? (
-                  <>
-                    <Text style={textStyle.body}>Remove {personLabel(row)} from {mine[0].name}?</Text>
-                    <Button label="Remove" variant="danger" onPress={() => void onRemove(row.id, mine[0].site_id)} />
-                    <Button label="Cancel" variant="secondary" onPress={() => setRemoveFor(null)} />
-                  </>
-                ) : (
-                  <Button label="Remove" variant="ghost" onPress={() => setRemoveFor(row.id)} />
-                )}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+              <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
+                <Text style={{ ...textStyle.bodyStrong }}>{personLabel(row)}</Text>
+                <Muted>{occupationLine(row.role, row.trade)}</Muted>
+                <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
               </View>
-            ) : null}
-            {mine.length > 1 ? (
-              <View style={{ alignItems: 'flex-end' }}>
+              {mine.length > 0 ? (
+                <OverflowMenu
+                  label={`More for ${personLabel(row)}`}
+                  items={mine.map((site) => ({
+                    label: `Remove from ${site.name}`,
+                    danger: true,
+                    onPress: () => setRemoveFor({ personId: row.id, siteId: site.site_id }),
+                  }))}
+                />
+              ) : null}
+            </View>
+            {removeFor?.personId === row.id ? (
+              <View style={{ gap: space.sm }}>
+                <Text style={textStyle.body}>
+                  Remove {personLabel(row)} from {mine.find((site) => site.site_id === removeFor.siteId)?.name}?
+                </Text>
                 <Button
                   label="Remove"
-                  variant="ghost"
-                  onPress={() => setRemoveFor((current) => (current === row.id ? null : row.id))}
+                  variant="danger"
+                  minHeight={48}
+                  onPress={() => void onRemove(row.id, removeFor.siteId)}
                 />
+                <Button label="Cancel" variant="secondary" minHeight={48} onPress={() => setRemoveFor(null)} />
               </View>
             ) : null}
-            {mine.length > 1 && removeFor === row.id
-              ? mine.map((site) => (
-                  <Button
-                    key={site.site_id}
-                    label={`Remove from ${site.name}`}
-                    variant="danger"
-                    onPress={() => void onRemove(row.id, site.site_id)}
-                  />
-                ))
-              : null}
             {invite && inviteFor !== row.id ? (
               <Button
                 label="Invite"
@@ -223,7 +220,7 @@ export default function PeopleScreen() {
                 accessibilityRole="button"
                 onPress={() => toggleSite(site.site_id)}
                 style={{
-                  minHeight: 44,
+                  minHeight: 48,
                   justifyContent: 'center',
                   paddingHorizontal: 12,
                   borderRadius: 12,
