@@ -2,9 +2,12 @@
 -- People list, even when the owner is not assigned there.
 -- The people row stays hidden. This exposes display name and role only.
 -- No email, no phone, and nothing from another company.
--- The helper is in private. anon and public cannot execute it, and private is
--- not an exposed Data API schema, so PostgREST does not publish the function.
--- Authenticated can execute it because a view checks that privilege as the caller.
+-- The view is security invoker, so an authenticated member selects it with
+-- their own rights. It reads private.company_owner_label(), which stays
+-- security definer so it can see the owner row that people RLS hides.
+-- Execute on that helper is for authenticated only. anon and public cannot
+-- execute it. private is not an exposed Data API schema, so PostgREST does
+-- not publish the function.
 -- The function returns display name and role only. The app reads the view.
 
 create or replace function private.company_owner_label()
@@ -35,13 +38,13 @@ revoke all on function private.company_owner_label() from public, anon;
 grant execute on function private.company_owner_label() to authenticated;
 
 create or replace view public.company_owner_label
-with (security_barrier = true, security_invoker = false)
+with (security_invoker = true, security_barrier = true)
 as
 select display_name, role
 from private.company_owner_label();
 
 comment on view public.company_owner_label is
-  'Own-company owner display name and role for a member who can open a site. No other columns.';
+  'Security invoker. Display name and role of the caller''s own company owner, read through private.company_owner_label(). No other columns.';
 
 revoke all on table public.company_owner_label from public, anon, authenticated;
 grant select on table public.company_owner_label to authenticated;

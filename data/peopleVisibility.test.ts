@@ -177,7 +177,8 @@ test('a member sees their own company owner name and role on a site', async () =
   assert.equal(sql.includes('grant execute on function private.company_owner_label() to anon'), false);
   assert.equal(sql.includes('grant execute on function private.company_owner_label() to public'), false);
   assert.match(sql, /security_barrier = true/);
-  assert.match(sql, /security_invoker = false/);
+  assert.match(sql, /security_invoker = true/);
+  assert.equal(sql.includes('security_invoker = false'), false);
   const view = sql.slice(sql.indexOf('view public.company_owner_label'), sql.indexOf('comment on view public.company_owner_label'));
   assert.match(view, /display_name, role/);
   assert.equal(view.includes('email'), false);
