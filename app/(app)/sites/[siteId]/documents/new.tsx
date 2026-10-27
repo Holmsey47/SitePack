@@ -1,7 +1,7 @@
 import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { SITE_DOCUMENT_KINDS, type SiteDocumentKind } from '@/data/siteDocuments';
+import { SITE_DOCUMENT_KINDS, siteDocumentBytesError, siteDocumentPickError, type SiteDocumentKind } from '@/data/siteDocuments';
 import { theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import * as DocumentPicker from 'expo-document-picker';
@@ -26,11 +26,27 @@ export default function NewSiteDocumentScreen() {
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
+      base64: false,
     });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
+    const picked = siteDocumentPickError({ name: asset.name, mimeType: asset.mimeType, size: asset.size });
+    if (picked) {
+      setBytes(null);
+      setFileName('');
+      setError(picked);
+      return;
+    }
     try {
-      setBytes(await readPickedBytes(asset, Platform.OS));
+      const next = await readPickedBytes(asset, Platform.OS);
+      const bytesError = siteDocumentBytesError(next);
+      if (bytesError) {
+        setBytes(null);
+        setFileName('');
+        setError(bytesError);
+        return;
+      }
+      setBytes(next);
       setFileName(asset.name);
       setError('');
     } catch (err) {

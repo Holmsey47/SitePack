@@ -11,6 +11,7 @@ create table public.site_documents (
   title text not null,
   created_by uuid not null references public.people (id),
   created_at timestamptz not null default now(),
+  archived_at timestamptz,
   constraint site_documents_kind check (kind in ('induction', 'toolbox', 'rams')),
   constraint site_documents_title_len check (char_length(btrim(title)) between 1 and 120)
 );
@@ -19,6 +20,9 @@ create index site_documents_site_idx on public.site_documents (site_id);
 
 comment on table public.site_documents is
   'A site induction, toolbox talk, or RAMS. Versions and signatures hang off this row.';
+
+comment on column public.site_documents.archived_at is
+  'Set by the owner when the document has signatures. Members no longer see it. Rows and files stay.';
 
 create table public.site_document_versions (
   id uuid primary key default gen_random_uuid(),
@@ -105,8 +109,7 @@ $$;
 comment on function private.supersede_site_document_version() is
   'Makes the inserted version current and supersedes the previous one.';
 
-revoke all on function private.supersede_site_document_version() from public, anon;
-grant execute on function private.supersede_site_document_version() to authenticated;
+revoke all on function private.supersede_site_document_version() from public, anon, authenticated;
 
 drop trigger if exists site_document_versions_supersede on public.site_document_versions;
 create trigger site_document_versions_supersede
@@ -127,8 +130,74 @@ $$;
 comment on function private.stamp_site_document_signature() is
   'Sets signed_at to the database clock. The client clock is ignored.';
 
-revoke all on function private.stamp_site_document_signature() from public, anon;
-grant execute on function private.stamp_site_document_signature() to authenticated;
+revoke all on function private.stamp_site_document_signature() from public, anon, authenticated;
+
+create or replace function private.stamp_site_document_archive()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if old.archived_at is not null or new.archived_at is null then
+    raise exception 'invalid_input';
+  end if;
+  new.archived_at := now();
+  return new;
+end;
+$$;
+
+comment on function private.stamp_site_document_archive() is
+  'Sets archived_at to the database clock. A document is archived once.';
+
+revoke all on function private.stamp_site_document_archive() from public, anon, authenticated;
+
+drop trigger if exists site_documents_archive_stamp on public.site_documents;
+create trigger site_documents_archive_stamp
+  before update of archived_at on public.site_documents
+  for each row execute function private.stamp_site_document_archive();
+
+create or replace function private.site_document_has_signatures(p_document_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.site_document_signatures s
+    where s.document_id = p_document_id
+  );
+$$;
+
+comment on function private.site_document_has_signatures(uuid) is
+  'True when any signature row exists for the document. Bypasses signature RLS.';
+
+revoke all on function private.site_document_has_signatures(uuid) from public, anon;
+grant execute on function private.site_document_has_signatures(uuid) to authenticated;
+
+create or replace function private.site_photo_is_orphan(p_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.my_role() = 'owner'
+    and private.storage_company_id(p_name) = private.my_company_id()
+    and not exists (
+      select 1 from public.snag_photos sp where sp.storage_path = p_name
+    )
+    and not exists (
+      select 1 from public.variation_photos vp where vp.storage_path = p_name
+    );
+$$;
+
+comment on function private.site_photo_is_orphan(text) is
+  'True when the owner is deleting a site photo in their company that no snag or variation still uses.';
+
+revoke all on function private.site_photo_is_orphan(text) from public, anon;
+grant execute on function private.site_photo_is_orphan(text) to authenticated;
 
 drop trigger if exists site_document_signatures_stamp on public.site_document_signatures;
 create trigger site_document_signatures_stamp
@@ -149,12 +218,16 @@ revoke all on table public.site_document_versions from public, anon, authenticat
 revoke all on table public.site_document_signatures from public, anon, authenticated;
 
 grant select, insert, delete on table public.site_documents to authenticated;
+grant update (archived_at) on table public.site_documents to authenticated;
 grant select, insert, update on table public.site_document_versions to authenticated;
 grant select, insert on table public.site_document_signatures to authenticated;
 
 create policy site_documents_select
   on public.site_documents for select to authenticated
-  using (private.can_access_site(site_id));
+  using (
+    private.can_access_site(site_id)
+    and (archived_at is null or private.my_role() = 'owner')
+  );
 
 create policy site_documents_insert
   on public.site_documents for insert to authenticated
@@ -174,11 +247,34 @@ create policy site_documents_delete
     private.my_role() = 'owner'
     and company_id = private.my_company_id()
     and private.can_access_site(site_id)
+    and not private.site_document_has_signatures(id)
+  );
+
+create policy site_documents_archive
+  on public.site_documents for update to authenticated
+  using (
+    private.my_role() = 'owner'
+    and company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and archived_at is null
+  )
+  with check (
+    private.my_role() = 'owner'
+    and company_id = private.my_company_id()
+    and private.can_access_site(site_id)
+    and archived_at is not null
   );
 
 create policy site_document_versions_select
   on public.site_document_versions for select to authenticated
-  using (private.can_access_site(site_id));
+  using (
+    private.can_access_site(site_id)
+    and exists (
+      select 1
+      from public.site_documents d
+      where d.id = site_document_versions.document_id
+    )
+  );
 
 create policy site_document_versions_insert
   on public.site_document_versions for insert to authenticated
@@ -190,6 +286,14 @@ create policy site_document_versions_insert
     and is_current
     and created_by = (
       select p.id from public.people p where p.auth_user_id = (select auth.uid())
+    )
+    and exists (
+      select 1
+      from public.site_documents d
+      where d.id = site_document_versions.document_id
+        and d.site_id = site_document_versions.site_id
+        and d.company_id = site_document_versions.company_id
+        and d.archived_at is null
     )
   );
 
@@ -210,6 +314,11 @@ create policy site_document_signatures_select
   on public.site_document_signatures for select to authenticated
   using (
     private.can_access_site(site_id)
+    and exists (
+      select 1
+      from public.site_documents d
+      where d.id = site_document_signatures.document_id
+    )
     and (
       private.my_role() = 'owner'
       or person_id = (
@@ -229,11 +338,18 @@ create policy site_document_signatures_insert
     and exists (
       select 1
       from public.site_document_versions v
-      where v.id = version_id
+      where v.id = site_document_signatures.version_id
         and v.is_current
-        and v.site_id = site_id
-        and v.document_id = document_id
+        and v.site_id = site_document_signatures.site_id
+        and v.document_id = site_document_signatures.document_id
         and v.company_id = private.my_company_id()
+    )
+    and exists (
+      select 1
+      from public.site_documents d
+      where d.id = site_document_signatures.document_id
+        and d.site_id = site_document_signatures.site_id
+        and d.archived_at is null
     )
   );
 
@@ -264,6 +380,11 @@ create policy site_documents_storage_select
     and coalesce(array_length(storage.foldername(name), 1), 0) = 3
     and position('..' in name) = 0
     and left(name, 1) <> '/'
+    and exists (
+      select 1
+      from public.site_documents d
+      where d.id = private.try_uuid((storage.foldername(name))[3])
+    )
   );
 
 create policy site_documents_storage_insert
@@ -294,6 +415,5 @@ create policy site_photos_delete
   on storage.objects for delete to authenticated
   using (
     bucket_id = 'site-photos'
-    and private.my_role() = 'owner'
-    and private.storage_company_id(name) = private.my_company_id()
+    and private.site_photo_is_orphan(name)
   );

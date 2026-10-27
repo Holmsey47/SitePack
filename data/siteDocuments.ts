@@ -21,6 +21,29 @@ export function memberMustSign(role: Role | undefined): boolean {
   return role === 'operative' || role === 'cm';
 }
 
+export const SITE_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
+
+export function siteDocumentPickError(file: {
+  name?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
+}): string | null {
+  const name = file.name?.trim().toLowerCase() ?? '';
+  const mime = file.mimeType?.trim().toLowerCase() ?? '';
+  if ((mime && mime !== 'application/pdf') || (name && !name.endsWith('.pdf'))) return 'Choose a PDF.';
+  if (file.size != null && file.size > SITE_DOCUMENT_MAX_BYTES) return 'That PDF is larger than 20MB.';
+  return null;
+}
+
+export function siteDocumentBytesError(bytes: Uint8Array): string | null {
+  if (bytes.byteLength > SITE_DOCUMENT_MAX_BYTES) return 'That PDF is larger than 20MB.';
+  const header = PDF_MAGIC.every((byte, index) => bytes[index] === byte);
+  if (!header) return 'Choose a PDF.';
+  return null;
+}
+
 export function siteDocumentPath(
   companyId: string,
   siteId: string,
@@ -39,6 +62,7 @@ export type SiteDocumentSummary = {
   version_no: number;
   storage_path: string;
   signed_by_me: boolean;
+  archived_at: string | null;
 };
 
 export type SiteDocumentSignature = {

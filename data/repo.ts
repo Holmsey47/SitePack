@@ -175,6 +175,7 @@ export type SitePackRepo = {
   createSiteDocument(input: CreateSiteDocumentInput): Promise<{ id: string }>;
   replaceSiteDocument(input: ReplaceSiteDocumentInput): Promise<void>;
   deleteSiteDocument(documentId: string): Promise<void>;
+  archiveSiteDocument(documentId: string): Promise<void>;
   signSiteDocument(input: SignSiteDocumentInput): Promise<void>;
   siteDocumentUrl(storagePath: string): Promise<string>;
 };

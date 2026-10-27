@@ -43,7 +43,7 @@ export default function SiteDocumentsScreen() {
       ) : null}
       {loaded && !error && rows.length === 0 ? <EmptyState title="No documents yet" /> : null}
       {rows.map((row) => {
-        const status = owner ? `Version ${row.version_no}` : row.signed_by_me ? 'Signed' : 'To sign';
+        const status = row.archived_at ? 'Archived' : owner ? `Version ${row.version_no}` : row.signed_by_me ? 'Signed' : 'To sign';
         return (
           <Card key={row.id} onPress={() => router.push(`/sites/${siteId}/documents/${row.id}`)}>
             <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{row.title}</Text>

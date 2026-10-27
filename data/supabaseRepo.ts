@@ -52,6 +52,7 @@ import type {
 import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import {
   isSiteDocumentKind,
+  siteDocumentBytesError,
   siteDocumentPath,
   type CreateSiteDocumentInput,
   type ReplaceSiteDocumentInput,
@@ -1219,7 +1220,7 @@ export const supabaseRepo: SitePackRepo = {
     if (!person) throw new Error('not_authorized');
     const supabase = getSupabase();
     const documents = await documentRows(
-      supabase.from('site_documents').select('id, site_id, kind, title').eq('site_id', siteId).order('title'),
+      supabase.from('site_documents').select('id, site_id, kind, title, archived_at').eq('site_id', siteId).order('title'),
     );
     const versions = await documentRows(
       supabase
@@ -1250,6 +1251,7 @@ export const supabaseRepo: SitePackRepo = {
           signed_by_me: signatures.some(
             (signature) => signature.version_id === version.id && signature.person_id === person.id,
           ),
+          archived_at: row.archived_at == null ? null : String(row.archived_at),
         } satisfies SiteDocumentSummary,
       ];
     });
@@ -1261,7 +1263,7 @@ export const supabaseRepo: SitePackRepo = {
     const supabase = getSupabase();
     const { data: document, error } = await supabase
       .from('site_documents')
-      .select('id, site_id, kind, title')
+      .select('id, site_id, kind, title, archived_at')
       .eq('id', documentId)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -1289,6 +1291,7 @@ export const supabaseRepo: SitePackRepo = {
       version_no: Number(version.version_no),
       storage_path: String(version.storage_path),
       signed_by_me: signatures.some((row) => row.person_id === person.id),
+      archived_at: document.archived_at == null ? null : String(document.archived_at),
       signatures: signatures.map(
         (row): SiteDocumentSignature => ({
           person_id: String(row.person_id),
@@ -1300,6 +1303,8 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async createSiteDocument(input: CreateSiteDocumentInput) {
+    const bytesError = siteDocumentBytesError(input.bytes);
+    if (bytesError) throw new Error(bytesError);
     const supabase = getSupabase();
     const documentId = newId();
     const versionId = newId();
@@ -1343,6 +1348,8 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async replaceSiteDocument(input: ReplaceSiteDocumentInput) {
+    const bytesError = siteDocumentBytesError(input.bytes);
+    if (bytesError) throw new Error(bytesError);
     const supabase = getSupabase();
     const { data: document, error } = await supabase
       .from('site_documents')
@@ -1388,11 +1395,25 @@ export const supabaseRepo: SitePackRepo = {
       supabase.from('site_document_versions').select('storage_path').eq('document_id', documentId),
     );
     const paths = versions.map((row) => String(row.storage_path)).filter((path) => path.length > 0);
-    const { error } = await supabase.from('site_documents').delete().eq('id', documentId);
+    const { data: removedRows, error } = await supabase.from('site_documents').delete().eq('id', documentId).select('id');
     if (error) throw new Error(error.message);
+    if (!removedRows || removedRows.length === 0) {
+      throw new Error('This document has been signed. Archive it instead.');
+    }
     if (paths.length === 0) return;
     const removed = await supabase.storage.from('site-documents').remove(paths);
     if (removed.error) throw new Error(removed.error.message);
+  },
+
+  async archiveSiteDocument(documentId) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('site_documents')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', documentId)
+      .select('id');
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error('Could not archive the document.');
   },
 
   async signSiteDocument(input: SignSiteDocumentInput) {

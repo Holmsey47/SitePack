@@ -94,6 +94,7 @@ import {
 import type { CreateSnagInput, SignOffSnagsInput } from '@/data/snags';
 import {
   isSiteDocumentKind,
+  siteDocumentBytesError,
   siteDocumentPath,
   type CreateSiteDocumentInput,
   type ReplaceSiteDocumentInput,
@@ -162,6 +163,7 @@ type FixtureSiteDocument = {
   title: string;
   created_by: string;
   created_at: string;
+  archived_at: string | null;
 };
 
 type FixtureSiteDocumentVersion = {
@@ -519,6 +521,7 @@ function seed(): Store {
         title: 'Site induction',
         created_by: IDS.owner,
         created_at: '2026-10-20T09:00:00.000Z',
+        archived_at: null,
       },
     ],
     siteDocumentVersions: [
@@ -1952,6 +1955,7 @@ export const fixtureRepo: SitePackRepo = {
     if (!canAccessSite(person, siteId)) throw new Error('not_authorized');
     return store.siteDocuments
       .filter((row) => row.site_id === siteId)
+      .filter((row) => person.role === 'owner' || row.archived_at == null)
       .flatMap((row) => {
         const version = store.siteDocumentVersions.find(
           (item) => item.document_id === row.id && item.is_current,
@@ -1969,6 +1973,7 @@ export const fixtureRepo: SitePackRepo = {
             signed_by_me: store.siteDocumentSignatures.some(
               (signature) => signature.version_id === version.id && signature.person_id === person.id,
             ),
+            archived_at: row.archived_at,
           },
         ];
       })
@@ -1979,6 +1984,7 @@ export const fixtureRepo: SitePackRepo = {
     const person = meOrThrow();
     const document = store.siteDocuments.find((row) => row.id === documentId);
     if (!document || !canAccessSite(person, document.site_id)) return null;
+    if (document.archived_at && person.role !== 'owner') return null;
     const version = store.siteDocumentVersions.find((row) => row.document_id === document.id && row.is_current);
     if (!version) return null;
     const signatures = store.siteDocumentSignatures
@@ -1994,6 +2000,7 @@ export const fixtureRepo: SitePackRepo = {
       version_no: version.version_no,
       storage_path: version.storage_path,
       signed_by_me: signatures.some((row) => row.person_id === person.id),
+      archived_at: document.archived_at,
       signatures,
     };
   },
@@ -2005,7 +2012,8 @@ export const fixtureRepo: SitePackRepo = {
     assertSiteWritable(input.siteId);
     const title = input.title.trim();
     if (!isSiteDocumentKind(input.kind) || title.length < 1 || title.length > 120) throw new Error('invalid_input');
-    if (input.bytes.byteLength < 1) throw new Error('invalid_input');
+    const bytesError = siteDocumentBytesError(input.bytes);
+    if (bytesError) throw new Error(bytesError);
     const documentId = newId();
     const versionId = newId();
     const createdAt = now();
@@ -2017,6 +2025,7 @@ export const fixtureRepo: SitePackRepo = {
       title,
       created_by: person.id,
       created_at: createdAt,
+      archived_at: null,
     });
     store.siteDocumentVersions.push({
       id: versionId,
@@ -2039,7 +2048,9 @@ export const fixtureRepo: SitePackRepo = {
     const document = store.siteDocuments.find((row) => row.id === input.documentId);
     if (!document || !canAccessSite(person, document.site_id)) throw new Error('not_authorized');
     assertSiteWritable(document.site_id);
-    if (input.bytes.byteLength < 1) throw new Error('invalid_input');
+    if (document.archived_at) throw new Error('invalid_input');
+    const bytesError = siteDocumentBytesError(input.bytes);
+    if (bytesError) throw new Error(bytesError);
     const current = store.siteDocumentVersions.filter((row) => row.document_id === document.id);
     for (const row of current) row.is_current = false;
     const versionNo = current.reduce((max, row) => Math.max(max, row.version_no), 0) + 1;
@@ -2065,9 +2076,23 @@ export const fixtureRepo: SitePackRepo = {
     if (!document || document.company_id !== person.company_id || !canAccessSite(person, document.site_id)) {
       throw new Error('not_authorized');
     }
+    if (store.siteDocumentSignatures.some((row) => row.document_id === documentId)) {
+      throw new Error('This document has been signed. Archive it instead.');
+    }
     store.siteDocuments = store.siteDocuments.filter((row) => row.id !== documentId);
     store.siteDocumentVersions = store.siteDocumentVersions.filter((row) => row.document_id !== documentId);
     store.siteDocumentSignatures = store.siteDocumentSignatures.filter((row) => row.document_id !== documentId);
+  },
+
+  async archiveSiteDocument(documentId) {
+    const person = meOrThrow();
+    if (person.role !== 'owner') throw new Error('not_authorized');
+    const document = store.siteDocuments.find((row) => row.id === documentId);
+    if (!document || document.company_id !== person.company_id || !canAccessSite(person, document.site_id)) {
+      throw new Error('not_authorized');
+    }
+    if (document.archived_at) throw new Error('invalid_input');
+    document.archived_at = now();
   },
 
   async signSiteDocument(input: SignSiteDocumentInput) {
@@ -2083,6 +2108,8 @@ export const fixtureRepo: SitePackRepo = {
         row.is_current,
     );
     if (!version) throw new Error('not_authorized');
+    const document = store.siteDocuments.find((row) => row.id === version.document_id);
+    if (!document || document.archived_at) throw new Error('not_authorized');
     if (store.siteDocumentSignatures.some((row) => row.version_id === version.id && row.person_id === person.id)) {
       return;
     }

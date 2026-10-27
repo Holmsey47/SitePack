@@ -4,7 +4,9 @@ import { repo } from '@/data/index';
 import {
   memberMustSign,
   signRoster,
+  siteDocumentBytesError,
   siteDocumentKindLabel,
+  siteDocumentPickError,
   type SiteDocumentDetail,
 } from '@/data/siteDocuments';
 import { formatUkDateTime } from '@/lib/format';
@@ -89,11 +91,28 @@ export default function SiteDocumentScreen() {
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
+      base64: false,
     });
     if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const picked = siteDocumentPickError({ name: asset.name, mimeType: asset.mimeType, size: asset.size });
+    if (picked) {
+      setBytes(null);
+      setFileName('');
+      setError(picked);
+      return;
+    }
     try {
-      setBytes(await readPickedBytes(result.assets[0], Platform.OS));
-      setFileName(result.assets[0].name);
+      const next = await readPickedBytes(asset, Platform.OS);
+      const bytesError = siteDocumentBytesError(next);
+      if (bytesError) {
+        setBytes(null);
+        setFileName('');
+        setError(bytesError);
+        return;
+      }
+      setBytes(next);
+      setFileName(asset.name);
       setError('');
     } catch (err) {
       setBytes(null);
@@ -118,6 +137,19 @@ export default function SiteDocumentScreen() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the new version.');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archive() {
+    if (!detail) return;
+    setBusy(true);
+    setError('');
+    try {
+      await repo.archiveSiteDocument(detail.id);
+      router.back();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not archive the document.');
       setBusy(false);
     }
   }
@@ -157,12 +189,15 @@ export default function SiteDocumentScreen() {
       <Title>{detail.title}</Title>
       <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{siteDocumentKindLabel(detail.kind)}</Text>
       <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Version {detail.version_no}</Text>
+      {detail.archived_at ? (
+        <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '800' }}>Archived</Text>
+      ) : null}
       <Button label="Open PDF" variant="secondary" minHeight={48} onPress={() => void openPdf()} />
       {opened ? <Text style={{ color: theme.text, fontSize: 18 }}>{opened}</Text> : null}
-      {mustSign && !detail.signed_by_me ? (
+      {mustSign && !detail.archived_at && !detail.signed_by_me ? (
         <Button label="I have read and understood" minHeight={56} loading={busy} onPress={() => void sign()} />
       ) : null}
-      {mustSign && detail.signed_by_me ? (
+      {mustSign && !detail.archived_at && detail.signed_by_me ? (
         <Text style={{ color: theme.sent, fontSize: 18, fontWeight: '800' }}>Signed</Text>
       ) : null}
       <ErrorText>{error}</ErrorText>
@@ -178,14 +213,24 @@ export default function SiteDocumentScreen() {
               </Text>
             </Card>
           ))}
-          <Button label={fileName || 'Choose a new PDF'} variant="secondary" minHeight={48} onPress={() => void pickPdf()} />
-          {bytes ? (
-            <Button label="Save new version" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
-          ) : null}
-          {confirmDelete ? (
-            <Button label="Delete this document" variant="danger" minHeight={48} loading={busy} onPress={() => void remove()} />
-          ) : (
-            <Button label="Delete document" variant="danger" minHeight={48} onPress={() => setConfirmDelete(true)} />
+          {detail.archived_at ? null : (
+            <>
+              <Button label={fileName || 'Choose a new PDF'} variant="secondary" minHeight={48} onPress={() => void pickPdf()} />
+              {bytes ? (
+                <Button label="Save new version" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
+              ) : null}
+              {detail.signatures.length > 0 ? (
+                confirmDelete ? (
+                  <Button label="Archive this document" variant="danger" minHeight={48} loading={busy} onPress={() => void archive()} />
+                ) : (
+                  <Button label="Archive document" variant="danger" minHeight={48} onPress={() => setConfirmDelete(true)} />
+                )
+              ) : confirmDelete ? (
+                <Button label="Delete this document" variant="danger" minHeight={48} loading={busy} onPress={() => void remove()} />
+              ) : (
+                <Button label="Delete document" variant="danger" minHeight={48} onPress={() => setConfirmDelete(true)} />
+              )}
+            </>
           )}
         </>
       ) : null}

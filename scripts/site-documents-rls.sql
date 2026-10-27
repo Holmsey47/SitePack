@@ -91,12 +91,17 @@ select pg_temp.ok(
     and not has_table_privilege('anon', 'public.site_document_versions', 'select')
     and not has_table_privilege('anon', 'public.site_document_signatures', 'select')
     and has_table_privilege('authenticated', 'public.site_documents', 'select, insert, delete')
-    and not has_table_privilege('authenticated', 'public.site_documents', 'update')
+    and has_column_privilege('authenticated', 'public.site_documents', 'archived_at', 'update')
+    and not has_column_privilege('authenticated', 'public.site_documents', 'title', 'update')
+    and not has_function_privilege('authenticated', 'private.supersede_site_document_version()', 'execute')
+    and not has_function_privilege('anon', 'private.supersede_site_document_version()', 'execute')
+    and not has_function_privilege('authenticated', 'private.stamp_site_document_signature()', 'execute')
+    and not has_function_privilege('anon', 'private.stamp_site_document_signature()', 'execute')
     and has_table_privilege('authenticated', 'public.site_document_versions', 'select, insert, update')
     and not has_table_privilege('authenticated', 'public.site_document_versions', 'delete')
     and has_table_privilege('authenticated', 'public.site_document_signatures', 'select, insert')
     and not has_table_privilege('authenticated', 'public.site_document_signatures', 'update, delete'),
-  'grants are select for members, owner writes, and signature insert only'
+  'grants are select for members, owner writes, signature insert, and no trigger execute'
 );
 
 select pg_temp.jwt(:'cmx'::uuid);
@@ -203,7 +208,58 @@ select pg_temp.ok(
   'a new version is current, the old one is superseded, and signatures do not carry over'
 );
 
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into public.site_document_signatures (version_id, document_id, site_id, person_id) values ('
+      || quote_literal(:'ver2') || '::uuid, '
+      || quote_literal(:'doc1') || '::uuid, '
+      || quote_literal(:'siteb') || '::uuid, '
+      || quote_literal(:'ownerx') || '::uuid)',
+    'new row violates row-level security policy for table "site_document_signatures"'
+  ),
+  'a signature cannot name a different site from the version'
+);
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into public.site_document_signatures (version_id, document_id, site_id, person_id) values ('
+      || quote_literal(:'ver2') || '::uuid, '
+      || quote_literal('d3111111-1111-4111-8111-111111111119') || '::uuid, '
+      || quote_literal(:'sitea') || '::uuid, '
+      || quote_literal(:'ownerx') || '::uuid)',
+    'new row violates row-level security policy for table "site_document_signatures"'
+  ),
+  'a signature cannot name a different document from the version'
+);
+
 reset role;
+update public.sites set archived_at = now() where id = :'sitea'::uuid;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  pg_temp.raises(
+    'insert into public.site_document_signatures (version_id, document_id, site_id, person_id) values ('
+      || quote_literal(:'ver2') || '::uuid, '
+      || quote_literal(:'doc1') || '::uuid, '
+      || quote_literal(:'sitea') || '::uuid, '
+      || quote_literal(:'ownerx') || '::uuid)',
+    'new row violates row-level security policy for table "site_document_signatures"'
+  ),
+  'a signature on an archived site is refused'
+);
+
+reset role;
+update public.sites set archived_at = null where id = :'sitea'::uuid;
+
+select pg_temp.ok(
+  (select public is false
+      and file_size_limit = 20971520
+      and allowed_mime_types = array['application/pdf']::text[]
+    from storage.buckets where id = 'site-documents'),
+  'the site-documents bucket is private, 20MB, and PDF only'
+);
+
 select pg_temp.jwt(:'opa'::uuid);
 set local role authenticated;
 
@@ -261,19 +317,66 @@ set local role authenticated;
 delete from public.site_documents where id = :'doc1'::uuid;
 
 select pg_temp.ok(
+  (select count(*) from public.site_documents where id = :'doc1'::uuid) = 1
+    and (select count(*) from public.site_document_signatures where document_id = :'doc1'::uuid) = 2,
+  'the owner cannot delete a document that has signatures'
+);
+
+update public.site_documents set archived_at = now() where id = :'doc1'::uuid;
+
+select pg_temp.ok(
+  (select archived_at > now() - interval '5 minutes' from public.site_documents where id = :'doc1'::uuid)
+    and (select count(*) from public.site_document_versions where document_id = :'doc1'::uuid) = 2
+    and (select count(*) from public.site_document_signatures where document_id = :'doc1'::uuid) = 2,
+  'archiving keeps the document, its versions, and its signatures'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
   (select count(*) from public.site_documents) = 0
     and (select count(*) from public.site_document_versions) = 0
     and (select count(*) from public.site_document_signatures) = 0,
-  'the owner delete removes the document, its versions, and its signatures'
+  'an archived document is hidden from members'
 );
 
-delete from storage.objects
-where bucket_id = 'site-documents'
-  and name = :'firmx' || '/' || :'sitea' || '/' || :'doc1' || '/' || :'ver1' || '.pdf';
+reset role;
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
 
 select pg_temp.ok(
-  (select count(*) from storage.objects where bucket_id = 'site-documents') = 0,
-  'the owner can delete the company PDF'
+  (select count(*) from public.site_documents where id = :'doc1'::uuid) = 1,
+  'the owner can still see an archived document'
+);
+
+insert into public.site_documents (id, site_id, company_id, kind, title, created_by)
+values ('d3111111-1111-4111-8111-111111111114', :'sitea', :'firmx', 'rams', 'Unsigned RAMS', :'ownerx');
+
+insert into public.site_document_versions (
+  id, document_id, site_id, company_id, version_no, storage_path, file_name, is_current, created_by
+) values (
+  'd3111111-1111-4111-8111-111111111115',
+  'd3111111-1111-4111-8111-111111111114',
+  :'sitea', :'firmx', 1,
+  :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111114/d3111111-1111-4111-8111-111111111115.pdf',
+  'rams.pdf', true, :'ownerx'
+);
+
+delete from public.site_documents where id = 'd3111111-1111-4111-8111-111111111114'::uuid;
+
+select pg_temp.ok(
+  (select count(*) from public.site_documents where id = 'd3111111-1111-4111-8111-111111111114'::uuid) = 0
+    and (select count(*) from public.site_documents where id = :'doc1'::uuid) = 1,
+  'the owner can delete a document that has no signatures'
+);
+
+select pg_temp.ok(
+  (select count(*) from storage.objects
+    where bucket_id = 'site-documents'
+      and name = :'firmx' || '/' || :'sitea' || '/' || :'doc1' || '/' || :'ver1' || '.pdf') = 1,
+  'archiving leaves the PDF in storage'
 );
 
 reset role;
@@ -281,7 +384,44 @@ reset role;
 insert into storage.objects (bucket_id, name)
 values
   ('site-photos', :'firmx' || '/' || :'sitea' || '/photo.jpg'),
+  ('site-photos', :'firmx' || '/' || :'sitea' || '/kept.jpg'),
+  ('site-photos', :'firmx' || '/' || :'sitea' || '/variation.jpg'),
   ('site-photos', :'firmy' || '/other/photo.jpg');
+
+insert into public.snags (
+  id, site_id, company_id, snag_seq, note, trade_label, raised_by, raised_by_name, raised_at, status
+) values (
+  'd4111111-1111-4111-8111-111111111111',
+  :'sitea', :'firmx', 1, 'Crack', 'Plaster', :'ownerx', 'Owner X', now(), 'Open'
+);
+
+insert into public.snag_photos (
+  snag_id, site_id, kind, storage_path, sort_order, content_type, file_size_bytes
+) values (
+  'd4111111-1111-4111-8111-111111111111',
+  :'sitea', 'before',
+  :'firmx' || '/' || :'sitea' || '/kept.jpg',
+  1, 'image/jpeg', 100
+);
+
+insert into public.variations (id, site_id, company_id, vo_seq, created_by)
+values ('d4111111-1111-4111-8111-111111111112', :'sitea', :'firmx', 1, :'ownerx');
+
+insert into public.variation_versions (id, variation_id, site_id, version_no, title, status, created_by)
+values (
+  'd4111111-1111-4111-8111-111111111113',
+  'd4111111-1111-4111-8111-111111111112',
+  :'sitea', 1, 'Extra', 'Draft', :'ownerx'
+);
+
+insert into public.variation_photos (
+  version_id, site_id, storage_path, sort_order, content_type, file_size_bytes
+) values (
+  'd4111111-1111-4111-8111-111111111113',
+  :'sitea',
+  :'firmx' || '/' || :'sitea' || '/variation.jpg',
+  1, 'image/jpeg', 100
+);
 
 select pg_temp.jwt(:'cmx'::uuid);
 set local role authenticated;
@@ -306,13 +446,23 @@ where bucket_id = 'site-photos'
 
 delete from storage.objects
 where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/kept.jpg';
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/variation.jpg';
+
+delete from storage.objects
+where bucket_id = 'site-photos'
   and name = :'firmy' || '/other/photo.jpg';
 
 reset role;
 
 select pg_temp.ok(
-  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 0,
-  'the owner can delete a site photo in their company folder'
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 0
+    and (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/kept.jpg') = 1
+    and (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/variation.jpg') = 1,
+  'the owner can delete an orphan site photo but not one a snag or variation still uses'
 );
 
 select pg_temp.ok(

@@ -5,11 +5,16 @@ import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import {
   SITE_DOCUMENT_KINDS,
+  SITE_DOCUMENT_MAX_BYTES,
   memberMustSign,
   signRoster,
+  siteDocumentBytesError,
   siteDocumentKindLabel,
   siteDocumentPath,
+  siteDocumentPickError,
 } from './siteDocuments.ts';
+
+const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
 
 test('document types are Induction, Toolbox talk, and RAMS', () => {
   assert.deepEqual(
@@ -82,8 +87,8 @@ test('a new version needs a new signature, and only the owner uploads', async ()
     documentId: induction!.id,
     createdBy: IDS.owner,
     fileName: 'v2.pdf',
-    bytes: new Uint8Array([2]),
-  });
+      bytes: pdfBytes,
+    });
   const next = await fixtureRepo.getSiteDocument(induction!.id);
   assert.equal(next?.version_no, 2);
   assert.equal(next?.signatures.length, 0);
@@ -107,6 +112,32 @@ test('a new version needs a new signature, and only the owner uploads', async ()
     fixtureRepo.deleteSiteDocument(induction!.id),
     /not_authorized/,
   );
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  await assert.rejects(
+    fixtureRepo.deleteSiteDocument(induction!.id),
+    /Archive it instead/,
+  );
+  await fixtureRepo.archiveSiteDocument(induction!.id);
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const hidden = await fixtureRepo.listSiteDocuments(IDS.oak);
+  assert.equal(hidden.some((row) => row.id === induction!.id), false);
+});
+
+test('a PDF under 20MB is accepted and anything else is refused', () => {
+  assert.equal(siteDocumentPickError({ name: 'notes.txt', mimeType: 'text/plain', size: 12 }), 'Choose a PDF.');
+  assert.equal(
+    siteDocumentPickError({ name: 'big.pdf', mimeType: 'application/pdf', size: SITE_DOCUMENT_MAX_BYTES + 1 }),
+    'That PDF is larger than 20MB.',
+  );
+  assert.equal(siteDocumentPickError({ name: 'ok.pdf', mimeType: 'application/pdf', size: pdfBytes.byteLength }), null);
+  assert.equal(siteDocumentBytesError(new Uint8Array([1, 2, 3, 4])), 'Choose a PDF.');
+  assert.equal(siteDocumentBytesError(pdfBytes), null);
+  const huge = new Uint8Array(SITE_DOCUMENT_MAX_BYTES + 1);
+  huge.set(pdfBytes);
+  assert.equal(siteDocumentBytesError(huge), 'That PDF is larger than 20MB.');
 });
 
 test('the site page opens Induction and RAMS, and the migration keeps writes with the owner', () => {
@@ -123,6 +154,9 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(upload, /Choose PDF/);
   assert.match(detail, /I have read and understood/);
   assert.match(detail, /minHeight=\{56\}/);
+  assert.match(detail, /Archive this document/);
+  assert.match(upload, /siteDocumentPickError/);
+  assert.match(upload, /base64: false/);
   assert.match(detail, /Who has signed/);
   assert.match(detail, /memberMustSign/);
 
@@ -130,6 +164,15 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(migration, /private\.can_access_site\(site_id\)/);
   assert.match(migration, /private\.my_role\(\) = 'owner'/);
   assert.match(migration, /v\.is_current/);
+  assert.match(migration, /v\.site_id = site_document_signatures\.site_id/);
+  assert.match(migration, /v\.document_id = site_document_signatures\.document_id/);
+  assert.match(migration, /site_document_has_signatures/);
+  assert.match(migration, /site_photo_is_orphan/);
+  assert.match(migration, /public\.snag_photos/);
+  assert.match(migration, /public\.variation_photos/);
+  assert.match(migration, /20971520/);
+  assert.equal(migration.includes('grant execute on function private.supersede_site_document_version()'), false);
+  assert.equal(migration.includes('grant execute on function private.stamp_site_document_signature()'), false);
   assert.match(migration, /new\.signed_at := now\(\)/);
   assert.match(migration, /new\.is_current := true/);
   assert.match(migration, /bucket_id = 'site-documents'/);
