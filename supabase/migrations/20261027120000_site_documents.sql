@@ -371,6 +371,30 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+-- Folder [3] is the document id. It has to be that document's own site and company.
+-- Definer so the check reads the real row, not a path that merely names a visible id.
+create or replace function private.site_document_path_matches(p_name text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.site_documents d
+    where d.id = private.try_uuid((storage.foldername(p_name))[3])
+      and d.site_id = private.storage_site_id(p_name)
+      and d.company_id = private.storage_company_id(p_name)
+  );
+$$;
+
+comment on function private.site_document_path_matches(text) is
+  'True when folder 3 is a site document whose site and company are the path folders.';
+
+revoke all on function private.site_document_path_matches(text) from public, anon;
+grant execute on function private.site_document_path_matches(text) to authenticated;
+
 create policy site_documents_storage_select
   on storage.objects for select to authenticated
   using (
@@ -384,7 +408,10 @@ create policy site_documents_storage_select
       select 1
       from public.site_documents d
       where d.id = private.try_uuid((storage.foldername(name))[3])
+        and d.site_id = private.storage_site_id(name)
+        and d.company_id = private.storage_company_id(name)
     )
+    and private.site_document_path_matches(name)
   );
 
 create policy site_documents_storage_insert

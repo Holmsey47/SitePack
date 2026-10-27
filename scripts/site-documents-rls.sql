@@ -156,6 +156,121 @@ select pg_temp.ok(
 );
 
 select pg_temp.ok(
+  to_regprocedure('private.site_document_path_matches(text)') is not null
+    and to_regprocedure('public.site_document_path_matches(text)') is null
+    and has_function_privilege('authenticated', 'private.site_document_path_matches(text)', 'execute')
+    and not has_function_privilege('anon', 'private.site_document_path_matches(text)', 'execute'),
+  'site_document_path_matches stays in private, out of the anon API'
+);
+
+select pg_temp.ok(
+  private.site_document_path_matches(
+    :'firmx' || '/' || :'sitea' || '/' || :'doc1' || '/' || :'ver1' || '.pdf'
+  )
+    and (select count(*) from storage.objects
+      where bucket_id = 'site-documents'
+        and name = :'firmx' || '/' || :'sitea' || '/' || :'doc1' || '/' || :'ver1' || '.pdf') = 1,
+  'an assigned operative can read a PDF whose folder 3 is that site document'
+);
+
+reset role;
+
+insert into storage.objects (bucket_id, name)
+values (
+  'site-documents',
+  :'firmx' || '/' || :'siteb' || '/' || :'doc1' || '/' || :'ver1' || '.pdf'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.site_document_path_matches(
+    :'firmx' || '/' || :'siteb' || '/' || :'doc1' || '/' || :'ver1' || '.pdf'
+  )
+    and (select count(*) from storage.objects
+      where bucket_id = 'site-documents'
+        and name = :'firmx' || '/' || :'siteb' || '/' || :'doc1' || '/' || :'ver1' || '.pdf') = 0,
+  'a path cannot point folder 3 at another site''s document'
+);
+
+insert into public.site_documents (id, site_id, company_id, kind, title, created_by)
+values ('d3111111-1111-4111-8111-111111111116', :'siteb', :'firmx', 'rams', 'Site B RAMS', :'ownerx');
+
+reset role;
+
+insert into storage.objects (bucket_id, name)
+values (
+  'site-documents',
+  :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111116/d3111111-1111-4111-8111-111111111117.pdf'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.site_document_path_matches(
+    :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111116/d3111111-1111-4111-8111-111111111117.pdf'
+  )
+    and (select count(*) from storage.objects
+      where bucket_id = 'site-documents'
+        and name = :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111116/d3111111-1111-4111-8111-111111111117.pdf') = 0,
+  'a path cannot point folder 3 at a document from another site in the company'
+);
+
+reset role;
+
+insert into public.sites (id, company_id, name)
+values ('51111111-1111-4111-8111-111111111113', :'firmy', 'Site Y');
+
+insert into public.site_documents (id, site_id, company_id, kind, title, created_by)
+values (
+  'd3111111-1111-4111-8111-111111111118',
+  '51111111-1111-4111-8111-111111111113',
+  :'firmy', 'induction', 'Firm Y induction', :'ownery'
+);
+
+insert into storage.objects (bucket_id, name)
+values (
+  'site-documents',
+  :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111118/d3111111-1111-4111-8111-111111111119.pdf'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.site_document_path_matches(
+    :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111118/d3111111-1111-4111-8111-111111111119.pdf'
+  )
+    and (select count(*) from storage.objects
+      where bucket_id = 'site-documents'
+        and name = :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111118/d3111111-1111-4111-8111-111111111119.pdf') = 0,
+  'a path cannot point folder 3 at another company''s document'
+);
+
+reset role;
+
+delete from storage.objects
+where bucket_id = 'site-documents'
+  and name in (
+    :'firmx' || '/' || :'siteb' || '/' || :'doc1' || '/' || :'ver1' || '.pdf',
+    :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111116/d3111111-1111-4111-8111-111111111117.pdf',
+    :'firmx' || '/' || :'sitea' || '/d3111111-1111-4111-8111-111111111118/d3111111-1111-4111-8111-111111111119.pdf'
+  );
+
+delete from public.site_documents
+where id in (
+  'd3111111-1111-4111-8111-111111111116'::uuid,
+  'd3111111-1111-4111-8111-111111111118'::uuid
+);
+
+delete from public.sites where id = '51111111-1111-4111-8111-111111111113'::uuid;
+
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
   pg_temp.raises(
     'insert into public.site_document_signatures (version_id, document_id, site_id, person_id, signed_at) values ('
       || quote_literal(:'ver1') || '::uuid, '
