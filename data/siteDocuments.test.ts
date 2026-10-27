@@ -182,4 +182,13 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(migration, /private\.storage_company_id\(name\) = private\.my_company_id\(\)/);
   assert.equal(migration.includes('grant select, insert, delete on table public.site_documents'), true);
   assert.equal(migration.includes('for update') && migration.includes('site_document_signatures for update'), false);
+
+  const probes = fs.readFileSync('scripts/site-documents-rls.sql', 'utf8');
+  assert.match(probes, /private\.site_photo_is_orphan/);
+  assert.match(probes, /site_photo_is_orphan is true only for an unreferenced photo in the owner company/);
+  assert.match(probes, /a member is refused by site_photo_is_orphan/);
+  assert.match(probes, /a member is refused when deleting an orphan site photo/);
+  assert.match(probes, /another company owner is refused by site_photo_is_orphan/);
+  assert.match(probes, /another company owner is refused when deleting a site photo/);
+  assert.match(probes, /the owner can delete an orphan site photo but not one a snag or variation still uses/);
 });

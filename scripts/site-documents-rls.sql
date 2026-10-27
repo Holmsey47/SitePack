@@ -423,6 +423,66 @@ insert into public.variation_photos (
   1, 'image/jpeg', 100
 );
 
+select pg_temp.ok(
+  to_regprocedure('private.site_photo_is_orphan(text)') is not null
+    and to_regprocedure('public.site_photo_is_orphan(text)') is null
+    and has_function_privilege('authenticated', 'private.site_photo_is_orphan(text)', 'execute')
+    and not has_function_privilege('anon', 'private.site_photo_is_orphan(text)', 'execute'),
+  'site_photo_is_orphan stays in private, out of the anon API'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/photo.jpg')
+    and not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/kept.jpg')
+    and not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/variation.jpg')
+    and not private.site_photo_is_orphan(:'firmy' || '/other/photo.jpg'),
+  'site_photo_is_orphan is true only for an unreferenced photo in the owner company'
+);
+
+reset role;
+select pg_temp.jwt(:'opa'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/photo.jpg')
+    and not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/kept.jpg'),
+  'a member is refused by site_photo_is_orphan'
+);
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/photo.jpg';
+
+reset role;
+
+select pg_temp.ok(
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 1,
+  'a member is refused when deleting an orphan site photo'
+);
+
+select pg_temp.jwt(:'ownery'::uuid);
+set local role authenticated;
+
+select pg_temp.ok(
+  not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/photo.jpg')
+    and not private.site_photo_is_orphan(:'firmx' || '/' || :'sitea' || '/kept.jpg'),
+  'another company owner is refused by site_photo_is_orphan'
+);
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/photo.jpg';
+
+reset role;
+
+select pg_temp.ok(
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 1,
+  'another company owner is refused when deleting a site photo'
+);
+
 select pg_temp.jwt(:'cmx'::uuid);
 set local role authenticated;
 
