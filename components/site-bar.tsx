@@ -15,10 +15,12 @@ export function SiteBar({
   siteId,
   siteName,
   counts,
+  onOpen,
 }: {
   siteId: string;
   siteName?: string | null;
   counts: Partial<Record<SiteListKind, number>> | null;
+  onOpen?: (kind: SiteListKind) => void;
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -53,7 +55,10 @@ export function SiteBar({
               key={item.kind}
               accessibilityRole="button"
               accessibilityLabel={showBadge ? `${item.label}, ${count} new` : item.label}
-              onPress={() => router.push(item.path(siteId) as Href)}
+              onPress={() => {
+                onOpen?.(item.kind);
+                router.push(item.path(siteId) as Href);
+              }}
               style={{ flex: 1, minHeight: SITE_BAR_MIN_HEIGHT, alignItems: 'center', justifyContent: 'center', gap: 2 }}>
               <View>
                 <MaterialIcons name={item.icon} size={22} color={theme.text} />

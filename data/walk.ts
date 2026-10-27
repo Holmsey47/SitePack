@@ -28,6 +28,34 @@ export function assignmentRank(role: Role | undefined): number {
   return 2;
 }
 
+type OwnerViewer = { id: string; role: Role; display_name: string | null };
+type AssignedPerson = {
+  person_id: string;
+  person?: { role?: Role; display_name?: string | null } | null;
+};
+
+/**
+ * Company owner already visible to this caller. An assigned owner wins.
+ * Otherwise only the signed-in owner is visible: people_select_visible does
+ * not return an unassigned owner to a CM or operative.
+ */
+export function visibleSiteOwner(
+  viewer: OwnerViewer | null,
+  assigned: readonly AssignedPerson[],
+): { id: string; name: string } | null {
+  const assignedOwner = assigned.find((row) => row.person?.role === 'owner');
+  if (assignedOwner) {
+    return {
+      id: assignedOwner.person_id,
+      name: personLabel({ display_name: assignedOwner.person?.display_name ?? null }),
+    };
+  }
+  if (viewer?.role === 'owner') {
+    return { id: viewer.id, name: personLabel({ display_name: viewer.display_name }) };
+  }
+  return null;
+}
+
 /** Display name, then email when the caller is allowed to see it, otherwise Unknown. */
 export function personLabel(
   person: { display_name?: string | null; email?: string | null } | null | undefined,

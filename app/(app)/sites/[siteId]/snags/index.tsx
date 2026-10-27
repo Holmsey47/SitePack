@@ -58,6 +58,7 @@ export default function SnagsScreen() {
 
   const load = useCallback(async () => {
     if (!siteId) return;
+    const seen = markSiteListSeen(siteId, 'snags');
     const queue = getSnagQueue();
     let signInRequired = false;
     if (ownerId && (await deviceIsOnline())) {
@@ -70,7 +71,7 @@ export default function SnagsScreen() {
     try {
       setList(await repo.listSnags(siteId));
       if (!signInRequired) setError('');
-      void markSiteListSeen(siteId, 'snags');
+      await seen;
     } catch (err) {
       if (!signInRequired) setError(snagError(err instanceof Error ? err.message : 'unknown'));
     }
