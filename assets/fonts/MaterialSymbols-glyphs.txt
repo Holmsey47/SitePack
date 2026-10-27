@@ -1,0 +1,23 @@
+# Ligatures drawn by SitePack. One Material Symbols name per line.
+# components/icon.tsx maps report-problem, compare-arrows, chevron-right,
+# and file-download onto report, compare_arrows, chevron_right, and download.
+# EmptyState uses inbox when a screen does not name an icon.
+apartment
+arrow_back
+assignment
+check
+check_circle
+chevron_right
+compare_arrows
+delete
+description
+download
+expand_more
+group
+inbox
+inventory_2
+more_horiz
+person_add
+radio_button_unchecked
+report
+settings
