@@ -6,7 +6,7 @@ import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawi
 import { packFolders } from '@/data/folders';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
-import { DRAWINGS_LIST_BOTTOM_PAD, type SiteListKind } from '@/data/siteListSeen';
+import { badgeReadIsCurrent, DRAWINGS_LIST_BOTTOM_PAD, type SiteListKind } from '@/data/siteListSeen';
 import type { Drawing, HomeSite, ManifestItem } from '@/data/types';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
@@ -17,7 +17,7 @@ import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
 import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
-import { siteBarCounts } from '@/lib/siteListSeenSync';
+import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/siteListSeenSync';
 import { theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -47,6 +47,8 @@ export default function SitePackScreen() {
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [barCounts, setBarCounts] = useState<Partial<Record<SiteListKind, number>> | null>(null);
+  const countToken = useRef(0);
+  const selfId = person?.id ?? null;
   const [unseen, setUnseen] = useState<UnseenDrawing[]>([]);
   const [queuedSeen, setQueuedSeen] = useState<QueuedSeen[]>([]);
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
@@ -60,9 +62,6 @@ export default function SitePackScreen() {
       setSite(nextSite);
       setDrawings(nextDrawings);
       setLoaded(true);
-      void siteBarCounts(siteId).then((counts) => {
-        if (mounted.current) setBarCounts(counts);
-      });
       setError('');
       const currentIds = nextDrawings.filter((d) => d.is_current).map((d) => d.id);
       setReady(isPackReady(siteId, currentIds));
@@ -96,17 +95,42 @@ export default function SitePackScreen() {
         }
       );
       setDrawings([]);
-      setBarCounts(null);
       setLoaded(true);
       setError('');
       setReady(Boolean(meta && meta.items.length > 0));
     }
   }, [siteId, person]);
 
+  const refreshCounts = useCallback(async () => {
+    if (!siteId) return;
+    const token = ++countToken.current;
+    await Promise.all(pendingSiteListSaves(siteId));
+    if (!badgeReadIsCurrent(token, countToken.current)) return;
+    const counts = await siteBarCounts(siteId, selfId);
+    if (!mounted.current || !badgeReadIsCurrent(token, countToken.current)) return;
+    setBarCounts(counts);
+  }, [selfId, siteId]);
+
+  const openList = useCallback(
+    (kind: SiteListKind) => {
+      if (!siteId) return;
+      setBarCounts((current) => ({ ...(current ?? {}), [kind]: 0 }));
+      const token = ++countToken.current;
+      void markSiteListSeen(siteId, kind).then(async () => {
+        if (!badgeReadIsCurrent(token, countToken.current)) return;
+        const counts = await siteBarCounts(siteId, selfId);
+        if (!mounted.current || !badgeReadIsCurrent(token, countToken.current)) return;
+        setBarCounts(counts);
+      });
+    },
+    [selfId, siteId],
+  );
+
   useFocusEffect(
     useCallback(() => {
       load().catch(() => setError('Could not load the pack.'));
-    }, [load])
+      void refreshCounts();
+    }, [load, refreshCounts])
   );
 
   const folders = packFolders(drawings);
@@ -194,7 +218,9 @@ export default function SitePackScreen() {
 
   return (
     <Screen
-      footer={siteId ? <SiteBar siteId={siteId} siteName={site.name} counts={barCounts} /> : null}
+      footer={
+        siteId ? <SiteBar siteId={siteId} siteName={site.name} counts={barCounts} onOpen={openList} /> : null
+      }
       contentPaddingBottom={DRAWINGS_LIST_BOTTOM_PAD}>
       {person?.role === 'operative' ? (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' }}>
