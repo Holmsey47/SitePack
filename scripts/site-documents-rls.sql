@@ -677,6 +677,26 @@ select pg_temp.ok(
   'the owner label is a two-column view and the helper stays out of the API roles'
 );
 
+select pg_temp.ok(
+  exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'company_owner_label'
+      and 'security_invoker=true' = any(c.reloptions)
+  )
+    and exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'private'
+        and p.proname = 'company_owner_label'
+        and p.prosecdef
+    ),
+  'the owner label view is security invoker and reads a security definer helper'
+);
+
 select pg_temp.jwt(:'cmx'::uuid);
 set local role authenticated;
 
