@@ -134,6 +134,9 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(migration, /new\.is_current := true/);
   assert.match(migration, /bucket_id = 'site-documents'/);
   assert.match(migration, /site_documents_storage_delete/);
+  assert.match(migration, /create policy site_photos_delete/);
+  assert.match(migration, /bucket_id = 'site-photos'/);
+  assert.match(migration, /private\.storage_company_id\(name\) = private\.my_company_id\(\)/);
   assert.equal(migration.includes('grant select, insert, delete on table public.site_documents'), true);
   assert.equal(migration.includes('for update') && migration.includes('site_document_signatures for update'), false);
 });

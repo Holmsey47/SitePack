@@ -287,3 +287,13 @@ create policy site_documents_storage_delete
     and private.my_role() = 'owner'
     and private.storage_company_id(name) = private.my_company_id()
   );
+
+-- Owner-only delete for site photos, limited to that owner's company folder.
+drop policy if exists site_photos_delete on storage.objects;
+create policy site_photos_delete
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'site-photos'
+    and private.my_role() = 'owner'
+    and private.storage_company_id(name) = private.my_company_id()
+  );

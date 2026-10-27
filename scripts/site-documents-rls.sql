@@ -276,4 +276,48 @@ select pg_temp.ok(
   'the owner can delete the company PDF'
 );
 
+reset role;
+
+insert into storage.objects (bucket_id, name)
+values
+  ('site-photos', :'firmx' || '/' || :'sitea' || '/photo.jpg'),
+  ('site-photos', :'firmy' || '/other/photo.jpg');
+
+select pg_temp.jwt(:'cmx'::uuid);
+set local role authenticated;
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/photo.jpg';
+
+reset role;
+
+select pg_temp.ok(
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 1,
+  'a contracts manager cannot delete a site photo'
+);
+
+select pg_temp.jwt(:'ownerx'::uuid);
+set local role authenticated;
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmx' || '/' || :'sitea' || '/photo.jpg';
+
+delete from storage.objects
+where bucket_id = 'site-photos'
+  and name = :'firmy' || '/other/photo.jpg';
+
+reset role;
+
+select pg_temp.ok(
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmx' || '/' || :'sitea' || '/photo.jpg') = 0,
+  'the owner can delete a site photo in their company folder'
+);
+
+select pg_temp.ok(
+  (select count(*) from storage.objects where bucket_id = 'site-photos' and name = :'firmy' || '/other/photo.jpg') = 1,
+  'the owner cannot delete another company site photo'
+);
+
 rollback;
