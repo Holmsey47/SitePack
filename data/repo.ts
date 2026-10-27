@@ -35,6 +35,13 @@ import type {
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 import type { CreateSnagInput, CreateSnagResult, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
+import type {
+  CreateSiteDocumentInput,
+  ReplaceSiteDocumentInput,
+  SignSiteDocumentInput,
+  SiteDocumentDetail,
+  SiteDocumentSummary,
+} from '@/data/siteDocuments';
 
 export type SignInResult = {
   person: Person;
@@ -163,6 +170,13 @@ export type SitePackRepo = {
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;
   confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
+  listSiteDocuments(siteId: string): Promise<SiteDocumentSummary[]>;
+  getSiteDocument(documentId: string): Promise<SiteDocumentDetail | null>;
+  createSiteDocument(input: CreateSiteDocumentInput): Promise<{ id: string }>;
+  replaceSiteDocument(input: ReplaceSiteDocumentInput): Promise<void>;
+  deleteSiteDocument(documentId: string): Promise<void>;
+  signSiteDocument(input: SignSiteDocumentInput): Promise<void>;
+  siteDocumentUrl(storagePath: string): Promise<string>;
 };
 
 export function canManageSite(role: Role): boolean {

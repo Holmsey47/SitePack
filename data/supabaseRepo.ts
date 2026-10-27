@@ -50,6 +50,17 @@ import type {
   Site,
 } from '@/data/types';
 import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
+import {
+  isSiteDocumentKind,
+  siteDocumentPath,
+  type CreateSiteDocumentInput,
+  type ReplaceSiteDocumentInput,
+  type SignSiteDocumentInput,
+  type SiteDocumentDetail,
+  type SiteDocumentKind,
+  type SiteDocumentSignature,
+  type SiteDocumentSummary,
+} from '@/data/siteDocuments';
 import { getSupabase } from '@/lib/supabase';
 import { pathsToClear } from '@/data/drawingDelete';
 import { uploadBytes } from '@/lib/uploadBytes';
@@ -68,6 +79,14 @@ function unwrap<T>(
 function maybe<T>(data: T | null, error: { message: string } | null): T | null {
   if (error) throw new Error(error.message);
   return data;
+}
+
+async function documentRows(
+  query: PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<Record<string, unknown>[]> {
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
 }
 
 async function rpcJson(name: string, args: Record<string, unknown>) {
@@ -1193,6 +1212,205 @@ export const supabaseRepo: SitePackRepo = {
   async snagTradeLabels(siteId) {
     const data = unwrap(await rpcJson('snag_trade_labels', { p_site_id: siteId }), null);
     return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
+  },
+
+  async listSiteDocuments(siteId) {
+    const person = await this.me();
+    if (!person) throw new Error('not_authorized');
+    const supabase = getSupabase();
+    const documents = await documentRows(
+      supabase.from('site_documents').select('id, site_id, kind, title').eq('site_id', siteId).order('title'),
+    );
+    const versions = await documentRows(
+      supabase
+        .from('site_document_versions')
+        .select('id, document_id, version_no, storage_path')
+        .eq('site_id', siteId)
+        .eq('is_current', true),
+    );
+    const versionIds = versions.map((row) => String(row.id));
+    const signatures =
+      versionIds.length === 0
+        ? []
+        : await documentRows(
+            supabase.from('site_document_signatures').select('version_id, person_id').in('version_id', versionIds),
+          );
+    return documents.flatMap((row) => {
+      const version = versions.find((item) => item.document_id === row.id);
+      if (!version || !isSiteDocumentKind(String(row.kind))) return [];
+      return [
+        {
+          id: String(row.id),
+          site_id: String(row.site_id),
+          kind: String(row.kind) as SiteDocumentKind,
+          title: String(row.title),
+          version_id: String(version.id),
+          version_no: Number(version.version_no),
+          storage_path: String(version.storage_path),
+          signed_by_me: signatures.some(
+            (signature) => signature.version_id === version.id && signature.person_id === person.id,
+          ),
+        } satisfies SiteDocumentSummary,
+      ];
+    });
+  },
+
+  async getSiteDocument(documentId) {
+    const person = await this.me();
+    if (!person) throw new Error('not_authorized');
+    const supabase = getSupabase();
+    const { data: document, error } = await supabase
+      .from('site_documents')
+      .select('id, site_id, kind, title')
+      .eq('id', documentId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!document || !isSiteDocumentKind(String(document.kind))) return null;
+    const { data: version, error: versionError } = await supabase
+      .from('site_document_versions')
+      .select('id, version_no, storage_path')
+      .eq('document_id', documentId)
+      .eq('is_current', true)
+      .maybeSingle();
+    if (versionError) throw new Error(versionError.message);
+    if (!version) return null;
+    const signatures = await documentRows(
+      supabase
+        .from('site_document_signatures')
+        .select('person_id, signed_at')
+        .eq('version_id', version.id),
+    );
+    const detail: SiteDocumentDetail = {
+      id: String(document.id),
+      site_id: String(document.site_id),
+      kind: document.kind as SiteDocumentKind,
+      title: String(document.title),
+      version_id: String(version.id),
+      version_no: Number(version.version_no),
+      storage_path: String(version.storage_path),
+      signed_by_me: signatures.some((row) => row.person_id === person.id),
+      signatures: signatures.map(
+        (row): SiteDocumentSignature => ({
+          person_id: String(row.person_id),
+          signed_at: String(row.signed_at),
+        }),
+      ),
+    };
+    return detail;
+  },
+
+  async createSiteDocument(input: CreateSiteDocumentInput) {
+    const supabase = getSupabase();
+    const documentId = newId();
+    const versionId = newId();
+    const storagePath = siteDocumentPath(input.companyId, input.siteId, documentId, versionId);
+    const { error: uploadError } = await uploadBytes(
+      (path, body, options) => supabase.storage.from('site-documents').upload(path, body, options),
+      storagePath,
+      input.bytes,
+      { contentType: 'application/pdf', upsert: false, os: Platform.OS },
+    );
+    if (uploadError) throw new Error(uploadError.message);
+    const { error: documentError } = await supabase.from('site_documents').insert({
+      id: documentId,
+      site_id: input.siteId,
+      company_id: input.companyId,
+      kind: input.kind,
+      title: input.title.trim(),
+      created_by: input.createdBy,
+    });
+    if (documentError) {
+      await supabase.storage.from('site-documents').remove([storagePath]);
+      throw new Error(documentError.message);
+    }
+    const { error: versionError } = await supabase.from('site_document_versions').insert({
+      id: versionId,
+      document_id: documentId,
+      site_id: input.siteId,
+      company_id: input.companyId,
+      storage_path: storagePath,
+      file_name: input.fileName.trim() || 'document.pdf',
+      is_current: true,
+      created_by: input.createdBy,
+      version_no: 1,
+    });
+    if (versionError) {
+      await supabase.from('site_documents').delete().eq('id', documentId);
+      await supabase.storage.from('site-documents').remove([storagePath]);
+      throw new Error(versionError.message);
+    }
+    return { id: documentId };
+  },
+
+  async replaceSiteDocument(input: ReplaceSiteDocumentInput) {
+    const supabase = getSupabase();
+    const { data: document, error } = await supabase
+      .from('site_documents')
+      .select('id, site_id, company_id')
+      .eq('id', input.documentId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!document) throw new Error('not_authorized');
+    const versionId = newId();
+    const storagePath = siteDocumentPath(
+      String(document.company_id),
+      String(document.site_id),
+      String(document.id),
+      versionId,
+    );
+    const { error: uploadError } = await uploadBytes(
+      (path, body, options) => supabase.storage.from('site-documents').upload(path, body, options),
+      storagePath,
+      input.bytes,
+      { contentType: 'application/pdf', upsert: false, os: Platform.OS },
+    );
+    if (uploadError) throw new Error(uploadError.message);
+    const { error: versionError } = await supabase.from('site_document_versions').insert({
+      id: versionId,
+      document_id: document.id,
+      site_id: document.site_id,
+      company_id: document.company_id,
+      storage_path: storagePath,
+      file_name: input.fileName.trim() || 'document.pdf',
+      is_current: true,
+      created_by: input.createdBy,
+      version_no: 1,
+    });
+    if (versionError) {
+      await supabase.storage.from('site-documents').remove([storagePath]);
+      throw new Error(versionError.message);
+    }
+  },
+
+  async deleteSiteDocument(documentId) {
+    const supabase = getSupabase();
+    const versions = await documentRows(
+      supabase.from('site_document_versions').select('storage_path').eq('document_id', documentId),
+    );
+    const paths = versions.map((row) => String(row.storage_path)).filter((path) => path.length > 0);
+    const { error } = await supabase.from('site_documents').delete().eq('id', documentId);
+    if (error) throw new Error(error.message);
+    if (paths.length === 0) return;
+    const removed = await supabase.storage.from('site-documents').remove(paths);
+    if (removed.error) throw new Error(removed.error.message);
+  },
+
+  async signSiteDocument(input: SignSiteDocumentInput) {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('site_document_signatures').insert({
+      version_id: input.versionId,
+      document_id: input.documentId,
+      site_id: input.siteId,
+      person_id: input.personId,
+    });
+    if (error) throw new Error(error.message);
+  },
+
+  async siteDocumentUrl(storagePath) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.storage.from('site-documents').createSignedUrl(storagePath, 3600);
+    if (error || !data?.signedUrl) throw new Error(error?.message ?? 'Could not open the PDF');
+    return data.signedUrl;
   },
 };
 
