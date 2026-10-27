@@ -2,7 +2,7 @@ import { Muted, Screen, Title } from '@/components/ui';
 import { personLabel, sheetLabel } from '@/data/drawingSeen';
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -59,7 +59,7 @@ export default function NotSeenPersonScreen() {
                 },
                 pressed && { opacity: 0.85 },
               ]}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{sheet.title}</Text>
+              <Text style={{ ...textStyle.bodyStrong }}>{sheet.title}</Text>
               <Muted>{label}</Muted>
             </Pressable>
           );

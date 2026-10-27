@@ -1,10 +1,10 @@
-import { Button, Card, EmptyState, ErrorText, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Muted, NoLoginBadge, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { SiteAssignment } from '@/data/types';
 import { assignmentRank, contactLine, occupationLine, personLabel, sitePeopleOwnerName, visibleSiteOwner } from '@/data/walk';
-import { theme } from '@/lib/theme';
+import { textStyle } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
@@ -44,7 +44,6 @@ export default function SitePeopleScreen() {
 
   return (
     <Screen>
-      <Title>People</Title>
       <ErrorText>{error}</ErrorText>
       {manage ? (
         <View style={{ gap: 8 }}>
@@ -63,14 +62,16 @@ export default function SitePeopleScreen() {
       ) : null}
       {ownerName ? (
         <Card>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{ownerName}</Text>
+          <Text style={textStyle.bodyStrong}>{ownerName}</Text>
           <Muted>Owner</Muted>
         </Card>
       ) : null}
-      {crew.length === 0 && !ownerName && !error ? <EmptyState title="Nobody assigned yet" /> : null}
+      {crew.length === 0 && !ownerName && !error ? (
+        <EmptyState icon="group" title="Nobody assigned yet" />
+      ) : null}
       {crew.map((row) => (
         <Card key={row.id}>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{personLabel(row.person)}</Text>
+          <Text style={textStyle.bodyStrong}>{personLabel(row.person)}</Text>
           {contactLine(row.person) ? <Muted>{contactLine(row.person)}</Muted> : null}
           <Muted>{row.person ? occupationLine(row.person.role, row.person.trade) : 'Operative'}</Muted>
           {row.person && !row.person.auth_user_id ? <NoLoginBadge /> : null}

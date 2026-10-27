@@ -12,7 +12,7 @@ import {
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { CompanyPerson, PulseRow } from '@/data/types';
-import { theme } from '@/lib/theme';
+import { space, textStyle, theme } from '@/lib/theme';
 import { personLabel, siteLabel } from '@/data/walk';
 import { Link, Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -131,22 +131,30 @@ export default function PeopleScreen() {
       ) : null}
       <Link href="/groups" asChild>
         <Pressable accessibilityRole="link" style={{ minHeight: 48, justifyContent: 'center' }}>
-          <Text style={{ color: theme.current, fontSize: 18, fontWeight: '800' }}>Groups</Text>
+          <Text style={textStyle.bodyStrong}>Groups</Text>
         </Pressable>
       </Link>
       <ErrorText>{error}</ErrorText>
-      {loaded && !error && people.length === 0 ? <EmptyState title="No one in the company yet" /> : null}
+      {loaded && !error && people.length === 0 ? <EmptyState icon="group" title="No one in the company yet" /> : null}
       {people.map((row) => {
         const mine = removableSites(row, sites);
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
         return (
           <Card key={row.id}>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{personLabel(row)}</Text>
+            <Text style={{ ...textStyle.bodyStrong }}>{personLabel(row)}</Text>
             <Muted>{occupationLine(row.role, row.trade)}</Muted>
             <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
             {mine.length === 1 ? (
-              <View style={{ alignItems: 'flex-end' }}>
-                <Button label="Remove" variant="ghost" onPress={() => void onRemove(row.id, mine[0].site_id)} />
+              <View style={{ alignItems: 'flex-end', gap: space.sm }}>
+                {removeFor === row.id ? (
+                  <>
+                    <Text style={textStyle.body}>Remove {personLabel(row)} from {mine[0].name}?</Text>
+                    <Button label="Remove" variant="danger" onPress={() => void onRemove(row.id, mine[0].site_id)} />
+                    <Button label="Cancel" variant="secondary" onPress={() => setRemoveFor(null)} />
+                  </>
+                ) : (
+                  <Button label="Remove" variant="ghost" onPress={() => setRemoveFor(row.id)} />
+                )}
               </View>
             ) : null}
             {mine.length > 1 ? (
@@ -163,7 +171,7 @@ export default function PeopleScreen() {
                   <Button
                     key={site.site_id}
                     label={`Remove from ${site.name}`}
-                    variant="ghost"
+                    variant="danger"
                     onPress={() => void onRemove(row.id, site.site_id)}
                   />
                 ))
@@ -190,6 +198,7 @@ export default function PeopleScreen() {
                 />
                 <Button
                   label="Send invite"
+                  variant="secondary"
                   onPress={() => void onInvite(row.id)}
                   loading={loading}
                   disabled={!inviteEmail.trim()}
@@ -218,14 +227,16 @@ export default function PeopleScreen() {
                   paddingHorizontal: 12,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: on ? theme.current : theme.line,
+                  borderColor: on ? theme.text : theme.line,
+                  backgroundColor: on ? theme.text : 'transparent',
                 }}>
-                <Text style={{ color: theme.text }}>{site.name}</Text>
+                <Text style={[textStyle.bodyStrong, { color: on ? theme.bg : theme.text }]}>{site.name}</Text>
               </Pressable>
             );
           })}
           <Button
             label="Add person"
+            variant="secondary"
             onPress={() => void onAdd()}
             loading={loading}
             disabled={!canAddNoLogin(callerRole, name, siteIds)}

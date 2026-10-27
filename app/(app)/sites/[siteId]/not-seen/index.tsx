@@ -1,8 +1,8 @@
-import { Muted, Screen, Title } from '@/components/ui';
+import { Muted, Screen } from '@/components/ui';
 import { notSeenPersonLine, notSeenYetHeading, personLabel } from '@/data/drawingSeen';
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -31,8 +31,7 @@ export default function SiteNotSeenScreen() {
 
   return (
     <Screen>
-      <Title>Not seen yet</Title>
-      <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }} accessibilityRole="header">
+      <Text style={{ ...textStyle.title }} accessibilityRole="header">
         {notSeenYetHeading(people.length)}
       </Text>
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
@@ -52,12 +51,13 @@ export default function SiteNotSeenScreen() {
                   justifyContent: 'center',
                   borderRadius: 12,
                   borderWidth: 2,
-                  borderColor: theme.current,
-                  paddingHorizontal: 14,
+                  borderColor: theme.line,
+                  backgroundColor: theme.surface,
+                  paddingHorizontal: 16,
                 },
                 pressed && { opacity: 0.85 },
               ]}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{label}</Text>
+              <Text style={{ ...textStyle.bodyStrong }}>{label}</Text>
             </Pressable>
           );
         })}

@@ -1,4 +1,4 @@
-import { Card, ChoiceChip, EmptyState, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
+import { Card, EmptyState, FilterBar, Muted, NewRevBadge, RevBadge, Screen, SeenCountChip, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
@@ -8,7 +8,7 @@ import type { Drawing } from '@/data/types';
 import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -16,7 +16,7 @@ import { Pressable, Text, View } from 'react-native';
 function LevelLine({ level }: { level: string | null }) {
   const label = displayLevel(level);
   if (!label) return null;
-  return <Text style={{ color: theme.text, fontWeight: '800' }}>{label}</Text>;
+  return <Text style={textStyle.metaStrong}>{label}</Text>;
 }
 
 function readFolderParam(value: string | string[] | undefined): string {
@@ -95,7 +95,6 @@ export default function FolderScreen() {
 
   return (
     <Screen>
-      <Title>{folderName}</Title>
       {seenNotices.map((notice) => (
         <SeenRejectNotice
           key={notice.id}
@@ -108,26 +107,36 @@ export default function FolderScreen() {
         />
       ))}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
-      {filters ? (
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          <ChoiceChip label="All" selected={activeLevel === null} onPress={() => setLevelFilter(null)} />
-          {filters.map((level) => (
-            <ChoiceChip
-              key={level}
-              label={level}
-              selected={activeLevel === level}
-              onPress={() => setLevelFilter(level)}
-            />
-          ))}
-        </View>
-      ) : null}
+      <FilterBar
+        chips={[
+          { key: 'current', label: 'Current', selected: !showOld, onPress: () => setShowOld(false) },
+          {
+            key: 'old',
+            label: superseded.length > 0 ? `Superseded ${superseded.length}` : 'Superseded',
+            selected: showOld,
+            onPress: () => setShowOld(true),
+          },
+        ]}
+        level={
+          filters
+            ? {
+                value: activeLevel ?? '',
+                options: [
+                  { value: '', label: 'All levels' },
+                  ...filters.map((level) => ({ value: level, label: level })),
+                ],
+                onChange: (value) => setLevelFilter(value || null),
+              }
+            : undefined
+        }
+      />
 
       {archiveOnly ? (
         superseded.map((drawing) => (
           <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.archive, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
+                <Text style={{ ...textStyle.bodyStrong, color: theme.archive }}>{drawing.title}</Text>
                 {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
                 <LevelLine level={drawing.level} />
                 <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
@@ -138,10 +147,10 @@ export default function FolderScreen() {
         ))
       ) : (
         <>
-          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>CURRENT</Text>
-          {visibleCurrent.length === 0 ? (
-            <EmptyState title="No drawings in this folder" />
-          ) : (
+          <Text style={{ ...textStyle.label }}>CURRENT</Text>
+          {showOld ? null : visibleCurrent.length === 0 ? (
+            <EmptyState icon="description" title="No drawings in this folder" />
+          ) : showOld ? null : (
             visibleCurrent.map((drawing) => {
               const fresh = unseen.find((row) => row.drawing_id === drawing.id);
               const count = seenSummary?.drawings.find((row) => row.drawing_id === drawing.id);
@@ -150,7 +159,7 @@ export default function FolderScreen() {
                   <Card onPress={() => openDrawing(drawing.id)}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                       <View style={{ flex: 1, gap: 8 }}>
-                        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{drawing.title}</Text>
+                        <Text style={{ ...textStyle.bodyStrong }}>{drawing.title}</Text>
                         {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
                         <LevelLine level={drawing.level} />
                         <Muted>{formatDate(drawing.dated)}</Muted>
@@ -173,18 +182,11 @@ export default function FolderScreen() {
             })
           )}
 
-          {!activeLevel && superseded.length > 0 ? (
-            <Pressable onPress={() => setShowOld((value) => !value)} style={{ minHeight: 48, justifyContent: 'center' }}>
-              <Text style={{ color: theme.superseded, fontWeight: '700' }}>
-                {showOld ? 'Hide superseded' : `Show superseded / archive (${superseded.length})`}
-              </Text>
-            </Pressable>
-          ) : null}
-          {!activeLevel && showOld
+          {showOld
             ? superseded.map((drawing) => (
                 <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
                   <View style={{ opacity: 0.7, gap: 4 }}>
-                    <Text style={{ color: theme.superseded, fontSize: 16, fontWeight: '600' }}>{drawing.title}</Text>
+                    <Text style={{ ...textStyle.metaStrong, color: theme.superseded }}>{drawing.title}</Text>
                     {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
                     <LevelLine level={drawing.level} />
                     <RevBadge revision={drawing.revision} current={false} />

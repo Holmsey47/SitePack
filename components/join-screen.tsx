@@ -1,8 +1,8 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, LogoSlot, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { joinFailureMessage, publicCodePath, formatJoinCode } from '@/data/joinCodes';
 import { clearStagedJoinCode, peekStagedJoinCode, stageJoinCode } from '@/lib/appLinks';
-import { theme } from '@/lib/theme';
+import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, Text } from 'react-native';
@@ -69,7 +69,7 @@ export function JoinScreen({ routeCode }: { routeCode?: string }) {
 
   return (
     <Screen>
-      <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
+      <LogoSlot size={logo.welcome} />
       <Title>Join a site</Title>
       <Muted>Enter the code from your message. You’ll set a username and password.</Muted>
       <Field label="Code" value={code} onChangeText={setCode} autoCapitalize="words" placeholder="XXXX-XXXX" />

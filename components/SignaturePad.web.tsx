@@ -31,7 +31,7 @@ export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUr
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
-    context.strokeStyle = '#111111';
+    context.strokeStyle = theme.currentInk;
     context.lineWidth = 4;
     context.lineCap = 'round';
     context.clearRect(0, 0, canvas.width, canvas.height);
@@ -62,7 +62,7 @@ export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUr
         style: {
           width: '100%',
           height: 180,
-          background: '#F4F1EA',
+          background: theme.text,
           borderRadius: 12,
           touchAction: 'none',
           border: `1px solid ${theme.line}`,

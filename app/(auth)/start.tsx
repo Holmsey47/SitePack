@@ -1,10 +1,10 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, LogoSlot, Muted, Screen, Title } from '@/components/ui';
 import { repo } from '@/data';
 import { CHECK_YOUR_EMAIL, startFailureMessage } from '@/data/startCompany';
-import { theme } from '@/lib/theme';
+import { logo, space } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { View } from 'react-native';
 
 export default function StartCompanyScreen() {
   const router = useRouter();
@@ -36,7 +36,7 @@ export default function StartCompanyScreen() {
   if (sent) {
     return (
       <Screen>
-        <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
+        <LogoSlot size={logo.welcome} />
         <Title>{CHECK_YOUR_EMAIL}</Title>
         <Muted>Open the invite and set your password.</Muted>
         <Button label="Back" variant="secondary" minHeight={48} onPress={() => router.replace('/welcome')} />
@@ -46,9 +46,11 @@ export default function StartCompanyScreen() {
 
   return (
     <Screen>
-      <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
-      <Title>Start my company</Title>
-      <Muted>We’ll email you a link to set a password.</Muted>
+      <View style={{ gap: space.md }}>
+        <LogoSlot size={logo.welcome} />
+        <Title>Start my company</Title>
+        <Muted>We’ll email you a link to set a password.</Muted>
+      </View>
       <Field
         label="Company name"
         value={companyName}

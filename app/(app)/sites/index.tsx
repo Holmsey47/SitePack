@@ -1,7 +1,8 @@
 import { AppTabs } from '@/components/app-tabs';
 import { CompanyLogo } from '@/components/CompanyLogo';
-import { FixtureOfflineSwitch } from '@/components/fixture-offline';
-import { Button, Card, EmptyState, ErrorText, Field, GlanceRow, HeaderActions, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
+import { Icon } from '@/components/icon';
+import { PhoneStatus } from '@/components/phone-status';
+import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title, Wordmark } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
@@ -14,13 +15,13 @@ import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { space, textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitesScreen() {
-  const { person, signOut, acknowledgePasswordReset } = useAuth();
+  const { person, acknowledgePasswordReset } = useAuth();
   const router = useRouter();
   const manager = person != null && canManageSite(person.role);
   const [rows, setRows] = useState<PulseRow[]>([]);
@@ -137,47 +138,34 @@ export default function SitesScreen() {
 
   const resetNotice = person?.password_reset_at ? (
     <Card>
-      <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Your password was reset</Text>
+      <Text style={textStyle.title}>Your password was reset</Text>
       <Muted>If that wasn’t you, ask your manager for a new code.</Muted>
       <Button label="OK" onPress={acknowledge} />
     </Card>
   ) : null;
 
   if (!manager) {
+    const assigned = workingRows(mine);
     return (
       <Screen footer={footer}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1, gap: 8 }}>
-            <CompanyLogo />
-            <Title>Sites</Title>
-          </View>
-          <HeaderActions label="Sign out" onPress={() => void signOut()} />
-        </View>
+        <SitesHeader memberSettings={person != null && person.role !== 'owner'} onSettings={() => router.push('/company')} />
         {resetNotice}
-        <FixtureOfflineSwitch />
+        <PhoneStatus />
         {error ? <ErrorText>{error}</ErrorText> : null}
-        {loaded && !error && workingRows(mine).length === 0 ? (
-          <EmptyState title="You’re not on a site yet — ask your owner" />
+        {loaded && !error && assigned.length === 0 ? (
+          <EmptyState icon="apartment" title="You’re not on a site yet — ask your owner" />
         ) : (
-          workingRows(mine).map((site) => (
-            <Card key={site.id}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={site.name}
+          assigned.map((site) => (
+            <View key={site.id} style={{ gap: space.md }}>
+              <SiteCard
+                name={site.name}
+                meta={[site.address_line, formatWhen(site.updated_at)].filter(Boolean).join(' · ')}
+                stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
+                pills={
+                  <CountPill icon="assignment" count={site.my_open_request_count ?? 0} label="open requests you raised" />
+                }
                 onPress={() => router.push(`/sites/${site.id}`)}
-                style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                  <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{site.name}</Text>
-                  {packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at }) ? <OutOfDateBadge /> : null}
-                </View>
-                {site.address_line ? <Muted>{site.address_line}</Muted> : null}
-                <Muted>{formatWhen(site.updated_at)}</Muted>
-                {(site.my_open_request_count ?? 0) > 0 ? (
-                  <Text style={{ color: theme.open, fontWeight: '700' }}>
-                    {site.my_open_request_count} open request{site.my_open_request_count === 1 ? '' : 's'} you raised
-                  </Text>
-                ) : null}
-              </Pressable>
+              />
               <SeenNotes
                 manager={false}
                 notes={seenNotes(site.id)}
@@ -185,71 +173,59 @@ export default function SitesScreen() {
                 onNew={() => router.push(`/sites/${site.id}/new`)}
                 onNotice={(notice) => void followNotice(router, notice)}
               />
-            </Card>
+            </View>
           ))
         )}
       </Screen>
     );
   }
 
+  const showCreate = person.role === 'owner' && working.length > 0;
   return (
     <Screen footer={footer}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <View style={{ flex: 1, gap: 8 }}>
-          <CompanyLogo />
-          <Title>Sites</Title>
-        </View>
-        <HeaderActions label="Sign out" onPress={() => void signOut()} />
-      </View>
+      <SitesHeader memberSettings={person.role !== 'owner'} onSettings={() => router.push('/company')} />
       {resetNotice}
-      <FixtureOfflineSwitch />
-      {person.role === 'owner' ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
+      <PhoneStatus />
+      {showCreate ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Pressable onPress={() => setOpenOnly((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: openOnly ? theme.current : theme.muted, fontWeight: '700' }}>Has open requests</Text>
-        </Pressable>
-        <Pressable onPress={() => setStaleOnly((value) => !value)} style={{ paddingVertical: 8 }}>
-          <Text style={{ color: staleOnly ? theme.current : theme.muted, fontWeight: '700' }}>Not updated in 7 days</Text>
-        </Pressable>
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        <ChoiceChip label="Has open requests" selected={openOnly} onPress={() => setOpenOnly((value) => !value)} />
+        <ChoiceChip label="Not updated in 7 days" selected={staleOnly} onPress={() => setStaleOnly((value) => !value)} />
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
       {loaded && !error && filtered.length === 0 ? (
-        <EmptyState title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'} />
+        <EmptyState
+          icon="apartment"
+          title={working.length === 0 ? 'No sites yet' : 'No sites match those filters'}
+          action={
+            working.length === 0 && person.role === 'owner' ? (
+              <Button label="Create site" onPress={() => router.push('/create-site')} />
+            ) : undefined
+          }
+        />
       ) : (
         filtered.map((row) => (
-          <Card key={row.site_id}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={row.name}
+          <View key={row.site_id} style={{ gap: space.md }}>
+            <SiteCard
+              name={row.name}
+              meta={[
+                row.address_line,
+                `${row.assignee_count} ${row.assignee_count === 1 ? 'person' : 'people'}`,
+                contractsManagerLine(row.contracts_manager_names),
+                operativesLine(row.operative_count),
+                formatWhen(row.last_pack_update),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
+              pills={
+                <View style={{ flexDirection: 'row', gap: space.md }}>
+                  <CountPill icon="assignment" count={row.open_request_count} label="open requests" />
+                  <CountPill icon="person_add" count={row.new_joiner_count ?? 0} label="new joiners" />
+                </View>
+              }
               onPress={() => router.push(`/sites/${row.site_id}`)}
-              style={{ minHeight: 48, justifyContent: 'center', gap: 6 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{row.name}</Text>
-                {packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update }) ? <OutOfDateBadge /> : null}
-                {(row.new_joiner_count ?? 0) > 0 ? (
-                  <Text
-                    style={{
-                      color: theme.currentInk,
-                      backgroundColor: theme.current,
-                      fontWeight: '800',
-                      overflow: 'hidden',
-                      borderRadius: 8,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                    }}>
-                    {(row.new_joiner_count ?? 0) === 1 ? 'New joiner' : `${row.new_joiner_count} new`}
-                  </Text>
-                ) : null}
-              </View>
-              {row.address_line ? <Muted>{row.address_line}</Muted> : null}
-              <Muted>{contractsManagerLine(row.contracts_manager_names)}</Muted>
-              <Muted>{operativesLine(row.operative_count)}</Muted>
-              <Muted>{formatWhen(row.last_pack_update)}</Muted>
-              <Text style={{ color: row.open_request_count ? theme.open : theme.muted, fontWeight: '700' }}>
-                {row.open_request_count} open request{row.open_request_count === 1 ? '' : 's'}
-              </Text>
-            </Pressable>
+            />
             <SeenNotes
               manager
               notes={seenNotes(row.site_id)}
@@ -257,10 +233,75 @@ export default function SitesScreen() {
               onNew={() => router.push(`/sites/${row.site_id}/new`)}
               onNotice={(notice) => void followNotice(router, notice)}
             />
-          </Card>
+          </View>
         ))
       )}
     </Screen>
+  );
+}
+
+function SitesHeader({ memberSettings, onSettings }: { memberSettings?: boolean; onSettings?: () => void }) {
+  return (
+    <View style={{ gap: space.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Wordmark />
+        {memberSettings && onSettings ? (
+          <PressableSettings onPress={onSettings} />
+        ) : null}
+      </View>
+      <CompanyLogo />
+      <Title>Sites</Title>
+    </View>
+  );
+}
+
+function PressableSettings({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Company settings"
+      onPress={onPress}
+      style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name="settings" color={theme.text} />
+    </Pressable>
+  );
+}
+
+function SiteCard({
+  name,
+  meta,
+  stale,
+  pills,
+  onPress,
+}: {
+  name: string;
+  meta: string;
+  stale: boolean;
+  pills?: ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <Card onPress={onPress}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <Text style={textStyle.bodyStrong}>{name}</Text>
+          {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
+        </View>
+        {stale ? <OutOfDateBadge /> : null}
+        <Icon name="chevron_right" color={theme.muted} />
+      </View>
+      {pills}
+    </Card>
+  );
+}
+
+function CountPill({ icon, count, label }: { icon: string; count: number; label: string }) {
+  if (count < 1) return null;
+  return (
+    <View accessibilityLabel={`${count} ${label}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 32 }}>
+      <Icon name={icon} color={theme.muted} />
+      <Text style={textStyle.metaStrong}>{count}</Text>
+    </View>
   );
 }
 
@@ -293,7 +334,7 @@ function SeenNotes({
       ))}
       {fresh ? <GlanceRow label={fresh} onPress={onNew} /> : null}
       {notes.waiting ? (
-        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
+        <Text style={textStyle.bodyStrong}>{SAVED_ON_PHONE}</Text>
       ) : null}
     </View>
   );

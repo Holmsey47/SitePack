@@ -1,7 +1,9 @@
-import { theme } from '@/lib/theme';
-import { ReactNode } from 'react';
+import { Icon } from '@/components/icon';
+import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
+import { ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -56,6 +58,10 @@ export function Muted({ children }: { children: ReactNode }) {
   return <Text style={styles.muted}>{children}</Text>;
 }
 
+export function SectionLabel({ children }: { children: ReactNode }) {
+  return <Text style={styles.sectionLabel}>{children}</Text>;
+}
+
 export function Button({
   label,
   onPress,
@@ -72,6 +78,7 @@ export function Button({
   /** Glove target. Defaults to the shared thumb height. */
   minHeight?: number;
 }) {
+  const primaryOff = variant === 'primary' && disabled && !loading;
   return (
     <Pressable
       accessibilityRole="button"
@@ -79,16 +86,17 @@ export function Button({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.btn,
-        variant === 'primary' && styles.btnPrimary,
-        minHeight != null && { minHeight: Math.max(minHeight, variant === 'primary' ? 56 : 48) },
+        variant === 'primary' && !primaryOff && styles.btnPrimary,
+        primaryOff && styles.btnPrimaryOff,
+        minHeight != null && { minHeight: Math.max(minHeight, variant === 'primary' ? hit.primary : hit.secondary) },
         variant === 'secondary' && styles.btnSecondary,
         variant === 'ghost' && styles.btnGhost,
         variant === 'danger' && styles.btnDanger,
-        (disabled || loading) && styles.btnDisabled,
+        (disabled || loading) && variant !== 'primary' && styles.btnDisabled,
         pressed && !disabled && styles.btnPressed,
       ]}>
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? theme.currentInk : theme.text} />
+        <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? theme.currentInk : theme.text} />
       ) : (
         <Text
           numberOfLines={3}
@@ -96,8 +104,9 @@ export function Button({
           style={[
             styles.btnText,
             Platform.OS === 'web' ? ({ overflowWrap: 'anywhere' } as object) : null,
-            variant === 'primary' && { color: theme.currentInk },
-            variant === 'ghost' && { color: theme.current },
+            (variant === 'primary' && !primaryOff) || variant === 'danger' ? { color: theme.currentInk } : null,
+            primaryOff && { color: theme.muted },
+            variant === 'ghost' && { color: theme.muted },
           ]}>
           {label}
         </Text>
@@ -128,7 +137,7 @@ export function Field({
   maxLength?: number;
 }) {
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: space.sm }}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         value={value}
@@ -147,9 +156,18 @@ export function Field({
   );
 }
 
-export function EmptyState({ title, action }: { title: string; action?: ReactNode }) {
+export function EmptyState({
+  title,
+  action,
+  icon = 'inbox',
+}: {
+  title: string;
+  action?: ReactNode;
+  icon?: string;
+}) {
   return (
     <View style={styles.empty}>
+      <Icon name={icon} color={theme.muted} size={iconSize} />
       <Text style={styles.emptyText}>{title}</Text>
       {action}
     </View>
@@ -159,9 +177,7 @@ export function EmptyState({ title, action }: { title: string; action?: ReactNod
 export function RevBadge({ revision, current }: { revision: string; current: boolean }) {
   return (
     <View style={[styles.rev, current ? styles.revCurrent : styles.revOld]}>
-      <Text style={[styles.revText, current ? styles.revTextCurrent : styles.revTextOld]}>
-        Rev {revision}
-      </Text>
+      <Text style={[styles.revText, current ? styles.revTextCurrent : styles.revTextOld]}>Rev {revision}</Text>
     </View>
   );
 }
@@ -178,7 +194,7 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
 
 const NO_LOGIN = "No login: can't see drawings";
 
-/** Words carry the meaning. The amber fill is only a second cue. */
+/** Words carry the meaning. The fill is only a second cue, and it is not amber. */
 export function NoLoginBadge() {
   return (
     <View style={styles.noLogin} accessibilityRole="text">
@@ -187,7 +203,7 @@ export function NoLoginBadge() {
   );
 }
 
-/** Current sheet the signed-in person has not confirmed. A label, not a control. */
+/** Current sheet the signed-in person has not confirmed. A rev badge, not a control. */
 export function NewRevBadge({ sheet, revision }: { sheet: string; revision: string }) {
   const label = `New: ${sheet} rev ${revision}`;
   return (
@@ -249,11 +265,7 @@ export function SeenCountChip({
 /** The copy on this phone is out of date. A label, not a control. */
 export function OutOfDateBadge() {
   return (
-    <View
-      pointerEvents="none"
-      style={styles.outOfDate}
-      accessibilityRole="text"
-      accessibilityLabel="Out of date">
+    <View pointerEvents="none" style={styles.outOfDate} accessibilityRole="text" accessibilityLabel="Out of date">
       <Text style={styles.outOfDateText}>Out of date</Text>
     </View>
   );
@@ -264,7 +276,7 @@ export function ErrorText({ children }: { children: ReactNode }) {
   return <Text style={styles.error}>{children}</Text>;
 }
 
-/** Glove-sized choice. At least 48dp, cream on dark or ink on gold. */
+/** Glove-sized choice. Selected is filled and ticked, so colour is not the only cue. */
 export function ChoiceChip({
   label,
   selected,
@@ -284,15 +296,158 @@ export function ChoiceChip({
         selected ? styles.chipSelected : styles.chipIdle,
         pressed && styles.btnPressed,
       ]}>
+      {selected ? <Icon name="check" color={theme.bg} size={18} /> : null}
       <Text style={[styles.chipText, selected ? styles.chipTextSelected : styles.chipTextIdle]}>{label}</Text>
     </Pressable>
   );
 }
 
+export function FilterBar({
+  chips,
+  level,
+}: {
+  chips: { key: string; label: string; selected: boolean; onPress: () => void }[];
+  level?: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
+}) {
+  return (
+    <View style={{ gap: space.md }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        {chips.map((chip) => (
+          <ChoiceChip key={chip.key} label={chip.label} selected={chip.selected} onPress={chip.onPress} />
+        ))}
+      </ScrollView>
+      {level ? <LevelMenu value={level.value} options={level.options} onChange={level.onChange} /> : null}
+    </View>
+  );
+}
+
+export function LevelMenu({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((option) => option.value === value)?.label ?? 'All levels';
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Level, ${current}`}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [styles.levelBtn, pressed && styles.btnPressed]}>
+        <Text style={styles.levelLabel}>Level</Text>
+        <Text style={styles.levelValue}>{current}</Text>
+        <Icon name="expand_more" color={theme.text} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.modalScrim} onPress={() => setOpen(false)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Level</Text>
+            {options.map((option) => {
+              const selected = option.value === value;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  style={styles.modalRow}>
+                  {selected ? <Icon name="check" color={theme.text} /> : <View style={{ width: 24 }} />}
+                  <Text style={styles.modalRowText}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+export function OverflowMenu({
+  items,
+  label = 'More',
+}: {
+  label?: string;
+  items: { label: string; danger?: boolean; onPress: () => void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={() => setOpen(true)}
+        style={styles.iconHit}>
+        <Icon name="more_horiz" color={theme.text} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.modalScrim} onPress={() => setOpen(false)}>
+          <View style={styles.modalCard}>
+            {items.map((item) => (
+              <Pressable
+                key={item.label}
+                accessibilityRole="button"
+                onPress={() => {
+                  setOpen(false);
+                  item.onPress();
+                }}
+                style={styles.modalRow}>
+                <Text style={[styles.modalRowText, item.danger && { color: theme.danger }]}>{item.label}</Text>
+              </Pressable>
+            ))}
+            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} />
+          </View>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+/** Placeholder until a real SitePack mark exists. */
+export function LogoSlot({ size }: { size: number }) {
+  return (
+    <View
+      accessibilityLabel="SitePack"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius.control,
+        backgroundColor: theme.surface,
+        borderWidth: 1,
+        borderColor: theme.line,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+      <Text
+        style={{
+          color: theme.text,
+          fontFamily: fontFamily.extraBold,
+          fontSize: size >= logo.welcome ? typeScale.title : typeScale.label,
+        }}>
+        SP
+      </Text>
+    </View>
+  );
+}
+
+export function Wordmark() {
+  return <Text style={styles.wordmark}>SitePack</Text>;
+}
+
 export function HeaderActions(props: PressableProps & { label: string }) {
   const { label, ...rest } = props;
   return (
-    <Pressable {...rest} hitSlop={12}>
+    <Pressable {...rest} hitSlop={12} style={{ minHeight: hit.min, justifyContent: 'center' }}>
       <Text style={styles.headerLink}>{label}</Text>
     </Pressable>
   );
@@ -300,136 +455,186 @@ export function HeaderActions(props: PressableProps & { label: string }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg },
-  scroll: { padding: 20, gap: 16, paddingBottom: 40 },
-  title: { color: theme.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.4 },
-  subtitle: { color: theme.muted, fontSize: 16, lineHeight: 22 },
-  muted: { color: theme.muted, fontSize: 14, lineHeight: 20 },
+  scroll: { padding: space.lg, gap: space.md, paddingBottom: space.xxl + space.sm },
+  title: textStyle.display,
+  subtitle: { ...textStyle.body, color: theme.muted },
+  muted: textStyle.meta,
+  sectionLabel: { ...textStyle.label, marginTop: space.md },
   btn: {
-    minHeight: theme.thumb,
-    borderRadius: 14,
+    minHeight: hit.secondary,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'stretch',
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: space.md,
   },
-  btnPrimary: { backgroundColor: theme.current, minHeight: 56 },
-  btnSecondary: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.line },
+  btnPrimary: { backgroundColor: theme.current, minHeight: hit.primary },
+  btnPrimaryOff: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line, minHeight: hit.primary },
+  btnSecondary: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line, minHeight: hit.secondary },
   btnGhost: { backgroundColor: 'transparent' },
-  btnDanger: { backgroundColor: theme.danger },
+  btnDanger: { backgroundColor: theme.danger, minHeight: hit.secondary },
   btnDisabled: { opacity: 0.5 },
   btnPressed: { transform: [{ scale: 0.99 }] },
-  btnText: { color: theme.text, fontSize: 17, fontWeight: '700', textAlign: 'center', width: '100%' },
-  fieldLabel: { color: theme.muted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
+  btnText: {
+    color: theme.text,
+    fontSize: typeScale.body,
+    lineHeight: 22,
+    fontFamily: fontFamily.bold,
+    fontWeight: '700',
+    textAlign: 'center',
+    width: '100%',
+  },
+  fieldLabel: textStyle.label,
   input: {
     backgroundColor: theme.surface,
     borderColor: theme.line,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.control,
     color: theme.text,
-    fontSize: 17,
+    fontFamily: fontFamily.regular,
+    fontSize: typeScale.body,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    minHeight: theme.thumb,
+    minHeight: hit.secondary,
   },
-  empty: { gap: 12, paddingVertical: 28 },
-  emptyText: { color: theme.text, fontSize: 18, fontWeight: '600', lineHeight: 24 },
-  rev: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, alignSelf: 'flex-start' },
+  empty: { gap: space.md, paddingVertical: space.xl, alignItems: 'flex-start' },
+  emptyText: textStyle.bodyStrong,
+  rev: { paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.control, alignSelf: 'flex-start' },
   revCurrent: { backgroundColor: theme.current },
-  revOld: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.line },
-  revText: { fontSize: 18, fontWeight: '800' },
+  revOld: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line },
+  revText: { fontSize: typeScale.body, fontFamily: fontFamily.extraBold, fontWeight: '800', ...textStyle.tabular },
   revTextCurrent: { color: theme.currentInk },
-  revTextOld: { color: theme.superseded },
+  revTextOld: { color: theme.muted },
   card: {
     backgroundColor: theme.surface,
-    borderRadius: 16,
-    padding: 16,
-    gap: 6,
+    borderRadius: radius.card,
+    padding: space.lg,
+    gap: space.sm,
     borderWidth: 1,
     borderColor: theme.line,
   },
-  error: { color: theme.danger, fontSize: 15, lineHeight: 20 },
-  headerLink: { color: theme.current, fontSize: 16, fontWeight: '700' },
+  error: { color: theme.danger, fontSize: typeScale.meta, lineHeight: 20, fontFamily: fontFamily.regular },
+  headerLink: { ...textStyle.bodyStrong, color: theme.text },
   chip: {
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: hit.secondary,
+    minWidth: hit.secondary,
     paddingHorizontal: 14,
-    borderRadius: 12,
+    borderRadius: radius.control,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: space.sm,
   },
-  chipIdle: { backgroundColor: theme.surface, borderColor: theme.text },
-  chipSelected: { backgroundColor: theme.current, borderColor: theme.current },
-  chipText: { fontSize: 16, fontWeight: '800' },
+  chipIdle: { backgroundColor: 'transparent', borderColor: theme.line },
+  chipSelected: { backgroundColor: theme.text, borderColor: theme.text },
+  chipText: { fontSize: typeScale.body, fontFamily: fontFamily.bold, fontWeight: '700' },
   chipTextIdle: { color: theme.text },
-  chipTextSelected: { color: theme.currentInk },
+  chipTextSelected: { color: theme.bg },
+  filterRow: { gap: space.sm, paddingRight: space.lg },
+  levelBtn: {
+    minHeight: hit.secondary,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: theme.line,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  levelLabel: textStyle.label,
+  levelValue: { ...textStyle.bodyStrong, flex: 1 },
   noLogin: {
     alignSelf: 'flex-start',
-    backgroundColor: theme.current,
-    borderRadius: 8,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.line,
+    borderRadius: space.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minHeight: 32,
     justifyContent: 'center',
   },
-  noLoginText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
+  noLoginText: { ...textStyle.metaStrong, color: theme.text },
   outOfDate: {
     alignSelf: 'flex-start',
     backgroundColor: theme.open,
-    borderRadius: 8,
+    borderRadius: space.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
     justifyContent: 'center',
   },
-  outOfDateText: { color: theme.currentInk, fontSize: 14, fontWeight: '800' },
+  outOfDateText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold, fontWeight: '800' },
   newRev: {
     alignSelf: 'flex-start',
     backgroundColor: theme.current,
-    borderRadius: 8,
+    borderRadius: space.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
     justifyContent: 'center',
   },
-  newRevText: { color: theme.currentInk, fontSize: 15, fontWeight: '800' },
+  newRevText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold, fontWeight: '800' },
   seenReject: {
-    minHeight: 48,
+    minHeight: hit.secondary,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    borderRadius: 12,
-    backgroundColor: theme.surfaceAlt,
-    borderWidth: 2,
-    borderColor: theme.open,
-    paddingHorizontal: 12,
+    gap: space.md,
+    borderRadius: radius.control,
+    backgroundColor: theme.surface,
+    borderWidth: 1,
+    borderColor: theme.line,
+    paddingHorizontal: space.md,
     paddingVertical: 10,
   },
-  seenRejectText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 24, flex: 1 },
-  seenRejectOpen: { color: theme.current, fontSize: 17, fontWeight: '800' },
+  seenRejectText: { ...textStyle.bodyStrong, flex: 1 },
+  seenRejectOpen: textStyle.bodyStrong,
   glanceRow: {
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: hit.secondary,
+    minWidth: hit.secondary,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: theme.current,
+    paddingVertical: space.md,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: theme.line,
     backgroundColor: theme.surface,
     justifyContent: 'center',
     alignSelf: 'stretch',
   },
-  glanceRowText: { color: theme.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
+  glanceRowText: textStyle.bodyStrong,
   seenChip: {
-    minHeight: 48,
-    minWidth: 48,
+    minHeight: hit.secondary,
+    minWidth: hit.secondary,
     paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: theme.current,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: theme.line,
     backgroundColor: theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'stretch',
   },
-  seenChipText: { color: theme.text, fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  seenChipText: { ...textStyle.bodyStrong, textAlign: 'center', ...textStyle.tabular },
+  iconHit: { width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' },
+  modalScrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.scrim, padding: space.lg },
+  modalCard: {
+    backgroundColor: theme.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: theme.line,
+    padding: space.lg,
+    gap: space.md,
+  },
+  modalTitle: textStyle.title,
+  modalRow: { minHeight: hit.secondary, flexDirection: 'row', alignItems: 'center', gap: space.md },
+  modalRowText: textStyle.bodyStrong,
+  wordmark: {
+    color: theme.text,
+    fontFamily: fontFamily.extraBold,
+    fontWeight: '800',
+    fontSize: logo.wordmark,
+    lineHeight: 32,
+    letterSpacing: -0.4,
+  },
 });

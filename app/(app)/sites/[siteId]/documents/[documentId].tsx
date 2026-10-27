@@ -1,4 +1,4 @@
-import { Button, Card, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
@@ -10,7 +10,7 @@ import {
   type SiteDocumentDetail,
 } from '@/data/siteDocuments';
 import { formatUkDateTime } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -178,7 +178,6 @@ export default function SiteDocumentScreen() {
   if (!detail) {
     return (
       <Screen>
-        <Title>Document</Title>
         <ErrorText>{error}</ErrorText>
       </Screen>
     );
@@ -186,29 +185,27 @@ export default function SiteDocumentScreen() {
 
   return (
     <Screen>
-      <Title>{detail.title}</Title>
-      <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{siteDocumentKindLabel(detail.kind)}</Text>
-      <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Version {detail.version_no}</Text>
-      {detail.archived_at ? (
-        <Text style={{ color: theme.muted, fontSize: 18, fontWeight: '800' }}>Archived</Text>
-      ) : null}
+      <Text style={textStyle.title}>{detail.title}</Text>
+      <Text style={textStyle.bodyStrong}>{siteDocumentKindLabel(detail.kind)}</Text>
+      <Text style={textStyle.metaStrong}>Version {detail.version_no}</Text>
+      {detail.archived_at ? <Text style={textStyle.metaStrong}>Archived</Text> : null}
       <Button label="Open PDF" variant="secondary" minHeight={48} onPress={() => void openPdf()} />
-      {opened ? <Text style={{ color: theme.text, fontSize: 18 }}>{opened}</Text> : null}
+      {opened ? <Text style={{ ...textStyle.body }}>{opened}</Text> : null}
       {mustSign && !detail.archived_at && !detail.signed_by_me ? (
         <Button label="I have read and understood" minHeight={56} loading={busy} onPress={() => void sign()} />
       ) : null}
       {mustSign && !detail.archived_at && detail.signed_by_me ? (
-        <Text style={{ color: theme.sent, fontSize: 18, fontWeight: '800' }}>Signed</Text>
+        <Text style={{ ...textStyle.bodyStrong, color: theme.sent }}>Signed</Text>
       ) : null}
       <ErrorText>{error}</ErrorText>
       {owner ? (
         <>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Who has signed</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>Who has signed</Text>
           {roster.length === 0 ? <Muted>Nobody assigned to sign.</Muted> : null}
           {roster.map((row) => (
             <Card key={row.person_id}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{row.name}</Text>
-              <Text style={{ color: row.signed_at ? theme.sent : theme.danger, fontSize: 18, fontWeight: '800' }}>
+              <Text style={{ ...textStyle.bodyStrong }}>{row.name}</Text>
+              <Text style={{ ...textStyle.bodyStrong, color: row.signed_at ? theme.sent : theme.danger }}>
                 {row.signed_at ? `Signed ${formatUkDateTime(row.signed_at)}` : 'Not signed'}
               </Text>
             </Card>
@@ -217,7 +214,12 @@ export default function SiteDocumentScreen() {
             <>
               <Button label={fileName || 'Choose a new PDF'} variant="secondary" minHeight={48} onPress={() => void pickPdf()} />
               {bytes ? (
-                <Button label="Save new version" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
+                <Button label="Save new version" variant="secondary" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
+              ) : null}
+              {confirmDelete ? (
+                <Text style={textStyle.body}>
+                  {detail.signatures.length > 0 ? `Archive ${detail.title}?` : `Delete ${detail.title}?`}
+                </Text>
               ) : null}
               {detail.signatures.length > 0 ? (
                 confirmDelete ? (

@@ -1,13 +1,14 @@
+import { Icon } from '@/components/icon';
 import type { Role } from '@/data/types';
-import { theme } from '@/lib/theme';
+import { hit, textStyle, theme } from '@/lib/theme';
 import { usePathname, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const TABS: { href: '/sites' | '/people' | '/requests'; label: string }[] = [
-  { href: '/sites', label: 'Sites' },
-  { href: '/people', label: 'People' },
-  { href: '/requests', label: 'Requests' },
+const TABS: { href: '/sites' | '/people' | '/requests'; label: string; icon: string }[] = [
+  { href: '/sites', label: 'Sites', icon: 'apartment' },
+  { href: '/people', label: 'People', icon: 'group' },
+  { href: '/requests', label: 'Requests', icon: 'assignment' },
 ];
 
 export function AppTabs({ role }: { role: Role }) {
@@ -32,11 +33,21 @@ export function AppTabs({ role }: { role: Role }) {
           <Pressable
             key={tab.href}
             accessibilityRole="button"
+            accessibilityState={{ selected: active }}
             onPress={() => {
               if (!active) router.navigate(tab.href);
             }}
-            style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: active ? theme.current : theme.muted, fontWeight: '800' }}>{tab.label}</Text>
+            style={{
+              flex: 1,
+              minHeight: hit.secondary,
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              borderTopWidth: 2,
+              borderTopColor: active ? theme.text : 'transparent',
+            }}>
+            <Icon name={tab.icon} color={active ? theme.text : theme.muted} />
+            <Text style={[textStyle.metaStrong, { color: active ? theme.text : theme.muted }]}>{tab.label}</Text>
           </Pressable>
         );
       })}

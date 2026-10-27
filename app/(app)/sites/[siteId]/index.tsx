@@ -1,6 +1,7 @@
+import { Icon } from '@/components/icon';
 import { SiteBar } from '@/components/site-bar';
 import { PeoplePill, SitesBackButton } from '@/components/site-header';
-import { Button, Card, EmptyState, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice, Title } from '@/components/ui';
+import { Button, Card, EmptyState, GlanceRow, Muted, OverflowMenu, Screen, OutOfDateBadge, SectionLabel, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, siteUnseenLine, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { packFolders } from '@/data/folders';
@@ -18,25 +19,17 @@ import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/siteListSeenSync';
-import { theme } from '@/lib/theme';
+import { space, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
-  const { person, signOut } = useAuth();
+  const { person } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerBackVisible: false,
-      headerLeft: () => <SitesBackButton />,
-      headerRight: () => (siteId ? <PeoplePill siteId={siteId} /> : null),
-    });
-  }, [navigation, siteId]);
   const [allowDownloadLeave, setAllowDownloadLeave] = useState(false);
   const pendingDownloadLeave = useRef<NavigationAction | null>(null);
   const mounted = useRef(true);
@@ -54,6 +47,31 @@ export default function SitePackScreen() {
   const [seenNotices, setSeenNotices] = useState<SeenNotice[]>([]);
   const [seenSummary, setSeenSummary] = useState<SiteSeenSummary | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: site?.name || 'Site',
+      headerBackVisible: false,
+      headerLeft: () => <SitesBackButton />,
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {person?.role === 'owner' && site ? (
+            <OverflowMenu
+              label={site.archived_at ? 'Restore site' : 'Archive site'}
+              items={[
+                {
+                  label: site.archived_at ? 'Restore site' : 'Archive site',
+                  danger: !site.archived_at,
+                  onPress: () => setConfirmArchive(true),
+                },
+              ]}
+            />
+          ) : null}
+          {siteId ? <PeoplePill siteId={siteId} /> : null}
+        </View>
+      ),
+    });
+  }, [navigation, person?.role, site, siteId]);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -222,17 +240,6 @@ export default function SitePackScreen() {
         siteId ? <SiteBar siteId={siteId} siteName={site.name} counts={barCounts} onOpen={openList} /> : null
       }
       contentPaddingBottom={DRAWINGS_LIST_BOTTOM_PAD}>
-      {person?.role === 'operative' ? (
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void signOut()}
-            style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>Sign out</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      <Title>{site.name}</Title>
       <Button
         label="Induction & RAMS"
         variant="secondary"
@@ -264,20 +271,18 @@ export default function SitePackScreen() {
               />
             ))}
             {freshLine ? <GlanceRow label={freshLine} onPress={() => router.push(`/sites/${siteId}/new`)} /> : null}
-            {waiting ? (
-              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{SAVED_ON_PHONE}</Text>
-            ) : null}
+            {waiting ? <Text style={textStyle.bodyStrong}>{SAVED_ON_PHONE}</Text> : null}
           </View>
         );
       })()}
       {phoneRows.length > 0 ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>ON THIS PHONE</Text>
+            <SectionLabel>On this phone</SectionLabel>
             {outOfDate ? <OutOfDateBadge /> : null}
           </View>
           {outOfDate ? (
-            <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22, width: '100%' }}>
+            <Text style={[textStyle.body, { width: '100%' }]}>
               {changeCount > 0 && meta
                 ? phoneCopyOutOfDateLine(changeCount, meta.downloadedAt)
                 : 'Phone copy is out of date.'}
@@ -293,7 +298,7 @@ export default function SitePackScreen() {
           ) : null}
           {phoneRows.map((item) => (
             <Card key={item.drawingId} onPress={() => router.push(`/sites/${siteId}/drawing/${item.drawingId}`)}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>
+              <Text style={textStyle.bodyStrong}>
                 {item.changedLabel ?? item.title}
               </Text>
               {item.changedLabel ? null : <Muted>Rev {item.revision}</Muted>}
@@ -307,73 +312,76 @@ export default function SitePackScreen() {
       <Muted>{formatWhen(site.updated_at)}</Muted>
       <Muted>Download the current pack before you lose signal.</Muted>
       {ready ? (
-        <Text style={{ color: theme.sent, fontWeight: '700' }}>
+        <Text style={[textStyle.metaStrong, textStyle.tabular]}>
           Offline ready{meta?.downloadedAt ? ` · ${formatDate(meta.downloadedAt)}` : ''}
         </Text>
       ) : null}
       {progress ? <Muted>{progress}</Muted> : null}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
-      <Button label={ready ? 'Re-download current pack' : 'Download for offline'} onPress={() => void onDownload()} />
-      {manage ? <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} /> : null}
-      {person?.role === 'owner' ? (
-        confirmArchive ? (
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>
-              {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
-            </Text>
-            <Button
-              label={site.archived_at ? 'Restore site' : 'Archive site'}
-              variant={site.archived_at ? 'secondary' : 'danger'}
-              minHeight={48}
-              onPress={() => {
-                void repo
-                  .archiveSite(site.id, !site.archived_at)
-                  .then(() => {
-                    setConfirmArchive(false);
-                    return load();
-                  })
-                  .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
-              }}
-            />
-            <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmArchive(false)} />
-          </View>
-        ) : (
+      <Button
+        label={ready ? 'Re-download current pack' : 'Download for offline'}
+        variant={outOfDate ? 'secondary' : 'primary'}
+        onPress={() => void onDownload()}
+      />
+      {manage && folders.length > 0 ? (
+        <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
+      ) : null}
+      {person?.role === 'owner' && confirmArchive ? (
+        <View style={{ gap: space.md }}>
+          <Text style={textStyle.title}>{site.name}</Text>
+          <Text style={textStyle.body}>
+            {site.archived_at ? RESTORE_SITE_CONFIRM : ARCHIVE_SITE_CONFIRM}
+          </Text>
           <Button
             label={site.archived_at ? 'Restore site' : 'Archive site'}
-            variant={site.archived_at ? 'secondary' : 'ghost'}
+            variant={site.archived_at ? 'secondary' : 'danger'}
             minHeight={48}
-            onPress={() => setConfirmArchive(true)}
+            onPress={() => {
+              void repo
+                .archiveSite(site.id, !site.archived_at)
+                .then(() => {
+                  setConfirmArchive(false);
+                  return load();
+                })
+                .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not update the site'));
+            }}
           />
-        )
+          <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmArchive(false)} />
+        </View>
       ) : null}
 
-      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>FOLDERS</Text>
+      <SectionLabel>Folders</SectionLabel>
       {folders.length === 0 && phoneRows.length === 0 ? (
         <EmptyState
+          icon="description"
           title="No drawings yet"
-          action={manage ? <Button label="Upload" onPress={() => router.push(`/sites/${siteId}/upload`)} /> : undefined}
+          action={
+            manage ? (
+              <Button label="Upload" variant="secondary" onPress={() => router.push(`/sites/${siteId}/upload`)} />
+            ) : undefined
+          }
         />
       ) : (
         folders.map((folder) => (
           <Card
             key={folder.name}
             onPress={() => router.push(`/sites/${siteId}/folder/${encodeURIComponent(folder.name)}`)}>
-            <Text
-              style={{
-                color: folder.archive ? theme.archive : theme.text,
-                fontSize: 18,
-                fontWeight: '700',
-              }}>
-              {folder.name}
-            </Text>
-            {folder.archive ? (
-              <Text style={{ color: theme.muted, fontWeight: '700' }}>Archive</Text>
-            ) : (
-              <Muted>
-                {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
-              </Muted>
-            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+              <View style={{ flex: 1, gap: space.xs }}>
+                <Text style={[textStyle.bodyStrong, { color: folder.archive ? theme.archive : theme.text }]}>
+                  {folder.name}
+                </Text>
+                {folder.archive ? (
+                  <Text style={textStyle.metaStrong}>Archive</Text>
+                ) : (
+                  <Muted>
+                    {folder.currentCount} current sheet{folder.currentCount === 1 ? '' : 's'}
+                  </Muted>
+                )}
+              </View>
+              <Icon name="chevron_right" color={theme.muted} />
+            </View>
           </Card>
         ))
       )}

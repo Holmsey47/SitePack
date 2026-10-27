@@ -1,11 +1,11 @@
-import { Button, Card, EmptyState, ErrorText, Muted, NoLoginBadge, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, Muted, NoLoginBadge, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { groupFailureMessage } from '@/data/peopleGroups';
 import { canManageSite } from '@/data/repo';
 import type { PeopleGroup, Person, SiteAssignment } from '@/data/types';
 import { assignmentRank, contactLine, occupationLine, personLabel } from '@/data/walk';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
@@ -19,6 +19,7 @@ export default function AssignmentsScreen() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [confirmPerson, setConfirmPerson] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -76,34 +77,41 @@ export default function AssignmentsScreen() {
 
   return (
     <Screen>
-      <Title>Assigned people</Title>
       <ErrorText>{error}</ErrorText>
       {notice ? <Text style={{ color: theme.sent, fontWeight: '700' }}>{notice}</Text> : null}
-      {ordered.length === 0 ? <EmptyState title="Nobody assigned yet" /> : null}
+      {ordered.length === 0 ? <EmptyState icon="group" title="Nobody assigned yet" /> : null}
       {ordered.map((row) => (
         <Card key={row.id}>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{personLabel(row.person)}</Text>
+          <Text style={textStyle.bodyStrong}>{personLabel(row.person)}</Text>
           {contactLine(row.person) ? <Text style={{ color: theme.muted }}>{contactLine(row.person)}</Text> : null}
           <Text style={{ color: theme.muted }}>
             {row.person ? occupationLine(row.person.role, row.person.trade) : 'Operative'}
           </Text>
           {row.person && !row.person.auth_user_id ? <NoLoginBadge /> : null}
           <View style={{ alignItems: 'flex-end' }}>
-            <Button
-              label="Remove"
-              variant="ghost"
-              onPress={async () => {
-                await repo.removeAssignment(row.id);
-                await load();
-              }}
-            />
+            {confirmPerson === row.id ? (
+              <>
+                <Text style={textStyle.body}>Remove {personLabel(row.person)} from this site?</Text>
+                <Button
+                  label="Remove"
+                  variant="danger"
+                  onPress={async () => {
+                    await repo.removeAssignment(row.id);
+                    setConfirmPerson(null);
+                    await load();
+                  }}
+                />
+              </>
+            ) : (
+              <Button label="Remove" variant="ghost" onPress={() => setConfirmPerson(row.id)} />
+            )}
           </View>
         </Card>
       ))}
       {groups.length > 0 ? <Text style={{ color: theme.text, fontWeight: '800' }}>Groups</Text> : null}
       {groups.map((group) => (
         <Card key={group.id}>
-          <Text style={{ color: theme.text, fontWeight: '800', fontSize: 17 }}>{group.name}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{group.name}</Text>
           <Muted>
             {group.members.length} {group.members.length === 1 ? 'person' : 'people'}
           </Muted>

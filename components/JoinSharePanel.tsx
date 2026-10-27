@@ -12,7 +12,7 @@ import {
 } from '@/data/inviteEntry';
 import { formatJoinCode } from '@/data/joinCodes';
 import { formatCodeExpiry } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
 import { useEffect, useRef, useState } from 'react';
@@ -140,16 +140,14 @@ export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: Joi
 
 const styles = StyleSheet.create({
   code: {
-    color: theme.text,
-    fontSize: 32,
-    fontWeight: '800',
+    ...textStyle.display,
     letterSpacing: 1,
   },
   actions: { gap: 8, alignSelf: 'stretch' },
   whatsApp: {
     minHeight: 56,
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#25D366',
@@ -157,5 +155,5 @@ const styles = StyleSheet.create({
   },
   whatsAppText: { color: '#06210F', fontSize: 17, fontWeight: '800' },
   pressed: { opacity: 0.85 },
-  copied: { color: theme.sent, fontSize: 16, fontWeight: '800' },
+  copied: { ...textStyle.metaStrong, color: theme.sent },
 });

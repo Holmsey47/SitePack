@@ -8,7 +8,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag } from '@/lib/snagQueue';
 import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Text, View } from 'react-native';
@@ -111,7 +111,6 @@ export default function SnagDetailScreen() {
   if (!detail) {
     return (
       <Screen>
-        <Title>Snag</Title>
         <ErrorText>{error || 'This snag is not on your sites.'}</ErrorText>
       </Screen>
     );
@@ -137,7 +136,7 @@ export default function SnagDetailScreen() {
       <Title>
         {snagNumber(detail.snag_seq)} · {detail.trade_label}
       </Title>
-      <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{detail.status}</Text>
+      <Text style={{ ...textStyle.metaStrong }}>{detail.status}</Text>
       <Muted>{snagDisplayText(detail.note)}</Muted>
       {detail.level_area ? <Muted>Level or area · {snagDisplayText(detail.level_area)}</Muted> : null}
       <Muted>
@@ -149,7 +148,7 @@ export default function SnagDetailScreen() {
         </Muted>
       ) : null}
       {notice ? (
-        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}>{notice}</Text>
+        <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, padding: 12, borderRadius: 12 }}>{notice}</Text>
       ) : null}
       <Text style={{ color: theme.text, fontWeight: '800' }}>Before</Text>
       <View style={{ gap: 8 }}>
@@ -170,14 +169,14 @@ export default function SnagDetailScreen() {
       {detail.signature ? (
         <View style={{ gap: 8 }}>
           <Muted>{detail.signature.confirmation_text}</Muted>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{detail.signature.signer_name}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{detail.signature.signer_name}</Text>
           <Muted>{detail.signature.signer_role}</Muted>
           <Muted>{detail.signature.signer_company}</Muted>
           <Muted>Signed {formatUkDateTime(detail.signature.signed_at)}</Muted>
           {detail.signature.signature_png ? (
             <Image
               source={{ uri: detail.signature.signature_png }}
-              style={{ width: '100%', height: 120, backgroundColor: '#F4F1EA', borderRadius: 12 }}
+              style={{ width: '100%', height: 120, backgroundColor: theme.text, borderRadius: 12 }}
               accessibilityLabel="Signature"
             />
           ) : null}
@@ -190,12 +189,12 @@ export default function SnagDetailScreen() {
           ))}
           <PhotoPicker count={afterPhotos.length} title="Add after photo" onAdd={addAfterPhotos} onError={setError} />
           {markFixedReason ? (
-            <Text nativeID="mark-fixed-reason" style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
+            <Text nativeID="mark-fixed-reason" style={{ ...textStyle.metaStrong }}>
               {markFixedReason}
             </Text>
           ) : null}
           {fixError ? (
-            <Text nativeID="mark-fixed-error" style={{ color: theme.danger, fontSize: 16, fontWeight: '800' }}>
+            <Text nativeID="mark-fixed-error" style={{ ...textStyle.metaStrong, color: theme.danger }}>
               {fixError}
             </Text>
           ) : null}
@@ -209,7 +208,7 @@ export default function SnagDetailScreen() {
         </View>
       ) : null}
       {signQueued ? (
-        <Text nativeID="signoff-waiting" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+        <Text nativeID="signoff-waiting" style={{ ...textStyle.bodyStrong }}>
           {SIGN_OFF_QUEUED}
         </Text>
       ) : showSignOffOnSnag(detail.status) ? (

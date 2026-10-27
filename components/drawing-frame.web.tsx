@@ -32,7 +32,7 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
   if (!html) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.current} />
+        <ActivityIndicator color={theme.text} />
       </View>
     );
   }

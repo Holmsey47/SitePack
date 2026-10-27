@@ -3,8 +3,8 @@ import { Button, ErrorText, Muted } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { logoFailureMessage, LOGO_MAX_BYTES, LOGO_MAX_EDGE } from '@/data/companyLogo';
 import { repo } from '@/data/index';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Icon } from '@/components/icon';
+import { logo, textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
@@ -47,10 +47,10 @@ export function CompanyLogo() {
       accessibilityLabel={name || 'Company logo'}
       source={{ uri: logoUrl ?? undefined }}
       onError={() => setBroken(true)}
-      style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: theme.surface }}
+      style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
     />
   ) : (
-    <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', flex: 1 }}>{name}</Text>
+    <Text style={[textStyle.title, { flex: 1 }]}>{name}</Text>
   );
 
   if (!owner) {
@@ -71,7 +71,7 @@ export function CompanyLogo() {
         accessibilityLabel="Company settings"
         onPress={() => router.push('/company')}
         style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
-        <MaterialIcons name="settings" size={24} color={theme.text} />
+        <Icon name="settings" color={theme.text} />
       </Pressable>
     </View>
   );
@@ -140,10 +140,10 @@ export function CompanyLogoEditor() {
           accessibilityLabel={name || 'Company logo'}
           source={{ uri: logoUrl ?? undefined }}
           onError={() => setBroken(true)}
-          style={{ width: 96, height: 96, borderRadius: 16, backgroundColor: theme.surface }}
+          style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
         />
       ) : null}
-      <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>{name}</Text>
+      <Text style={textStyle.title}>{name}</Text>
       <Muted>The company name stays as it is.</Muted>
       {showLogo && !picking ? (
         <Button label="Change logo" variant="secondary" minHeight={48} disabled={saving} onPress={() => setPicking(true)} />
@@ -179,9 +179,9 @@ export function CompanyLogoEditor() {
         />
       ) : null}
       <Modal visible={confirmRemove} transparent animationType="fade" onRequestClose={() => setConfirmRemove(false)}>
-        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.65)' }}>
-          <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 20, gap: 12 }}>
-            <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>Remove the company logo?</Text>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: theme.scrim }}>
+          <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 16, gap: 12 }}>
+            <Text style={textStyle.title}>Remove the company logo?</Text>
             <Button label="Remove logo" variant="danger" minHeight={48} disabled={saving} onPress={() => void save(null)} />
             <Button label="Cancel" variant="secondary" minHeight={48} disabled={saving} onPress={() => setConfirmRemove(false)} />
           </View>

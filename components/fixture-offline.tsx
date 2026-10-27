@@ -1,4 +1,4 @@
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { fixtureForceOffline, setFixtureForceOffline } from '@/lib/variationQueue';
 import { useState } from 'react';
 import { Pressable, Text } from 'react-native';
@@ -20,7 +20,7 @@ export function FixtureOfflineSwitch() {
         setOffline(next);
       }}
       style={{ minHeight: 48, justifyContent: 'center' }}>
-      <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800' }}>
+      <Text style={{ ...textStyle.metaStrong }}>
         {offline ? 'Phone offline — taps stay on this phone' : 'Phone online'}
       </Text>
     </Pressable>
@@ -50,7 +50,7 @@ export function FixtureReplaceRev({
         onReplaced(next.revision);
       }}
       style={{ minHeight: 48, justifyContent: 'center' }}>
-      <Text style={{ color: theme.muted, fontSize: 16, fontWeight: '800' }}>Mark this rev replaced</Text>
+      <Text style={{ ...textStyle.metaStrong, color: theme.muted }}>Mark this rev replaced</Text>
     </Pressable>
   );
 }

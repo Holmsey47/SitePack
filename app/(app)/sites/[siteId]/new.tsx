@@ -3,7 +3,7 @@ import { newDrawingsLine, sheetLabel } from '@/data/drawingSeen';
 import type { UnseenDrawing } from '@/data/drawingSeen';
 import { confirmQueued } from '@/lib/drawingSeenQueue';
 import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -65,7 +65,7 @@ export default function NewDrawingsScreen() {
                 },
                 pressed && { opacity: 0.85 },
               ]}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{row.title}</Text>
+              <Text style={{ ...textStyle.bodyStrong }}>{row.title}</Text>
               <Muted>{label}</Muted>
             </Pressable>
           );

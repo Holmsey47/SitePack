@@ -15,8 +15,8 @@ import {
 } from '@/data/peopleGroups';
 import type { CompanyPerson, PeopleGroup, PulseRow } from '@/data/types';
 import { personLabel } from '@/data/walk';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Icon } from '@/components/icon';
+import { iconSize, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -210,7 +210,7 @@ export default function GroupScreen() {
         padding: 16,
         gap: 12,
       }}>
-      <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Save changes to {promptName}?</Text>
+      <Text style={{ ...textStyle.title }}>Save changes to {promptName}?</Text>
       <Button label="Save" onPress={() => void onPromptSave()} loading={loading} />
       <Button label="Discard" variant="danger" onPress={onDiscard} />
       <Button label="Keep editing" variant="secondary" onPress={onKeepEditing} />
@@ -302,7 +302,7 @@ export default function GroupScreen() {
           })
         : (group?.members ?? []).map((member) => (
             <Card key={member.person_id}>
-              <Text style={{ color: theme.text, fontWeight: '800', fontSize: 17 }}>
+              <Text style={{ ...textStyle.bodyStrong }}>
                 {member.display_name?.trim() || 'Someone in the company'}
               </Text>
               {member.role ? <Muted>{occupationLine(member.role, member.trade)}</Muted> : <Muted>Not on your sites yet</Muted>}
@@ -342,8 +342,8 @@ function MarkRow({
   filled?: boolean;
   onPress: () => void;
 }) {
-  const ink = filled ? theme.currentInk : theme.text;
-  const markColor = filled ? theme.currentInk : on ? theme.current : theme.muted;
+  const ink = filled ? theme.bg : theme.text;
+  const markColor = filled ? theme.bg : on ? theme.text : theme.muted;
   return (
     <Pressable
       accessibilityRole="checkbox"
@@ -359,15 +359,15 @@ function MarkRow({
         paddingVertical: 10,
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: on ? theme.current : theme.line,
-        backgroundColor: filled ? theme.current : theme.surface,
+        borderColor: on ? theme.text : theme.line,
+        backgroundColor: filled ? theme.text : theme.surface,
       }}>
-      <MaterialIcons name={on ? 'check-circle' : 'radio-button-unchecked'} size={28} color={markColor} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: ink, fontWeight: '800', fontSize: 17 }}>{title}</Text>
-        {detail ? <Text style={{ color: filled ? theme.currentInk : theme.muted }}>{detail}</Text> : null}
+      <Icon name={on ? 'check_circle' : 'radio_button_unchecked'} size={iconSize} color={markColor} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={{ ...textStyle.bodyStrong, color: ink }}>{title}</Text>
+        {detail ? <Text style={{ ...textStyle.meta, color: filled ? theme.bg : theme.muted }}>{detail}</Text> : null}
         {noLogin ? <NoLoginBadge /> : null}
-        <Text style={{ color: markColor, fontWeight: '800', fontSize: 16 }}>{mark}</Text>
+        <Text style={{ ...textStyle.metaStrong, color: markColor }}>{mark}</Text>
       </View>
     </Pressable>
   );

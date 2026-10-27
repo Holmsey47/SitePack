@@ -20,7 +20,7 @@ import { SAVING_LABEL } from '@/lib/offlineSave';
 import { variationConfirmation, variationHandoverSummary, variationPdfAmountLine, variationScreenAmount } from '@/lib/variationWording';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -215,7 +215,6 @@ export default function VariationDetailScreen() {
   if (!detail || !current) {
     return (
       <Screen>
-        <Title>Variation</Title>
         <ErrorText>{error || 'This variation is not on your sites.'}</ErrorText>
       </Screen>
     );
@@ -237,9 +236,9 @@ export default function VariationDetailScreen() {
       <Title>
         {variationNumber(detail.vo_seq)} · {current.title}
       </Title>
-      <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{current.status}</Text>
+      <Text style={{ ...textStyle.metaStrong }}>{current.status}</Text>
       {locked ? (
-        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
+        <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 }}>
           Locked
         </Text>
       ) : null}
@@ -262,14 +261,14 @@ export default function VariationDetailScreen() {
       </View>
       {current.signature ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{current.signature.confirmation_text}</Text>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{current.signature.signer_name}</Text>
+          <Text style={{ ...textStyle.meta }}>{current.signature.confirmation_text}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{current.signature.signer_name}</Text>
           <Muted>{current.signature.signer_role}</Muted>
           <Muted>{current.signature.signer_company}</Muted>
           <Muted>{formatUkDateTime(current.signature.signed_at)}</Muted>
           <Image
             source={{ uri: current.signature.signature_png }}
-            style={{ width: '100%', height: 120, backgroundColor: '#F4F1EA', borderRadius: 12 }}
+            style={{ width: '100%', height: 120, backgroundColor: theme.text, borderRadius: 12 }}
             accessibilityLabel="Signature"
           />
         </View>
@@ -297,13 +296,13 @@ export default function VariationDetailScreen() {
         <View style={{ gap: 8 }}>
           <Title>Hand the phone over</Title>
           <Muted>The site manager types their name and signs.</Muted>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
+          <Text style={{ ...textStyle.metaStrong }}>
             {variationHandoverSummary(detail.vo_seq, current.title, seeValue ? current.value_pence : null, current.photos.length)}
           </Text>
           <Field label="Name" value={signerName} onChangeText={setSignerName} autoCapitalize="words" maxLength={120} />
           <Field label="Role" value={signerRole} onChangeText={setSignerRole} autoCapitalize="words" maxLength={120} />
           <Field label="Company" value={signerCompany} onChangeText={setSignerCompany} autoCapitalize="words" maxLength={160} />
-          <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+          <Text style={{ ...textStyle.meta }}>
             {variationConfirmation(signerCompany, seeValue && current.value_pence != null)}
           </Text>
           <SignaturePad disabled={!signerCompany.trim()} onChange={setSignature} />
@@ -360,7 +359,7 @@ export default function VariationDetailScreen() {
       ) : null}
       {showPreview ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>{variationPdfFilename(detail.vo_seq).replace(/\.pdf$/, '')}</Text>
+          <Text style={{ ...textStyle.title }}>{variationPdfFilename(detail.vo_seq).replace(/\.pdf$/, '')}</Text>
           <Muted>{company}</Muted>
           <Muted>{siteName}</Muted>
           <Muted>{formatUkDateTime(current.signature?.signed_at ?? current.created_at)}</Muted>
@@ -370,7 +369,7 @@ export default function VariationDetailScreen() {
             ) : null
           )}
           {current.signature ? (
-            <Image source={{ uri: current.signature.signature_png }} style={{ width: '100%', height: 100, backgroundColor: '#F4F1EA' }} />
+            <Image source={{ uri: current.signature.signature_png }} style={{ width: '100%', height: 100, backgroundColor: theme.text }} />
           ) : null}
           {previewUrl && Platform.OS === 'web'
             ? createElement('iframe', {

@@ -1,5 +1,5 @@
 import { JoinSharePanel } from '@/components/JoinSharePanel';
-import { Button, Card, ChoiceChip, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, ChoiceChip, ErrorText, Field, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
@@ -12,7 +12,7 @@ import {
 } from '@/data/joinCodes';
 import type { JoinCodeCreated, JoinCodeRow } from '@/data/types';
 import { formatCodeExpiry } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Text, View } from 'react-native';
@@ -110,7 +110,6 @@ export default function InviteCodeScreen() {
 
   return (
     <Screen>
-      <Title>Invite to this site</Title>
       <Muted>A valid code puts them straight on this site. No approval step.</Muted>
       <Field label="Label" value={label} onChangeText={setLabel} autoCapitalize="words" placeholder="Oak fixers" />
       <Field
@@ -145,11 +144,11 @@ export default function InviteCodeScreen() {
         />
       ) : null}
 
-      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '800', letterSpacing: 1 }}>ACTIVE CODES</Text>
+      <Text style={{ ...textStyle.label }}>ACTIVE CODES</Text>
       {active.length === 0 ? <Muted>No active codes.</Muted> : null}
       {active.map((row) => (
         <Card key={row.id}>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.label || 'No label'}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{row.label || 'No label'}</Text>
           <Muted>
             {row.uses > 0 ? `${row.uses} of ${row.max_uses} joined · ` : ''}
             {formatCodeExpiry(row.expires_at)}
@@ -161,7 +160,7 @@ export default function InviteCodeScreen() {
 
       {pendingRevoke ? (
         <Card>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+          <Text style={{ ...textStyle.title }}>
             {`Revoke ${pendingRevoke.label || 'this'} code? Anyone who hasn't joined yet can't use it.`}
           </Text>
           <Button label="Revoke code" variant="danger" onPress={() => void onRevoke()} />

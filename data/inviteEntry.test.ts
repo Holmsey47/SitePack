@@ -198,7 +198,8 @@ test('Home has no invite controls, and People opens /invite for owners and CMs o
   assert.doesNotMatch(home, inviteControls);
   assert.doesNotMatch(sites, inviteControls);
   assert.match(sites, /label="Create site"/);
-  assert.match(sites, /label="Sign out"/);
+  assert.equal(sites.includes('label="Sign out"'), false);
+  assert.match(fs.readFileSync(new URL('../app/(app)/company.tsx', import.meta.url), 'utf8'), /label="Sign out"/);
 
   const people = fs.readFileSync(new URL('../app/(app)/people.tsx', import.meta.url), 'utf8');
   const titleAt = people.lastIndexOf('<Title>People</Title>');

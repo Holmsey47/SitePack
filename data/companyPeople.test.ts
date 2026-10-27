@@ -367,7 +367,7 @@ test('the company people migration keeps insert closed and the read narrow', () 
   assert.doesNotMatch(waiting, /No one in the company yet/);
   assert.doesNotMatch(waiting, /Add a name/);
 
-  assert.match(screen, /loaded && !error && people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
+  assert.match(screen, /loaded && !error && people\.length === 0 \? <EmptyState icon="group" title="No one in the company yet" \/>/);
   assert.doesNotMatch(screen, /\{people\.length === 0 \? <EmptyState title="No one in the company yet" \/>/);
   assert.match(screen, /\{loaded \? \(\s*<>\s*<Title>Add a person<\/Title>/);
 

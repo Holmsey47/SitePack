@@ -1,4 +1,4 @@
-import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { Redirect, useRouter } from 'expo-router';
@@ -36,7 +36,6 @@ export default function CreateSiteScreen() {
 
   return (
     <Screen>
-      <Title>Create site</Title>
       <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Elm Yard" />
       <Field
         label="Main contractor"
