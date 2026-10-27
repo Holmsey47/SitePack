@@ -188,7 +188,7 @@ export default function SitesScreen() {
       <PhoneStatus />
       {showCreate ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm }}>
         <ChoiceChip label="Has open requests" selected={openOnly} onPress={() => setOpenOnly((value) => !value)} />
         <ChoiceChip label="Not updated in 7 days" selected={staleOnly} onPress={() => setStaleOnly((value) => !value)} />
       </View>

@@ -6,6 +6,7 @@ import {
   canAttachLogin,
   peopleFailureMessage,
   peopleLoadFailureMessage,
+  pinnedOwnerFirst,
   removableSites,
   roleLabel,
   siteLabel,
@@ -31,6 +32,14 @@ test('people list rules', () => {
   assert.equal(peopleLoadFailureMessage(new Error('')), 'Could not load people.');
   assert.equal(peopleLoadFailureMessage(undefined), 'Could not load people.');
   assert.equal(peopleLoadFailureMessage(new Error('not_authorized')), 'You can’t do that.');
+  assert.deepEqual(
+    pinnedOwnerFirst([
+      { role: 'operative', name: 'Amy' },
+      { role: 'owner', name: 'Jordan' },
+      { role: 'cm', name: 'Priya' },
+    ]).map((row) => row.name),
+    ['Jordan', 'Amy', 'Priya'],
+  );
 
   const noLogin = { role: 'operative' as const, has_login: false, site_names: ['Plot 4 – Riverside'] };
   const loggedIn = { role: 'operative' as const, has_login: true, site_names: ['Plot 12 – Oak Estate'] };
@@ -337,6 +346,7 @@ test('the company people migration keeps insert closed and the read narrow', () 
 
   const screen = fs.readFileSync('app/(app)/people.tsx', 'utf8');
   assert.match(screen, /repo\.companyPeople\(\)/);
+  assert.match(screen, /pinnedOwnerFirst\(people\)/);
   assert.match(screen, /addNoLoginOperative/);
   assert.match(screen, /attachLogin/);
   assert.match(screen, /person\?\.role === 'operative'/);

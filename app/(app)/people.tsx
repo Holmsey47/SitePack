@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import {
   canAddNoLogin,
   canAttachLogin,
+  pinnedOwnerFirst,
   occupationLine,
   peopleFailureMessage,
   peopleLoadFailureMessage,
@@ -136,7 +137,7 @@ export default function PeopleScreen() {
       </Link>
       <ErrorText>{error}</ErrorText>
       {loaded && !error && people.length === 0 ? <EmptyState icon="group" title="No one in the company yet" /> : null}
-      {people.map((row) => {
+      {pinnedOwnerFirst(people).map((row) => {
         const mine = removableSites(row, sites);
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
         return (

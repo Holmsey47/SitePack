@@ -139,6 +139,24 @@ test('a new version needs a new signature, and only the owner uploads', async ()
   assert.equal(hidden.some((row) => row.id === induction!.id), false);
 });
 
+test('oak lists a live document above an archived one', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const rows = orderedSiteDocuments(await fixtureRepo.listSiteDocuments(IDS.oak));
+  assert.deepEqual(
+    rows.map((row) => [row.title, row.archived_at != null]),
+    [
+      ['Site induction', false],
+      ['A toolbox talk', true],
+    ],
+  );
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const visible = await fixtureRepo.listSiteDocuments(IDS.oak);
+  assert.equal(visible.some((row) => row.title === 'A toolbox talk'), false);
+  assert.equal(visible.some((row) => row.title === 'Site induction'), true);
+});
+
 test('a PDF under 20MB is accepted and anything else is refused', () => {
   assert.equal(siteDocumentPickError({ name: 'notes.txt', mimeType: 'text/plain', size: 12 }), 'Choose a PDF.');
   assert.equal(

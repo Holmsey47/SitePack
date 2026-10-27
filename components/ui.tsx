@@ -310,11 +310,11 @@ export function FilterBar({
 }) {
   return (
     <View style={{ gap: space.md }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      <View style={styles.filterRow}>
         {chips.map((chip) => (
           <ChoiceChip key={chip.key} label={chip.label} selected={chip.selected} onPress={chip.onPress} />
         ))}
-      </ScrollView>
+      </View>
       {level ? <LevelMenu value={level.value} options={level.options} onChange={level.onChange} /> : null}
     </View>
   );
@@ -520,6 +520,8 @@ const styles = StyleSheet.create({
   chip: {
     minHeight: hit.secondary,
     minWidth: hit.secondary,
+    maxWidth: '100%',
+    flexShrink: 0,
     paddingHorizontal: 14,
     borderRadius: radius.control,
     borderWidth: 2,
@@ -530,10 +532,10 @@ const styles = StyleSheet.create({
   },
   chipIdle: { backgroundColor: 'transparent', borderColor: theme.line },
   chipSelected: { backgroundColor: theme.text, borderColor: theme.text },
-  chipText: { fontSize: typeScale.body, fontFamily: fontFamily.bold, fontWeight: '700' },
+  chipText: { flexShrink: 1, fontSize: typeScale.body, fontFamily: fontFamily.bold, fontWeight: '700' },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.bg },
-  filterRow: { gap: space.sm, paddingRight: space.lg },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm },
   levelBtn: {
     minHeight: hit.secondary,
     borderRadius: radius.control,
