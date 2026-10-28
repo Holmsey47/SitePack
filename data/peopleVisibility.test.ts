@@ -159,6 +159,63 @@ test('the pre-lad migration locks the people read and the anon RPC', () => {
   assert.doesNotMatch(pulseFn, /email/);
 });
 
+test('a member sees their own company owner name and role on a site', async () => {
+  resetFixtureStore();
+  const migration = fs
+    .readdirSync('supabase/migrations')
+    .find((name) => name.endsWith('_company_owner_label.sql'));
+  assert.ok(migration);
+  const sql = fs.readFileSync(`supabase/migrations/${migration}`, 'utf8');
+  assert.match(sql, /function private\.company_owner_label\(\)/);
+  assert.match(sql, /security definer/);
+  assert.match(sql, /set search_path = ''/);
+  assert.match(sql, /p\.company_id = private\.my_company_id\(\)/);
+  assert.match(sql, /p\.role = 'owner'/);
+  assert.match(sql, /private\.can_access_site\(s\.id\)/);
+  assert.match(sql, /revoke all on function private\.company_owner_label\(\) from public, anon/);
+  assert.match(sql, /grant execute on function private\.company_owner_label\(\) to authenticated/);
+  assert.equal(sql.includes('grant execute on function private.company_owner_label() to anon'), false);
+  assert.equal(sql.includes('grant execute on function private.company_owner_label() to public'), false);
+  assert.match(sql, /security_barrier = true/);
+  assert.match(sql, /security_invoker = true/);
+  assert.equal(sql.includes('security_invoker = false'), false);
+  const view = sql.slice(sql.indexOf('view public.company_owner_label'), sql.indexOf('comment on view public.company_owner_label'));
+  assert.match(view, /display_name, role/);
+  assert.equal(view.includes('email'), false);
+  assert.equal(view.includes('phone'), false);
+  assert.match(sql, /revoke all on table public\.company_owner_label from public, anon, authenticated/);
+  assert.match(sql, /grant select on table public\.company_owner_label to authenticated/);
+  assert.equal(sql.includes('create policy'), false);
+  assert.equal(sql.includes('people_select_visible'), false);
+
+  const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
+  const labelFn = repo.slice(repo.indexOf('async companyOwnerLabel'), repo.indexOf('async listAssignments'));
+  assert.match(labelFn, /from\('company_owner_label'\)/);
+  assert.match(labelFn, /select\('display_name, role'\)/);
+  assert.doesNotMatch(labelFn, /email/);
+  assert.doesNotMatch(labelFn, /phone/);
+
+  await fixtureRepo.signIn('cm@sitepack.test', SEED_PASSWORD);
+  const cmLabel = await fixtureRepo.companyOwnerLabel();
+  assert.deepEqual(cmLabel, { display_name: 'Jordan Hale', role: 'owner' });
+  assert.equal(Object.keys(cmLabel ?? {}).sort().join(), 'display_name,role');
+  assert.equal((await fixtureRepo.listCompanyPeople()).some((person) => person.id === IDS.owner), false);
+  assert.equal((await fixtureRepo.listAssignments(IDS.oak)).some((row) => row.person_id === IDS.owner), false);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(await fixtureRepo.companyOwnerLabel(), { display_name: 'Jordan Hale', role: 'owner' });
+  assert.equal((await fixtureRepo.listCompanyPeople()).some((person) => person.id === IDS.owner), false);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('chris@sitepack.test', SEED_PASSWORD);
+  assert.equal(await fixtureRepo.companyOwnerLabel(), null);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(await fixtureRepo.companyOwnerLabel(), { display_name: 'Jordan Hale', role: 'owner' });
+});
+
 test('a contracts manager still gets names when the owner and unassigned staff are hidden', async () => {
   resetFixtureStore();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);

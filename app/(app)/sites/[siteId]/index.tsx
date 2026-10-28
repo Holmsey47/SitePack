@@ -233,6 +233,12 @@ export default function SitePackScreen() {
         </View>
       ) : null}
       <Title>{site.name}</Title>
+      <Button
+        label="Induction & RAMS"
+        variant="secondary"
+        minHeight={48}
+        onPress={() => router.push(`/sites/${siteId}/documents`)}
+      />
       {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
         <GlanceRow
           label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}

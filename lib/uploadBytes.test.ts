@@ -262,13 +262,14 @@ test('native upload paths do not build a Blob outside a web-only branch', () => 
   assert.doesNotMatch(screen, /fetch\(/);
 
   const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
-  assert.equal(repo.match(/uploadBytes\(/g)?.length, 3);
-  assert.equal(repo.match(/os: Platform\.OS/g)?.length, 3);
+  assert.equal(repo.match(/uploadBytes\(/g)?.length, 5);
+  assert.equal(repo.match(/os: Platform\.OS/g)?.length, 5);
   assert.match(repo, /from\('drawings'\)\.upload/);
   assert.match(repo, /contentType: content, upsert: true/);
   assert.match(repo, /from\('company-logos'\)\.upload/);
   assert.match(repo, /from\('site-photos'\)\.upload/);
-  assert.equal(repo.match(/upsert: false/g)?.length, 2);
+  assert.match(repo, /from\('site-documents'\)\.upload/);
+  assert.equal(repo.match(/upsert: false/g)?.length, 4);
   assert.doesNotMatch(repo, /new Blob\(/);
   assert.doesNotMatch(repo, /\.blob\(\)/);
   assert.doesNotMatch(stripWebOnly(repo), /new Blob\(/);

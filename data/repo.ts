@@ -35,6 +35,13 @@ import type {
 } from '@/data/drawingSeen';
 import type { CreateVariationInput, VariationDetail, VariationList, VariationPhotoInput } from '@/data/variations';
 import type { CreateSnagInput, CreateSnagResult, SignOffSnagsInput, SnagDetail, SnagList, SnagPhotoInput, SnagReport, SnagSignoff } from '@/data/snags';
+import type {
+  CreateSiteDocumentInput,
+  ReplaceSiteDocumentInput,
+  SignSiteDocumentInput,
+  SiteDocumentDetail,
+  SiteDocumentSummary,
+} from '@/data/siteDocuments';
 
 export type SignInResult = {
   person: Person;
@@ -72,6 +79,8 @@ export type SitePackRepo = {
   /** Owner only. Deletes leftover drawing files from a previous storage failure. */
   sweepDrawingOrphans(): Promise<void>;
   listAssignments(siteId: string): Promise<SiteAssignment[]>;
+  /** Own-company owner display name and role. Null when this member cannot open a site. */
+  companyOwnerLabel(): Promise<{ display_name: string | null; role: 'owner' } | null>;
   contractsManagerNames(siteId: string): Promise<string[]>;
   addAssignment(siteId: string, personId: string): Promise<void>;
   removeAssignment(assignmentId: string): Promise<void>;
@@ -163,6 +172,14 @@ export type SitePackRepo = {
   managerDrawingGaps(): Promise<SiteSeenGap[]>;
   recordDrawingOpen(drawingId: string): Promise<void>;
   confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
+  listSiteDocuments(siteId: string): Promise<SiteDocumentSummary[]>;
+  getSiteDocument(documentId: string): Promise<SiteDocumentDetail | null>;
+  createSiteDocument(input: CreateSiteDocumentInput): Promise<{ id: string }>;
+  replaceSiteDocument(input: ReplaceSiteDocumentInput): Promise<void>;
+  deleteSiteDocument(documentId: string): Promise<void>;
+  archiveSiteDocument(documentId: string): Promise<void>;
+  signSiteDocument(input: SignSiteDocumentInput): Promise<void>;
+  siteDocumentUrl(storagePath: string): Promise<string>;
 };
 
 export function canManageSite(role: Role): boolean {

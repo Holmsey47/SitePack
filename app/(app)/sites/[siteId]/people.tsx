@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { SiteAssignment } from '@/data/types';
-import { assignmentRank, contactLine, occupationLine, personLabel, visibleSiteOwner } from '@/data/walk';
+import { assignmentRank, contactLine, occupationLine, personLabel, sitePeopleOwnerName, visibleSiteOwner } from '@/data/walk';
 import { theme } from '@/lib/theme';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -14,13 +14,15 @@ export default function SitePeopleScreen() {
   const { person } = useAuth();
   const router = useRouter();
   const [rows, setRows] = useState<SiteAssignment[]>([]);
+  const [ownerLabel, setOwnerLabel] = useState<{ display_name: string | null; role: 'owner' } | null>(null);
   const [error, setError] = useState('');
   const manage = person ? canManageSite(person.role) : false;
 
   const load = useCallback(async () => {
     if (!siteId) return;
-    const next = await repo.listAssignments(siteId);
+    const [next, label] = await Promise.all([repo.listAssignments(siteId), repo.companyOwnerLabel()]);
     setRows(next);
+    setOwnerLabel(label);
     setError('');
   }, [siteId]);
 
@@ -35,11 +37,10 @@ export default function SitePeopleScreen() {
       assignmentRank(left.person?.role) - assignmentRank(right.person?.role) ||
       personLabel(left.person).localeCompare(personLabel(right.person))
   );
-  const owner = visibleSiteOwner(
-    person ? { id: person.id, role: person.role, display_name: person.display_name } : null,
-    ordered,
-  );
-  const crew = ordered.filter((row) => row.person_id !== owner?.id);
+  const viewer = person ? { id: person.id, role: person.role, display_name: person.display_name } : null;
+  const ownerName = sitePeopleOwnerName(ownerLabel, viewer, ordered);
+  const signedInOwner = visibleSiteOwner(viewer, ordered);
+  const crew = ordered.filter((row) => row.person?.role !== 'owner' && row.person_id !== signedInOwner?.id);
 
   return (
     <Screen>
@@ -60,13 +61,13 @@ export default function SitePeopleScreen() {
           />
         </View>
       ) : null}
-      {owner ? (
+      {ownerName ? (
         <Card>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{owner.name}</Text>
+          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{ownerName}</Text>
           <Muted>Owner</Muted>
         </Card>
       ) : null}
-      {crew.length === 0 && !owner && !error ? <EmptyState title="Nobody assigned yet" /> : null}
+      {crew.length === 0 && !ownerName && !error ? <EmptyState title="Nobody assigned yet" /> : null}
       {crew.map((row) => (
         <Card key={row.id}>
           <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{personLabel(row.person)}</Text>
