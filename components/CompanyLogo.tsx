@@ -6,9 +6,10 @@ import { repo } from '@/data/index';
 import { Icon } from '@/components/icon';
 import { brandFitsOneRow } from '@/lib/brandRow';
 import { logo, space, textStyle, theme, typeScale } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Image, Modal, Pressable, Text, View } from 'react-native';
+import { Image, Modal, Pressable, View } from 'react-native';
 
 /**
  * Home header. The logo, or the company name when there is no logo.

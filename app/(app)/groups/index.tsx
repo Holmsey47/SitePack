@@ -5,9 +5,10 @@ import { repo } from '@/data/index';
 import { canAssignPeopleGroup, canEditPeopleGroup, groupFailureMessage } from '@/data/peopleGroups';
 import type { PeopleGroup } from '@/data/types';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
 
 export default function GroupsScreen() {
   const { person } = useAuth();

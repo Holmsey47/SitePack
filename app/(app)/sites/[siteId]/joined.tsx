@@ -6,9 +6,10 @@ import { JOIN_WEB_ORIGIN, joinFailureMessage, resetFailureMessage, resetShareTex
 import type { JoinerRow, PasswordResetIssued } from '@/data/types';
 import { timeAgo } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, Share, Text, View } from 'react-native';
+import { Pressable, Share, View } from 'react-native';
 
 export default function WhoJoinedScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

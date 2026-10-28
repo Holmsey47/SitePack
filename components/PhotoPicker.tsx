@@ -3,8 +3,9 @@ import { newId } from '@/data/newId';
 import { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE } from '@/lib/photoBytes';
 import { preparePhoto } from '@/lib/photoPrep';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { createElement, useRef, useState } from 'react';
-import { Linking, Platform, Pressable, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 
 export type PickedPhoto = {
   id: string;

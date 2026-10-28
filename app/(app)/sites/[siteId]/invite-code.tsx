@@ -13,9 +13,10 @@ import {
 import type { JoinCodeCreated, JoinCodeRow } from '@/data/types';
 import { formatCodeExpiry } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 const HOURS = [
   { hours: 24, label: '24 hours' },

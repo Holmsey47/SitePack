@@ -4,9 +4,10 @@ import { repo } from '@/data/index';
 import type { DrawingRoster } from '@/data/drawingSeen';
 import { formatUkDateTime } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 export default function DrawingSeenScreen() {
   const { drawingId } = useLocalSearchParams<{ drawingId: string }>();

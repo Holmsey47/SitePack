@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
+import { Text, TextInput } from '@/src/theme/text';
 import { ReactNode, useState, type Ref } from 'react';
 import {
   ActivityIndicator,
@@ -8,8 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type PressableProps,
 } from 'react-native';
@@ -487,7 +486,6 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body,
     lineHeight: 22,
     fontFamily: fontFamily.bold,
-    fontWeight: '700',
     textAlign: 'center',
     alignSelf: 'stretch',
   },
@@ -509,7 +507,7 @@ const styles = StyleSheet.create({
   rev: { paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.control, alignSelf: 'flex-start' },
   revCurrent: { backgroundColor: theme.current },
   revOld: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.line },
-  revText: { fontSize: typeScale.body, fontFamily: fontFamily.extraBold, fontWeight: '800', ...textStyle.tabular },
+  revText: { fontSize: typeScale.body, fontFamily: fontFamily.extraBold, ...textStyle.tabular },
   revTextCurrent: { color: theme.currentInk },
   revTextOld: { color: theme.muted },
   card: {
@@ -537,7 +535,7 @@ const styles = StyleSheet.create({
   },
   chipIdle: { backgroundColor: 'transparent', borderColor: theme.line },
   chipSelected: { backgroundColor: theme.text, borderColor: theme.text },
-  chipText: { flexShrink: 1, fontSize: typeScale.body, fontFamily: fontFamily.bold, fontWeight: '700' },
+  chipText: { flexShrink: 1, fontSize: typeScale.body, fontFamily: fontFamily.bold },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.bg },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm },
@@ -574,7 +572,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     justifyContent: 'center',
   },
-  outOfDateText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold, fontWeight: '800' },
+  outOfDateText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold },
   newRev: {
     alignSelf: 'flex-start',
     backgroundColor: theme.current,
@@ -583,7 +581,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     justifyContent: 'center',
   },
-  newRevText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold, fontWeight: '800' },
+  newRevText: { color: theme.currentInk, fontSize: typeScale.meta, fontFamily: fontFamily.extraBold },
   seenReject: {
     minHeight: hit.secondary,
     flexDirection: 'row',
@@ -640,7 +638,6 @@ const styles = StyleSheet.create({
   wordmark: {
     color: theme.text,
     fontFamily: fontFamily.extraBold,
-    fontWeight: '800',
     fontSize: logo.wordmark,
     lineHeight: 32,
     letterSpacing: -0.4,

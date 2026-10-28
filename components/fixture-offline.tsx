@@ -1,7 +1,8 @@
 import { hit, textStyle, theme } from '@/lib/theme';
 import { fixtureForceOffline, setFixtureForceOffline } from '@/lib/variationQueue';
+import { Text } from '@/src/theme/text';
 import { useState } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
 
 const enabled = __DEV__ && process.env.EXPO_PUBLIC_USE_FIXTURES === '1';
 

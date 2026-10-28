@@ -1,6 +1,7 @@
-import { Link, Stack } from 'expo-router';
-import { Text, View } from 'react-native';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
+import { Link, Stack } from 'expo-router';
+import { View } from 'react-native';
 
 export default function NotFound() {
   return (

@@ -7,9 +7,10 @@ import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhas
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { textStyle, theme } from '@/lib/theme';
 import { deviceIsOnline, persistThenSend, SAVED_ON_PHONE } from '@/lib/variationQueue';
+import { Text } from '@/src/theme/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Image, Pressable, View } from 'react-native';
 
 export default function NewVariationScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

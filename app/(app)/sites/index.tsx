@@ -16,9 +16,10 @@ import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from 
 import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { space, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function SitesScreen() {
   const { person, acknowledgePasswordReset } = useAuth();

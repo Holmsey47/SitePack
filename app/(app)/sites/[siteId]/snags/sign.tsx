@@ -12,11 +12,12 @@ import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, snagDisplayText, takeSignAgain } from '@/lib/snagWording';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
   const copy = new ArrayBuffer(bytes.byteLength);

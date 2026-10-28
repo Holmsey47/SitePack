@@ -10,9 +10,10 @@ import { sitesAfterReload } from '@/data/siteList';
 import type { JoinCodeCreated, PulseRow, Role } from '@/data/types';
 import { roleLabel } from '@/data/walk';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 const ROLES: Role[] = ['operative', 'cm', 'owner'];
 

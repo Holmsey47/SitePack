@@ -6,9 +6,10 @@ import { canManageSite } from '@/data/repo';
 import type { PeopleGroup, Person, SiteAssignment } from '@/data/types';
 import { assignmentRank, contactLine, occupationLine, personLabel } from '@/data/walk';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 export default function AssignmentsScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

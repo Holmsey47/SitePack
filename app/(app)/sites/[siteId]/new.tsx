@@ -5,9 +5,10 @@ import { confirmQueued } from '@/lib/drawingSeenQueue';
 import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { textStyle, theme } from '@/lib/theme';
 import { useAuth } from '@/context/AuthContext';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useLayoutEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function NewDrawingsScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

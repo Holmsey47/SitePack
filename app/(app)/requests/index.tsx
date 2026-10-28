@@ -5,9 +5,9 @@ import { repo } from '@/data/index';
 import type { DrawingRequest } from '@/data/types';
 import { timeAgo } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text } from 'react-native';
 
 export default function RequestsInboxScreen() {
   const { person } = useAuth();

@@ -5,7 +5,7 @@ import { clearStagedResetCode, peekStagedResetCode, stageResetCode } from '@/lib
 import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Text } from 'react-native';
+import { Platform } from 'react-native';
 
 export function ResetScreen({ routeCode }: { routeCode?: string }) {
   const { redeemPasswordReset } = useAuth();

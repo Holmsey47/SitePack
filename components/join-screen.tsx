@@ -5,7 +5,7 @@ import { clearStagedJoinCode, peekStagedJoinCode, stageJoinCode } from '@/lib/ap
 import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Text } from 'react-native';
+import { Platform } from 'react-native';
 
 /**
  * The form is the only check. Opening the link does not call the server.

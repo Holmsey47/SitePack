@@ -9,9 +9,10 @@ import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSe
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 function LevelLine({ level }: { level: string | null }) {
   const label = displayLevel(level);

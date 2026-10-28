@@ -2,9 +2,10 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { spentInviteGuidance } from '@/lib/inviteGrant';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function SetPasswordScreen() {
   const { setPassword, signOut, person } = useAuth();

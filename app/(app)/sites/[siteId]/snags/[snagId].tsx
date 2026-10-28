@@ -9,9 +9,10 @@ import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, signOffQueuedForSnag } from '@/lib/snagQueue';
 import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { Image, Text, View } from 'react-native';
+import { Image, View } from 'react-native';
 
 export default function SnagDetailScreen() {
   const { snagId, siteId } = useLocalSearchParams<{ snagId: string; siteId: string }>();

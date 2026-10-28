@@ -21,11 +21,12 @@ import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 const STATUSES: SnagStatusFilter[] = ['All', 'Open', 'Fixed', 'Signed off'];
 

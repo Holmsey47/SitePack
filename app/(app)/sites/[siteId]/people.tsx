@@ -5,9 +5,10 @@ import { canManageSite } from '@/data/repo';
 import type { SiteAssignment } from '@/data/types';
 import { assignmentRank, contactLine, occupationLine, personLabel, sitePeopleOwnerName, visibleSiteOwner } from '@/data/walk';
 import { textStyle } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 export default function SitePeopleScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

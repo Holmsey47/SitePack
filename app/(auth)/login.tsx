@@ -1,9 +1,10 @@
 import { Button, ChoiceChip, ErrorText, Field, LogoSlot, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { logo, space, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function LoginScreen() {
   const { signIn, signInWithUsername } = useAuth();
