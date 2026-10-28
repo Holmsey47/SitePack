@@ -195,6 +195,8 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(detail, /minHeight=\{56\}/);
   assert.match(detail, /Archive this document/);
   assert.match(detail, /scrollToEnd/);
+  assert.ok(detail.indexOf('Archive this document') < detail.indexOf('label="Cancel"'));
+  assert.ok(detail.indexOf('Delete this document') < detail.indexOf('label="Cancel"'));
   assert.ok(detail.indexOf('Save new version') < detail.indexOf('label="Archive document"'));
   assert.match(detail, /marginTop: space\.xl/);
   assert.match(list, /orderedSiteDocuments/);

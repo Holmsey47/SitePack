@@ -59,8 +59,9 @@ test('phone walk copy and ids', () => {
   const scale = sheetFitScale(A1_LANDSCAPE.width, A1_LANDSCAPE.height, 360, 640);
   const fittedWidth = A1_LANDSCAPE.width * scale;
   const fittedHeight = A1_LANDSCAPE.height * scale;
-  assert.ok(fittedWidth <= 360 + 0.01);
-  assert.ok(fittedHeight <= 640 + 0.01);
+  assert.ok(fittedWidth <= 360 - 16);
+  assert.ok(fittedWidth >= 360 * 0.9);
+  assert.ok(fittedHeight <= 640 - 16);
   assert.ok(fittedWidth > fittedHeight);
   assert.ok(Math.abs(fittedWidth / fittedHeight - A1_LANDSCAPE.width / A1_LANDSCAPE.height) < 0.001);
   const landscape = new TextDecoder().decode(makePdfBytes('A1 landscape', 'A', '2026-10-01', A1_LANDSCAPE));

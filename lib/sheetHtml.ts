@@ -1,7 +1,15 @@
+/** Gap inside the frame so the sheet edge and its stroke are not flush with the clip. */
+const SHEET_FRAME_PAD = 8;
+
+/** A little under the padded frame, so a subpixel or a scrollbar cannot crop the border. */
+const SHEET_FIT_SHRINK = 0.98;
+
 /** Scale that fits a whole page in the frame. The spare axis is letterboxed. */
 export function sheetFitScale(pageWidth: number, pageHeight: number, frameWidth: number, frameHeight: number): number {
   if (pageWidth <= 0 || pageHeight <= 0 || frameWidth <= 0 || frameHeight <= 0) return 1;
-  return Math.min(frameWidth / pageWidth, frameHeight / pageHeight);
+  const innerWidth = Math.max(1, frameWidth - SHEET_FRAME_PAD * 2);
+  const innerHeight = Math.max(1, frameHeight - SHEET_FRAME_PAD * 2);
+  return Math.min(innerWidth / pageWidth, innerHeight / pageHeight) * SHEET_FIT_SHRINK;
 }
 
 /** Draw the sheet in the page. No worker, and the web view is not pointed at the file. */
@@ -31,7 +39,10 @@ function bytes(b64) {
 }
 function fitScale(pageWidth, pageHeight, frameWidth, frameHeight) {
   if (pageWidth <= 0 || pageHeight <= 0 || frameWidth <= 0 || frameHeight <= 0) return 1;
-  return Math.min(frameWidth / pageWidth, frameHeight / pageHeight);
+  var pad = ${SHEET_FRAME_PAD};
+  var innerWidth = Math.max(1, frameWidth - pad * 2);
+  var innerHeight = Math.max(1, frameHeight - pad * 2);
+  return Math.min(innerWidth / pageWidth, innerHeight / pageHeight) * ${SHEET_FIT_SHRINK};
 }
 var fittedWidth = 0;
 var fittedHeight = 0;
@@ -58,8 +69,8 @@ pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise.then(async function (doc) 
     return Math.hypot(dx, dy);
   }
   async function draw() {
-    const frameWidth = window.innerWidth;
-    const frameHeight = window.innerHeight;
+    const frameWidth = document.documentElement.clientWidth || window.innerWidth;
+    const frameHeight = document.documentElement.clientHeight || window.innerHeight;
     if (frameWidth < 2 || frameHeight < 2) {
       requestAnimationFrame(draw);
       return;
@@ -98,7 +109,9 @@ pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise.then(async function (doc) 
   });
   await draw();
   window.addEventListener('resize', function () {
-    if (Math.abs(window.innerWidth - fittedWidth) < 2 && Math.abs(window.innerHeight - fittedHeight) < 2) return;
+    var width = document.documentElement.clientWidth || window.innerWidth;
+    var height = document.documentElement.clientHeight || window.innerHeight;
+    if (Math.abs(width - fittedWidth) < 2 && Math.abs(height - fittedHeight) < 2) return;
     draw();
   });
 }).catch(function () {

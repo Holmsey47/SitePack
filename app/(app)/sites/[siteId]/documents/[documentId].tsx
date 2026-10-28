@@ -33,14 +33,33 @@ export default function SiteDocumentScreen() {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const archiveConfirm = confirmDelete && (detail?.signatures.length ?? 0) > 0;
 
   useEffect(() => {
-    if (!archiveConfirm) return;
+    if (!confirmDelete) return;
     const scroll = () => {
       scrollRef.current?.scrollToEnd({ animated: true });
-      if (Platform.OS === 'web') {
-        document.querySelector('[data-testid="archive-confirm"]')?.scrollIntoView({ block: 'end', behavior: 'auto' });
+      if (Platform.OS !== 'web') return;
+      const node = document.querySelector('[data-testid="archive-confirm"]');
+      if (!(node instanceof HTMLElement)) return;
+      const margin = 16;
+      node.scrollIntoView({ block: 'end', behavior: 'auto' });
+      let parent = node.parentElement;
+      let scroller: HTMLElement | null = null;
+      while (parent) {
+        const style = getComputedStyle(parent);
+        if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 1) {
+          scroller = parent;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+      const rect = node.getBoundingClientRect();
+      const view = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const gap = view.bottom - rect.bottom;
+      if (gap < margin) {
+        const delta = margin - gap;
+        if (scroller) scroller.scrollTop += delta;
+        else window.scrollBy(0, delta);
       }
     };
     const frame = requestAnimationFrame(scroll);
@@ -49,7 +68,7 @@ export default function SiteDocumentScreen() {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
-  }, [archiveConfirm]);
+  }, [confirmDelete]);
   const owner = person?.role === 'owner';
   const mustSign = memberMustSign(person?.role);
 
@@ -244,7 +263,9 @@ export default function SiteDocumentScreen() {
               {bytes ? (
                 <Button label="Save new version" variant="secondary" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
               ) : null}
-              <View testID="archive-confirm" style={{ marginTop: space.xl, paddingTop: space.xl, borderTopWidth: 1, borderTopColor: theme.line, gap: space.md }}>
+              <View
+                testID="archive-confirm"
+                style={{ marginTop: space.xl, paddingTop: space.xl, paddingBottom: space.lg, borderTopWidth: 1, borderTopColor: theme.line, gap: space.md }}>
                 {confirmDelete ? (
                   <Text style={textStyle.body}>
                     {detail.signatures.length > 0 ? `Archive ${detail.title}?` : `Delete ${detail.title}?`}
@@ -261,6 +282,9 @@ export default function SiteDocumentScreen() {
                 ) : (
                   <Button label="Delete document" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(true)} />
                 )}
+                {confirmDelete ? (
+                  <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(false)} />
+                ) : null}
               </View>
             </>
           )}
