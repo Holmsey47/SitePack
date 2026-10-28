@@ -49,7 +49,7 @@ import {
   passwordHasLettersAndDigits,
 } from '@/data/joinCodes';
 import type { JoinCodeCreated, JoinCodeRow, JoinWithCodeInput, JoinerRow, PasswordResetIssued } from '@/data/types';
-import { pdfObjectUrl } from '@/lib/pdf';
+import { A1_LANDSCAPE, pdfObjectUrl, type PdfPage } from '@/lib/pdf';
 import type { CreateVariationInput, VariationDetail, VariationList } from '@/data/variations';
 import {
   buildRoster,
@@ -215,6 +215,10 @@ type Store = {
 };
 
 const now = () => new Date().toISOString();
+
+function fixtureSheetPage(drawingId: string): PdfPage | undefined {
+  return drawingId === IDS.a1 ? A1_LANDSCAPE : undefined;
+}
 
 /** Four current set-out sheets so fixture mode can show the level filter. */
 function setOutSheets(): Drawing[] {
@@ -448,6 +452,24 @@ function seed(): Store {
       updated_at: '2026-09-12T09:00:00.000Z',
     },
     ...setOutSheets(),
+    {
+      id: IDS.a1,
+      site_id: IDS.oak,
+      title: 'A1 landscape',
+      sheet_number: 'A1-01',
+      revision: 'A',
+      dated: '2026-10-01',
+      folder: 'Site layout',
+      level: null,
+      is_current: true,
+      supersedes_id: null,
+      storage_path: `${IDS.company}/${IDS.oak}/${IDS.a1}.pdf`,
+      file_size_bytes: 4800,
+      content_type: 'application/pdf',
+      uploaded_by: IDS.cm,
+      created_at: '2026-10-01T09:00:00.000Z',
+      updated_at: '2026-10-01T09:00:00.000Z',
+    },
   ];
 
   const requests: DrawingRequest[] = [
@@ -890,7 +912,7 @@ export const fixtureRepo: SitePackRepo = {
           content_type: d.content_type,
           storage_path: d.storage_path,
           level: d.level,
-          signed_url: pdfObjectUrl(d.id, d.title, d.revision, d.dated ?? ''),
+          signed_url: pdfObjectUrl(d.id, d.title, d.revision, d.dated ?? '', fixtureSheetPage(d.id)),
           signed_url_expires_at: expires,
         };
         return item;
@@ -1776,7 +1798,7 @@ export const fixtureRepo: SitePackRepo = {
   },
 
   async getDrawingOpenUrl(drawing) {
-    return pdfObjectUrl(drawing.id, drawing.title, drawing.revision, drawing.dated ?? '');
+    return pdfObjectUrl(drawing.id, drawing.title, drawing.revision, drawing.dated ?? '', fixtureSheetPage(drawing.id));
   },
 
   async listPeopleGroups() {

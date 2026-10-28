@@ -16,8 +16,8 @@ import { readPickedBytes } from '@/lib/uploadBytes';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useLayoutEffect, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Platform, ScrollView, Text, View } from 'react-native';
 
 export default function SiteDocumentScreen() {
   const { siteId, documentId } = useLocalSearchParams<{ siteId: string; documentId: string }>();
@@ -32,6 +32,24 @@ export default function SiteDocumentScreen() {
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const archiveConfirm = confirmDelete && (detail?.signatures.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!archiveConfirm) return;
+    const scroll = () => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      if (Platform.OS === 'web') {
+        document.querySelector('[data-testid="archive-confirm"]')?.scrollIntoView({ block: 'end', behavior: 'auto' });
+      }
+    };
+    const frame = requestAnimationFrame(scroll);
+    const timer = setTimeout(scroll, 100);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [archiveConfirm]);
   const owner = person?.role === 'owner';
   const mustSign = memberMustSign(person?.role);
 
@@ -193,7 +211,7 @@ export default function SiteDocumentScreen() {
   const signedWhen = formatSignedWhen(signedAt);
 
   return (
-    <Screen>
+    <Screen scrollRef={scrollRef}>
       <Text style={textStyle.bodyStrong}>{siteDocumentKindLabel(detail.kind)}</Text>
       <Text style={textStyle.metaStrong}>Version {detail.version_no}</Text>
       {detail.archived_at ? <Text style={{ ...textStyle.metaStrong, color: theme.muted }}>Archived</Text> : null}
@@ -226,7 +244,7 @@ export default function SiteDocumentScreen() {
               {bytes ? (
                 <Button label="Save new version" variant="secondary" minHeight={48} loading={busy} onPress={() => void saveVersion()} />
               ) : null}
-              <View style={{ marginTop: space.xl, paddingTop: space.xl, borderTopWidth: 1, borderTopColor: theme.line, gap: space.md }}>
+              <View testID="archive-confirm" style={{ marginTop: space.xl, paddingTop: space.xl, borderTopWidth: 1, borderTopColor: theme.line, gap: space.md }}>
                 {confirmDelete ? (
                   <Text style={textStyle.body}>
                     {detail.signatures.length > 0 ? `Archive ${detail.title}?` : `Delete ${detail.title}?`}

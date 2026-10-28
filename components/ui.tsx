@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, type Ref } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -20,16 +20,19 @@ export function Screen({
   scroll = true,
   footer,
   contentPaddingBottom,
+  scrollRef,
 }: {
   children: ReactNode;
   scroll?: boolean;
   footer?: ReactNode;
   /** Extra space at the end of a scrolling page, so a footer bar does not cover the last row. */
   contentPaddingBottom?: number;
+  scrollRef?: Ref<ScrollView>;
 }) {
   const edges = footer ? (['top'] as const) : (['top', 'bottom'] as const);
   const body = scroll ? (
     <ScrollView
+      ref={scrollRef}
       style={footer ? { flex: 1 } : undefined}
       contentContainerStyle={[styles.scroll, contentPaddingBottom != null ? { paddingBottom: contentPaddingBottom } : null]}
       keyboardShouldPersistTaps="handled">
@@ -441,8 +444,10 @@ export function LogoSlot({ size }: { size: number }) {
   );
 }
 
-export function Wordmark() {
-  return <Text style={styles.wordmark}>SitePack</Text>;
+export function Wordmark({ size }: { size?: number }) {
+  return (
+    <Text style={[styles.wordmark, size != null ? { fontSize: size, lineHeight: size + 4 } : null]}>SitePack</Text>
+  );
 }
 
 export function HeaderActions(props: PressableProps & { label: string }) {

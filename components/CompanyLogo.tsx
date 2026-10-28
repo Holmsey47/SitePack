@@ -4,7 +4,8 @@ import { useAuth } from '@/context/AuthContext';
 import { logoFailureMessage, LOGO_MAX_BYTES, LOGO_MAX_EDGE } from '@/data/companyLogo';
 import { repo } from '@/data/index';
 import { Icon } from '@/components/icon';
-import { logo, space, textStyle, theme } from '@/lib/theme';
+import { brandFitsOneRow } from '@/lib/brandRow';
+import { logo, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
@@ -42,40 +43,24 @@ export function CompanyLogo() {
   if (!person) return null;
   const owner = person.role === 'owner';
   const showLogo = Boolean(logoUrl) && !broken;
-  const mark = showLogo ? (
-    <Image
-      accessibilityLabel={name || 'Company logo'}
-      source={{ uri: logoUrl ?? undefined }}
-      onError={() => setBroken(true)}
-      style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
-    />
-  ) : (
-    <Text style={textStyle.title} numberOfLines={2}>
-      {name}
-    </Text>
-  );
 
   if (!owner) {
     return (
-      <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
-        <Wordmark />
-        <View style={{ minHeight: 48, justifyContent: 'center' }}>{mark}</View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <FittedBrand name={name} showLogo={showLogo} logoUrl={logoUrl} onBroken={() => setBroken(true)} />
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-      <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
-        <Wordmark />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={name || 'Company'}
-          onPress={() => router.push('/company')}
-          style={{ minHeight: 48, justifyContent: 'center' }}>
-          {mark}
-        </Pressable>
-      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={name || 'Company'}
+        onPress={() => router.push('/company')}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, justifyContent: 'center' }}>
+        <FittedBrand name={name} showLogo={showLogo} logoUrl={logoUrl} onBroken={() => setBroken(true)} />
+      </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Company settings"
@@ -83,6 +68,69 @@ export function CompanyLogo() {
         style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="settings" color={theme.text} />
       </Pressable>
+    </View>
+  );
+}
+
+/** Full SitePack wordmark beside the company name, or a smaller stack when the row would clip. */
+function FittedBrand({
+  name,
+  showLogo,
+  logoUrl,
+  onBroken,
+}: {
+  name: string;
+  showLogo: boolean;
+  logoUrl: string | null;
+  onBroken: () => void;
+}) {
+  const [box, setBox] = useState(0);
+  const [markWidth, setMarkWidth] = useState(0);
+  const [nameWidth, setNameWidth] = useState(0);
+  const nameSlot = showLogo ? logo.company : nameWidth;
+  const row = brandFitsOneRow(markWidth, nameSlot, box);
+  const company = showLogo ? (
+    <Image
+      accessibilityLabel={name || 'Company logo'}
+      source={{ uri: logoUrl ?? undefined }}
+      onError={onBroken}
+      style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
+    />
+  ) : (
+    <Text style={row ? textStyle.title : textStyle.body} numberOfLines={row ? 1 : 2}>
+      {name}
+    </Text>
+  );
+
+  return (
+    <View style={{ flex: 1, minWidth: 0 }} onLayout={(event) => setBox(event.nativeEvent.layout.width)}>
+      <View
+        pointerEvents="none"
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        aria-hidden
+        style={{ position: 'absolute', opacity: 0, alignSelf: 'flex-start' }}>
+        <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => setMarkWidth(event.nativeEvent.layout.width)}>
+          <Wordmark />
+        </View>
+        {showLogo ? null : (
+          <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => setNameWidth(event.nativeEvent.layout.width)}>
+            <Text style={textStyle.title}>{name}</Text>
+          </View>
+        )}
+      </View>
+      {row ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 48 }}>
+          <Wordmark />
+          <View style={{ flexShrink: 1, minWidth: 0 }}>{company}</View>
+        </View>
+      ) : (
+        <View style={{ gap: space.xs }}>
+          <Wordmark size={typeScale.title} />
+          <View style={{ minHeight: 48, justifyContent: 'center' }}>{company}</View>
+        </View>
+      )}
     </View>
   );
 }

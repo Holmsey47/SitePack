@@ -44,6 +44,9 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
       source={{ html }}
       style={{ flex: 1, backgroundColor: theme.bg }}
       setSupportMultipleWindows={false}
+      scalesPageToFit={false}
+      setBuiltInZoomControls={false}
+      setDisplayZoomControls={false}
     />
   );
 }

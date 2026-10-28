@@ -23,7 +23,7 @@ import { space, textStyle, theme } from '@/lib/theme';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
@@ -248,9 +248,29 @@ export default function SitePackScreen() {
       <Text style={textStyle.display} numberOfLines={2}>
         {site.name}
       </Text>
-      <Text style={textStyle.meta} numberOfLines={1}>
-        {[site.address_line, formatWhen(site.updated_at)].filter(Boolean).join(' · ')}
-      </Text>
+      {(() => {
+        const unseenLine = manage && seenSummary ? siteUnseenLine(seenSummary.not_seen_by_everyone) : null;
+        const meta = [site.address_line, formatWhen(site.updated_at), unseenLine].filter(Boolean).join(' · ');
+        if (!meta) return null;
+        if (!unseenLine) {
+          return (
+            <Text style={textStyle.meta} numberOfLines={2}>
+              {meta}
+            </Text>
+          );
+        }
+        return (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={meta}
+            onPress={() => router.push(`/sites/${siteId}/not-seen`)}
+            style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Text style={textStyle.meta} numberOfLines={2}>
+              {meta}
+            </Text>
+          </Pressable>
+        );
+      })()}
       {(() => {
         const fresh = unseen.filter((row) => !confirmQueued(queuedSeen, row.drawing_id, row.revision));
         const freshLine = manage ? null : newDrawingsLine(fresh.length);
@@ -280,12 +300,6 @@ export default function SitePackScreen() {
           <Icon name="chevron_right" color={theme.muted} />
         </View>
       </Card>
-      {manage && seenSummary && siteUnseenLine(seenSummary.not_seen_by_everyone) ? (
-        <GlanceRow
-          label={siteUnseenLine(seenSummary.not_seen_by_everyone) ?? ''}
-          onPress={() => router.push(`/sites/${siteId}/not-seen`)}
-        />
-      ) : null}
       <SectionLabel>Folders</SectionLabel>
       {folders.length === 0 && phoneRows.length === 0 ? (
         <EmptyState

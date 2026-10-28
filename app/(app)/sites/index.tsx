@@ -4,7 +4,7 @@ import { Icon } from '@/components/icon';
 import { PhoneStatus } from '@/components/phone-status';
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
+import { cardCountLine, newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import type { HomeSite, PulseRow } from '@/data/types';
@@ -17,7 +17,7 @@ import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { space, textStyle, theme } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 export default function SitesScreen() {
@@ -161,9 +161,7 @@ export default function SitesScreen() {
                 name={site.name}
                 meta={siteMeta(site.address_line, site.updated_at)}
                 stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
-                pills={
-                  <CountPill icon="assignment" count={site.my_open_request_count ?? 0} label="open requests you raised" />
-                }
+                counts={cardCountLine(site.my_open_request_count ?? 0, 0)}
                 onPress={() => router.push(`/sites/${site.id}`)}
               />
               <SeenNotes
@@ -209,16 +207,7 @@ export default function SitesScreen() {
               name={row.name}
               meta={siteMeta(row.address_line, row.last_pack_update)}
               stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
-              pills={
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
-                  <CountPill icon="assignment" count={row.open_request_count} label="open requests" />
-                  <CountPill
-                    icon="description"
-                    count={seenNotes(row.site_id).unseenDrawings}
-                    label="drawings not seen by everyone"
-                  />
-                </View>
-              }
+              counts={cardCountLine(row.open_request_count, seenNotes(row.site_id).unseenDrawings)}
               onPress={() => router.push(`/sites/${row.site_id}`)}
             />
             <SeenNotes
@@ -263,13 +252,13 @@ function SiteCard({
   name,
   meta,
   stale,
-  pills,
+  counts,
   onPress,
 }: {
   name: string;
   meta: string;
   stale: boolean;
-  pills?: ReactNode;
+  counts: string | null;
   onPress: () => void;
 }) {
   return (
@@ -278,22 +267,16 @@ function SiteCard({
         <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
           <Text style={textStyle.bodyStrong}>{name}</Text>
           {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
-          {pills}
+          {counts ? (
+            <Text style={textStyle.metaStrong} numberOfLines={2}>
+              {counts}
+            </Text>
+          ) : null}
         </View>
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
     </Card>
-  );
-}
-
-function CountPill({ icon, count, label }: { icon: string; count: number; label: string }) {
-  if (count < 1) return null;
-  return (
-    <View accessibilityLabel={`${count} ${label}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 32 }}>
-      <Icon name={icon} color={theme.muted} />
-      <Text style={textStyle.metaStrong}>{count}</Text>
-    </View>
   );
 }
 

@@ -399,7 +399,7 @@ export default function DrawingViewerScreen() {
             style={{ width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="arrow_back" color={theme.text} />
           </Pressable>
-          <Text style={[textStyle.bodyStrong, { flex: 1, flexShrink: 1 }]} numberOfLines={1}>
+          <Text style={[textStyle.bodyStrong, { flex: 1, flexShrink: 1 }]} numberOfLines={2}>
             {title}
           </Text>
           {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}

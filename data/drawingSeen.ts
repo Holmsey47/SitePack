@@ -159,6 +159,16 @@ export function siteUnseenLine(count: number): string | null {
   return `${count} drawings not seen by everyone`;
 }
 
+/** Home card counts. Zero of either count is left off the line. */
+export function cardCountLine(requests: number, unseen: number): string | null {
+  const parts: string[] = [];
+  if (requests === 1) parts.push('1 request');
+  else if (requests > 1) parts.push(`${requests} requests`);
+  if (unseen === 1) parts.push('1 unseen');
+  else if (unseen > 1) parts.push(`${unseen} unseen`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 /** One row for the lad's unseen sheets. Zero means there is nothing to check. */
 export function newDrawingsLine(count: number): string | null {
   if (count <= 0) return null;
