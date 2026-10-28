@@ -1,9 +1,9 @@
-import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen } from '@/components/ui';
 import { repo } from '@/data/index';
 import type { DrawingRequest } from '@/data/types';
 import { timeAgo } from '@/lib/format';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Icon } from '@/components/icon';
+import { iconSize, textStyle, theme } from '@/lib/theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -15,6 +15,7 @@ export default function RequestDetailScreen() {
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!requestId) return;
@@ -69,17 +70,22 @@ export default function RequestDetailScreen() {
   return (
     <Screen>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <Title>Request</Title>
-        <Pressable accessibilityRole="button" accessibilityLabel="Delete request" hitSlop={12} onPress={() => void onDelete()}>
-          <MaterialIcons name="delete-outline" size={26} color={theme.muted} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Delete request" hitSlop={12} onPress={() => setConfirmDelete(true)} style={{ minHeight: 48, minWidth: 48, justifyContent: 'center' }}>
+          <Icon name="delete" size={iconSize} color={theme.muted} />
         </Pressable>
       </View>
       <Text style={{ color: theme.muted }}>
         {row.site_name ?? 'Site attached'} · {row.requester_name ?? 'Requester'} · {timeAgo(row.created_at)}
       </Text>
-      <Text style={{ color: theme.text, fontSize: 17, lineHeight: 24 }}>{row.body}</Text>
+      <Text style={{ ...textStyle.body }}>{row.body}</Text>
       {row.sheet_hint ? <Text style={{ color: theme.muted }}>Hint: {row.sheet_hint}</Text> : null}
       <Field label="Note (optional)" value={note} onChangeText={setNote} multiline autoCapitalize="sentences" />
+      {confirmDelete ? (
+        <>
+          <Text style={textStyle.body}>Delete this request?</Text>
+          <Button label="Delete request" variant="danger" loading={loading} onPress={() => void onDelete()} />
+        </>
+      ) : null}
       <ErrorText>{error}</ErrorText>
       <Button label="Attach drawing / upload" variant="secondary" onPress={() => router.push(`/sites/${row.site_id}/upload`)} />
       <Button label="Done" loading={loading} onPress={() => void onDone()} />

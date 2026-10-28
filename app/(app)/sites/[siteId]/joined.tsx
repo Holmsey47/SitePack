@@ -1,11 +1,11 @@
-import { Button, Card, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import { JOIN_WEB_ORIGIN, joinFailureMessage, resetFailureMessage, resetShareText } from '@/data/joinCodes';
 import type { JoinerRow, PasswordResetIssued } from '@/data/types';
 import { timeAgo } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Share, Text, View } from 'react-native';
@@ -73,7 +73,6 @@ export default function WhoJoinedScreen() {
 
   return (
     <Screen>
-      <Title>Who joined</Title>
       <Muted>
         {owner
           ? 'Name, trade, and which code. Remove takes them off the company.'
@@ -83,7 +82,7 @@ export default function WhoJoinedScreen() {
       {rows.length === 0 ? <Muted>Nobody has joined with a code yet.</Muted> : null}
       {rows.map((row) => (
         <Card key={row.id}>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{row.display_name || 'Unknown'}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{row.display_name || 'Unknown'}</Text>
           <Muted>
             {row.trade || 'No trade'}
             {row.username ? ` · ${row.username}` : ''}
@@ -101,13 +100,13 @@ export default function WhoJoinedScreen() {
                   setPending(row);
                 }}
                 style={{ minHeight: 48, justifyContent: 'center' }}>
-                <Text style={{ color: theme.danger, fontSize: 17, fontWeight: '800' }}>Remove</Text>
+                <Text style={{ ...textStyle.bodyStrong, color: theme.danger }}>Remove</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => void onReset(row)}
                 style={{ minHeight: 48, justifyContent: 'center' }}>
-                <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>Reset password</Text>
+                <Text style={{ ...textStyle.bodyStrong }}>Reset password</Text>
               </Pressable>
             </View>
           ) : null}
@@ -116,7 +115,7 @@ export default function WhoJoinedScreen() {
 
       {pending ? (
         <Card>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>
+          <Text style={{ ...textStyle.title }}>
             {owner
               ? `Remove ${pending.display_name || 'them'} from the company?`
               : `Remove ${pending.display_name || 'them'} from this site?`}
@@ -134,7 +133,7 @@ export default function WhoJoinedScreen() {
             accessibilityState={{ checked: revokeCode }}
             onPress={() => setRevokeCode((value) => !value)}
             style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>
+            <Text style={{ ...textStyle.bodyStrong }}>
               {revokeCode ? '✓ ' : ''}Also revoke this code
             </Text>
           </Pressable>
@@ -145,12 +144,12 @@ export default function WhoJoinedScreen() {
 
       {resetFor ? (
         <Card>
-          <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>Reset code</Text>
-          <Text selectable style={{ color: theme.text, fontSize: 28, fontWeight: '800', letterSpacing: 1 }}>
+          <Text style={{ ...textStyle.title }}>Reset code</Text>
+          <Text selectable style={{ ...textStyle.display, letterSpacing: 1 }}>
             {resetFor.code}
           </Text>
           <Muted>Pass this on by WhatsApp. You never see their new password. It works once, for 30 minutes.</Muted>
-          <Text selectable style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+          <Text selectable style={{ ...textStyle.meta }}>
             {resetMessage}
           </Text>
           <Button

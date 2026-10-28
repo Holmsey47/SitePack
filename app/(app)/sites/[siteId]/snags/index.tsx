@@ -1,4 +1,4 @@
-import { Button, Card, ChoiceChip, EmptyState, ErrorText, Muted, Screen, Title } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorText, FilterBar, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
@@ -20,7 +20,7 @@ import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -209,26 +209,27 @@ export default function SnagsScreen() {
 
   return (
     <Screen>
-      <Title>Snags</Title>
       {list ? (
-        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+        <Text style={textStyle.metaStrong}>
           {list.open_count} open · {list.fixed_count} fixed · {list.signed_off_count} signed off
         </Text>
       ) : null}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {STATUSES.map((item) => (
-          <ChoiceChip key={item} label={item} selected={status === item} onPress={() => setStatus(item)} />
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <ChoiceChip label="All levels" selected={level === 'All'} onPress={() => setLevel('All')} />
-        {levels.map((item) => (
-          <ChoiceChip key={item} label={item} selected={level === item} onPress={() => setLevel(item)} />
-        ))}
-      </View>
+      <FilterBar
+        chips={STATUSES.map((item) => ({
+          key: item,
+          label: item,
+          selected: status === item,
+          onPress: () => setStatus(item),
+        }))}
+        level={{
+          value: level,
+          options: [{ value: 'All', label: 'All levels' }, ...levels.map((item) => ({ value: item, label: item }))],
+          onChange: (value) => setLevel(value as SnagLevelFilter),
+        }}
+      />
       {notices.map((notice) => (
         <Card key={notice.id}>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{notice.message}</Text>
+          <Text style={{ ...textStyle.metaStrong }}>{notice.message}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {notice.photos.length > 0 ? (
               <Button label="Save photo" variant="secondary" minHeight={48} onPress={() => void saveNoticePhotos(notice)} />
@@ -244,12 +245,12 @@ export default function SnagsScreen() {
       ))}
       {queued.length > 0 ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}>
+          <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, padding: 12, borderRadius: 12 }}>
             {SAVED_ON_PHONE}
           </Text>
           {queued.map((item) => (
             <Card key={item.localId}>
-              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+              <Text style={{ ...textStyle.bodyStrong }}>
                 {item.kind === 'create' ? snagDisplayText(item.note) : item.kind === 'fix' ? 'After photo waiting to send' : SIGN_OFF_QUEUED}
               </Text>
               <Muted>{item.kind === 'create' ? formatUkDateTime(item.raisedAt) : item.kind === 'fix' ? formatUkDateTime(item.fixedAt) : formatUkDateTime(item.signedAt)}</Muted>
@@ -258,10 +259,20 @@ export default function SnagsScreen() {
         </View>
       ) : null}
       <ErrorText>{error}</ErrorText>
-      {list && rows.length === 0 && queued.length === 0 ? <EmptyState title="No snags in this filter" /> : null}
+      {list && rows.length === 0 && queued.length === 0 ? (
+        <EmptyState
+          icon="report"
+          title={list.rows.length === 0 ? 'Snags raised on this site show up here' : 'No snags in this filter'}
+          action={
+            list.rows.length === 0 ? (
+              <Button label="Raise a snag" onPress={() => router.push(`/sites/${siteId}/snags/new`)} />
+            ) : undefined
+          }
+        />
+      ) : null}
       {rows.map((row) => (
         <Card key={row.snag_id} onPress={() => router.push(`/sites/${siteId}/snags/${row.snag_id}`)}>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+          <Text style={{ ...textStyle.bodyStrong }}>
             {snagNumber(row.snag_seq)} · {row.trade_label}
           </Text>
           <Muted>
@@ -271,14 +282,21 @@ export default function SnagsScreen() {
         </Card>
       ))}
       {signOffsWaiting > 0 ? (
-        <Text nativeID="signoff-waiting" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+        <Text nativeID="signoff-waiting" style={textStyle.bodyStrong}>
           {signOffWaitingLabel(signOffsWaiting)}
         </Text>
       ) : list && list.fixed_count > 0 ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
-      <Button label="Share report" minHeight={56} loading={busy} onPress={() => void onShare()} />
-      <Button label="Raise a snag" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/new`)} />
+      <Button label="Share report" variant="secondary" minHeight={48} loading={busy} onPress={() => void onShare()} />
+      {list && list.rows.length === 0 ? null : (
+        <Button
+          label="Raise a snag"
+          variant={list && list.fixed_count > 0 && signOffsWaiting === 0 ? 'secondary' : 'primary'}
+          minHeight={56}
+          onPress={() => router.push(`/sites/${siteId}/snags/new`)}
+        />
+      )}
     </Screen>
   );
 }

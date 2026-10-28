@@ -15,6 +15,7 @@ import {
   resolveSeenAt,
   seenButtonLabel,
   seenCountLabel,
+  cardCountLine,
   siteUnseenLine,
   type ProofOpen,
   type ProofSeen,
@@ -71,6 +72,12 @@ test('labels name the sheet and the revision', () => {
   assert.equal(siteUnseenLine(0), null);
   assert.equal(siteUnseenLine(1), '1 drawing not seen by everyone');
   assert.equal(siteUnseenLine(2), '2 drawings not seen by everyone');
+  assert.equal(cardCountLine(0, 0), null);
+  assert.equal(cardCountLine(1, 0), '1 request');
+  assert.equal(cardCountLine(2, 0), '2 requests');
+  assert.equal(cardCountLine(0, 1), '1 unseen');
+  assert.equal(cardCountLine(1, 6), '1 request · 6 unseen');
+  assert.equal(cardCountLine(3, 1), '3 requests · 1 unseen');
   assert.equal(newDrawingsLine(0), null);
   assert.equal(newDrawingsLine(1), '1 new drawing to check');
   assert.equal(newDrawingsLine(5), '5 new drawings to check');
@@ -152,10 +159,10 @@ test('a lad confirmation shows for the owner, and another site stays hidden', as
   assert.equal(roster.seen.some((person) => person.display_name === 'Priya Shah'), false);
   const notSeen = await fixtureRepo.siteNotSeen(IDS.oak);
   assert.equal(notSeen.some((person) => person.person_id === IDS.cm), false);
-  assert.equal(notSeen.find((person) => person.display_name === 'Ben Torres')?.sheets.length, 6);
+  assert.equal(notSeen.find((person) => person.display_name === 'Ben Torres')?.sheets.length, 7);
   assert.equal(
     notSeenPersonLine('Ben Torres', notSeen.find((person) => person.display_name === 'Ben Torres')?.sheets.length ?? 0),
-    'Ben Torres: 6 sheets'
+    'Ben Torres: 7 sheets'
   );
   assert.equal(roster.seen[0]?.display_name, 'Amy Keane');
   assert.equal(roster.seen[0]?.seen_at, tap);

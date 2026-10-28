@@ -1,8 +1,8 @@
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, LogoSlot, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { formatJoinCode, publicCodePath, resetFailureMessage } from '@/data/joinCodes';
 import { clearStagedResetCode, peekStagedResetCode, stageResetCode } from '@/lib/appLinks';
-import { theme } from '@/lib/theme';
+import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, Text } from 'react-native';
@@ -62,7 +62,7 @@ export function ResetScreen({ routeCode }: { routeCode?: string }) {
 
   return (
     <Screen>
-      <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
+      <LogoSlot size={logo.welcome} />
       <Title>New password</Title>
       <Muted>Type the reset code your manager sent. It lasts 30 minutes and works once.</Muted>
       <Field label="Reset code" value={code} onChangeText={setCode} autoCapitalize="words" placeholder="XXXX-XXXX" />

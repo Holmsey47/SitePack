@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { DrawingRequest } from '@/data/types';
 import { timeAgo } from '@/lib/format';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Text } from 'react-native';
@@ -38,10 +38,12 @@ export default function RequestsInboxScreen() {
     <Screen footer={person ? <AppTabs role={person.role} /> : null}>
       <Title>Drawing requests</Title>
       {error ? <ErrorText>{error}</ErrorText> : null}
-      {loaded && !error && rows.length === 0 ? <EmptyState title="No drawing requests" /> : null}
+      {loaded && !error && rows.length === 0 ? (
+        <EmptyState icon="assignment" title="Drawing requests show up here" />
+      ) : null}
       {rows.map((row) => (
         <Card key={row.id} onPress={() => router.push(`/requests/${row.id}`)}>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>{row.site_name ?? 'Site'}</Text>
+          <Text style={{ ...textStyle.metaStrong }}>{row.site_name ?? 'Site'}</Text>
           <Text style={{ color: theme.muted }}>
             {row.requester_name ?? 'Requester'} · {timeAgo(row.created_at)}
           </Text>

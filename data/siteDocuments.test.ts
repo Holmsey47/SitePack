@@ -9,7 +9,9 @@ import {
   memberMustSign,
   signRoster,
   siteDocumentBytesError,
+  orderedSiteDocuments,
   siteDocumentKindLabel,
+  siteDocumentSignLabel,
   siteDocumentPath,
   siteDocumentPickError,
 } from './siteDocuments.ts';
@@ -22,6 +24,17 @@ test('document types are Induction, Toolbox talk, and RAMS', () => {
     ['Induction', 'Toolbox talk', 'RAMS'],
   );
   assert.equal(siteDocumentKindLabel('toolbox'), 'Toolbox talk');
+  assert.equal(siteDocumentSignLabel('induction'), "I've read the site induction and understand it");
+  assert.equal(siteDocumentSignLabel('toolbox'), "I've read the toolbox talk and understand it");
+  assert.equal(siteDocumentSignLabel('rams'), "I've read the RAMS and understand it");
+  assert.deepEqual(
+    orderedSiteDocuments([
+      { title: 'Alpha', archived_at: '2026-10-01T00:00:00.000Z' },
+      { title: 'Zulu', archived_at: null },
+      { title: 'Bravo', archived_at: null },
+    ]).map((row) => row.title),
+    ['Bravo', 'Zulu', 'Alpha'],
+  );
   assert.equal(memberMustSign('operative'), true);
   assert.equal(memberMustSign('cm'), true);
   assert.equal(memberMustSign('owner'), false);
@@ -126,6 +139,24 @@ test('a new version needs a new signature, and only the owner uploads', async ()
   assert.equal(hidden.some((row) => row.id === induction!.id), false);
 });
 
+test('oak lists a live document above an archived one', async () => {
+  resetFixtureStore();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  const rows = orderedSiteDocuments(await fixtureRepo.listSiteDocuments(IDS.oak));
+  assert.deepEqual(
+    rows.map((row) => [row.title, row.archived_at != null]),
+    [
+      ['Site induction', false],
+      ['A toolbox talk', true],
+    ],
+  );
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
+  const visible = await fixtureRepo.listSiteDocuments(IDS.oak);
+  assert.equal(visible.some((row) => row.title === 'A toolbox talk'), false);
+  assert.equal(visible.some((row) => row.title === 'Site induction'), true);
+});
+
 test('a PDF under 20MB is accepted and anything else is refused', () => {
   assert.equal(siteDocumentPickError({ name: 'notes.txt', mimeType: 'text/plain', size: 12 }), 'Choose a PDF.');
   assert.equal(
@@ -147,14 +178,29 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   const detail = fs.readFileSync('app/(app)/sites/[siteId]/documents/[documentId].tsx', 'utf8');
   const migration = fs.readFileSync('supabase/migrations/20261027120000_site_documents.sql', 'utf8');
 
-  assert.match(site, /label="Induction & RAMS"/);
+  assert.match(site, /Induction & RAMS/);
+  assert.match(site, /numberOfLines=\{2\}/);
+  assert.match(site, /headerTitle: \(\) => null/);
   assert.match(site, /minHeight=\{48\}/);
   assert.match(list, /To sign/);
   assert.match(upload, /person\.role !== 'owner'/);
   assert.match(upload, /Choose PDF/);
-  assert.match(detail, /I have read and understood/);
+  assert.match(detail, /siteDocumentSignLabel\(detail\.kind\)/);
+  assert.match(detail, /formatSignedWhen/);
+  assert.match(detail, /Signed \$\{signedWhen\}/);
+  const wording = fs.readFileSync('data/siteDocuments.ts', 'utf8');
+  assert.match(wording, /I've read the site induction and understand it/);
+  assert.match(wording, /I've read the toolbox talk and understand it/);
+  assert.match(wording, /I've read the RAMS and understand it/);
   assert.match(detail, /minHeight=\{56\}/);
   assert.match(detail, /Archive this document/);
+  assert.match(detail, /scrollToEnd/);
+  assert.ok(detail.indexOf('Archive this document') < detail.indexOf('label="Cancel"'));
+  assert.ok(detail.indexOf('Delete this document') < detail.indexOf('label="Cancel"'));
+  assert.ok(detail.indexOf('Save new version') < detail.indexOf('label="Archive document"'));
+  assert.match(detail, /marginTop: space\.xl/);
+  assert.match(list, /orderedSiteDocuments/);
+  assert.match(list, /archived \? theme\.muted/);
   assert.match(upload, /siteDocumentPickError/);
   assert.match(upload, /base64: false/);
   assert.match(detail, /Who has signed/);

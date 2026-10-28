@@ -9,7 +9,7 @@ import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
 import type { JoinCodeCreated, PulseRow, Role } from '@/data/types';
 import { roleLabel } from '@/data/walk';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -128,7 +128,6 @@ export default function InviteScreen() {
 
   return (
     <Screen>
-      <Title>Invite with a code</Title>
       <Muted>A valid code puts them straight on the site. No approval step.</Muted>
       {listNotice ? <Text style={{ color: theme.muted }}>{listNotice}</Text> : null}
       {!loaded ? <Muted>Loading sites…</Muted> : null}
@@ -146,7 +145,7 @@ export default function InviteScreen() {
       ) : null}
       {loaded && openChoice.kind !== 'none' ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.muted, fontWeight: '700' }}>
+          <Text style={textStyle.metaStrong}>
             {openChoice.kind === 'one' ? 'Site' : 'Which site?'}
           </Text>
           {openSites.map((site) => {
@@ -163,11 +162,11 @@ export default function InviteScreen() {
                   paddingHorizontal: 14,
                   borderRadius: 12,
                   borderWidth: 2,
-                  borderColor: selected ? theme.current : theme.line,
+                  borderColor: selected ? theme.text : theme.line,
                   backgroundColor: selected ? theme.surfaceAlt : theme.surface,
                 }}>
-                <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700' }}>{site.name}</Text>
-                {selected ? <Text style={{ color: theme.current, fontWeight: '800' }}>Selected</Text> : null}
+                <Text style={{ ...textStyle.bodyStrong }}>{site.name}</Text>
+                {selected ? <Text style={textStyle.bodyStrong}>Selected</Text> : null}
               </Pressable>
             );
           })}
@@ -194,7 +193,7 @@ export default function InviteScreen() {
         accessibilityRole="button"
         onPress={() => setEmailOpen((current) => !current)}
         style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>
+        <Text style={{ ...textStyle.bodyStrong }}>
           {emailOpen ? 'Hide email invite' : 'Invite by email instead'}
         </Text>
       </Pressable>
@@ -208,7 +207,7 @@ export default function InviteScreen() {
             <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
             <Field label="Name" value={displayName} onChangeText={setDisplayName} autoCapitalize="words" />
             <Field label="Occupation" value={trade} onChangeText={setTrade} placeholder="Optional" />
-            <Text style={{ color: theme.muted, fontWeight: '700' }}>Role</Text>
+            <Text style={textStyle.metaStrong}>Role</Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               {allowedRoles.map((value) => (
                 <Pressable
@@ -220,15 +219,15 @@ export default function InviteScreen() {
                     paddingVertical: 10,
                     paddingHorizontal: 14,
                     borderRadius: 12,
-                    backgroundColor: role === value ? theme.current : theme.surface,
+                    backgroundColor: role === value ? theme.text : theme.surface,
                   }}>
-                  <Text style={{ color: role === value ? theme.currentInk : theme.text, fontWeight: '700' }}>
+                  <Text style={{ ...textStyle.bodyStrong, color: role === value ? theme.bg : theme.text }}>
                     {roleLabel(value)}
                   </Text>
                 </Pressable>
               ))}
             </View>
-            <Text style={{ color: theme.muted, fontWeight: '700' }}>Sites</Text>
+            <Text style={textStyle.metaStrong}>Sites</Text>
             {openSites.map((site) => {
               const on = siteIds.includes(site.id);
               return (
@@ -241,7 +240,7 @@ export default function InviteScreen() {
                     paddingHorizontal: 12,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: on ? theme.current : theme.line,
+                    borderColor: on ? theme.text : theme.line,
                   }}>
                   <Text style={{ color: theme.text }}>{site.name}</Text>
                 </Pressable>

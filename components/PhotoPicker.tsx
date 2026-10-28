@@ -2,7 +2,7 @@ import { Button, Muted } from '@/components/ui';
 import { newId } from '@/data/newId';
 import { PHOTO_MAX_BYTES, PHOTO_MAX_EDGE } from '@/lib/photoBytes';
 import { preparePhoto } from '@/lib/photoPrep';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { createElement, useRef, useState } from 'react';
 import { Linking, Platform, Pressable, Text, View } from 'react-native';
 
@@ -143,10 +143,10 @@ export function PhotoPicker({
 
   return (
     <View style={{ gap: 8 }}>
-      {title ? <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>{title}</Text> : null}
+      {title ? <Text style={{ ...textStyle.metaStrong }}>{title}</Text> : null}
       {cameraDenied ? (
         <View style={{ gap: 8 }}>
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{CAMERA_OFF}</Text>
+          <Text style={{ ...textStyle.metaStrong }}>{CAMERA_OFF}</Text>
           <Pressable
             accessibilityRole="link"
             accessibilityLabel={OPEN_SETTINGS}
@@ -154,7 +154,7 @@ export function PhotoPicker({
               void Linking.openSettings().catch(() => onError(CAMERA_OFF));
             }}
             style={{ minHeight: 48, justifyContent: 'center' }}>
-            <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800', textDecorationLine: 'underline' }}>{OPEN_SETTINGS}</Text>
+            <Text style={{ ...textStyle.bodyStrong, textDecorationLine: 'underline' }}>{OPEN_SETTINGS}</Text>
           </Pressable>
         </View>
       ) : null}

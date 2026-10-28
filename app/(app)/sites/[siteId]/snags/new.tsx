@@ -1,12 +1,12 @@
 import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
-import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ChoiceChip, ErrorText, Field, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
 import { snagError } from '@/data/snags';
 import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhase } from '@/lib/offlineSave';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { deviceIsOnline, persistThenSendSnag } from '@/lib/snagQueue';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -98,9 +98,8 @@ export default function NewSnagScreen() {
 
   return (
     <Screen>
-      <Title>Raise a snag</Title>
       {notice ? (
-        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}>{notice}</Text>
+        <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, padding: 12, borderRadius: 12 }}>{notice}</Text>
       ) : null}
       <Field label="Note" value={note} onChangeText={setNote} autoCapitalize="sentences" multiline maxLength={2000} />
       <Field label="Level or area (optional)" value={levelArea} onChangeText={setLevelArea} autoCapitalize="words" maxLength={80} />

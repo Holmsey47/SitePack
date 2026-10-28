@@ -12,9 +12,9 @@ export const SITE_BAR_MIN_HEIGHT = 48;
 export const SITE_HEADER_HIT = 48;
 /** Space between ← Sites / People and the screen edge. */
 export const SITE_HEADER_INSET = 8;
-/** Red count on a bar slot. 20–22px box, 12pt digits. */
+/** Red count on a bar slot. 20–22px box, digits at the meta size. */
 export const SITE_BAR_BADGE_SIZE = 22;
-export const SITE_BAR_BADGE_FONT = 12;
+export const SITE_BAR_BADGE_FONT = 15;
 export const DRAWINGS_LIST_BOTTOM_PAD = 96;
 
 /**

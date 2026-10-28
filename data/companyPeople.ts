@@ -2,6 +2,11 @@ import type { CompanyPerson, Role } from '@/data/types';
 
 export { occupationLine, roleLabel, siteLabel } from '@/data/walk';
 
+/** Owner stays at the top. Everyone else keeps the order they arrived in. */
+export function pinnedOwnerFirst<T extends { role: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((left, right) => Number(right.role === 'owner') - Number(left.role === 'owner'));
+}
+
 export function canAddNoLogin(callerRole: Role, name: string, siteIds: string[]): boolean {
   if (callerRole !== 'owner' && callerRole !== 'cm') return false;
   if (!name.trim()) return false;

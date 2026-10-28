@@ -39,7 +39,6 @@ export default function RequestDrawingScreen() {
 
   return (
     <Screen>
-      <Title>Request a drawing</Title>
       <Field
         label="What do you need?"
         value={body}

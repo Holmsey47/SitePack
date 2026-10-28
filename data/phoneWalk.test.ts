@@ -5,7 +5,9 @@ import { bytesToBase64 } from './base64.ts';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
 import { newId } from './newId.ts';
-import { sheetViewHtml } from '../lib/sheetHtml.ts';
+import { A1_LANDSCAPE, makePdfBytes } from '../lib/pdf.ts';
+import { sheetFitScale, sheetViewHtml } from '../lib/sheetHtml.ts';
+import { brandFitsOneRow } from '../lib/brandRow.ts';
 import {
   PACK_DIRECTORY_CREATE,
   PACK_DOWNLOAD_ERROR,
@@ -49,7 +51,24 @@ test('phone walk copy and ids', () => {
   const html = sheetViewHtml('QQ==', 'var pdfjsLib = {};', 'var pdfjsWorker = {};');
   assert.match(html, /getDocument/);
   assert.match(html, /QQ==/);
+  assert.match(html, /innerHeight/);
+  assert.match(html, /user-scalable=yes/);
+  assert.match(html, /touchmove/);
+  assert.match(html, /viewScale/);
   assert.doesNotMatch(html, /createObjectURL|new Blob|new Worker|workerSrc|cdnjs/);
+  const scale = sheetFitScale(A1_LANDSCAPE.width, A1_LANDSCAPE.height, 360, 640);
+  const fittedWidth = A1_LANDSCAPE.width * scale;
+  const fittedHeight = A1_LANDSCAPE.height * scale;
+  assert.ok(fittedWidth <= 360 - 16);
+  assert.ok(fittedWidth >= 360 * 0.9);
+  assert.ok(fittedHeight <= 640 - 16);
+  assert.ok(fittedWidth > fittedHeight);
+  assert.ok(Math.abs(fittedWidth / fittedHeight - A1_LANDSCAPE.width / A1_LANDSCAPE.height) < 0.001);
+  const landscape = new TextDecoder().decode(makePdfBytes('A1 landscape', 'A', '2026-10-01', A1_LANDSCAPE));
+  assert.match(landscape, /MediaBox \[0 0 2383\.94 1683\.78\]/);
+  assert.equal(brandFitsOneRow(160, 180, 272), false);
+  assert.equal(brandFitsOneRow(120, 140, 272), true);
+  assert.equal(brandFitsOneRow(0, 140, 272), false);
   const frame = fs.readFileSync('components/drawing-frame.tsx', 'utf8');
   const webFrame = fs.readFileSync('components/drawing-frame.web.tsx', 'utf8');
   assert.equal(frame.includes('cdnjs'), false);

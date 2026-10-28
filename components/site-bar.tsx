@@ -5,8 +5,8 @@ import {
   SITE_BAR_MIN_HEIGHT,
   type SiteListKind,
 } from '@/data/siteListSeen';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Icon } from '@/components/icon';
+import { iconSize, textStyle, theme } from '@/lib/theme';
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,14 +36,7 @@ export function SiteBar({
       }}>
       <Text
         numberOfLines={1}
-        style={{
-          color: theme.muted,
-          fontSize: 12,
-          fontWeight: '800',
-          textAlign: 'center',
-          paddingTop: 6,
-          paddingHorizontal: 12,
-        }}>
+        style={[textStyle.meta, { textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 }]}>
         {caption}
       </Text>
       <View style={{ flexDirection: 'row' }}>
@@ -61,7 +54,7 @@ export function SiteBar({
               }}
               style={{ flex: 1, minHeight: SITE_BAR_MIN_HEIGHT, alignItems: 'center', justifyContent: 'center', gap: 2 }}>
               <View>
-                <MaterialIcons name={item.icon} size={22} color={theme.text} />
+                <Icon name={item.icon} size={iconSize} color={theme.text} />
                 {showBadge ? (
                   <View
                     style={{
@@ -76,13 +69,13 @@ export function SiteBar({
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                    <Text style={{ color: theme.bg, fontSize: SITE_BAR_BADGE_FONT, fontWeight: '800' }}>
+                    <Text style={{ color: theme.bg, fontSize: SITE_BAR_BADGE_FONT, lineHeight: SITE_BAR_BADGE_FONT, fontWeight: '800' }}>
                       {count > 99 ? '99+' : String(count)}
                     </Text>
                   </View>
                 ) : null}
               </View>
-              <Text style={{ color: theme.text, fontWeight: '800', fontSize: 13 }}>{item.label}</Text>
+              <Text style={[textStyle.metaStrong, { color: theme.text }]}>{item.label}</Text>
             </Pressable>
           );
         })}

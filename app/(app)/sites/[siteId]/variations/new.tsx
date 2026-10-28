@@ -1,11 +1,11 @@
 import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
-import { Button, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newId } from '@/data/newId';
 import { canSetVariationValue, parsePounds, variationError } from '@/data/variations';
 import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhase } from '@/lib/offlineSave';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { deviceIsOnline, persistThenSend, SAVED_ON_PHONE } from '@/lib/variationQueue';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -94,9 +94,8 @@ export default function NewVariationScreen() {
 
   return (
     <Screen>
-      <Title>New variation</Title>
       {notice ? (
-        <Text style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}>
+        <Text style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, padding: 12, borderRadius: 12 }}>
           {notice}
         </Text>
       ) : null}

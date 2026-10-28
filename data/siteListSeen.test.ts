@@ -37,7 +37,7 @@ test('site bar is Snags, Variations, and Requests', () => {
   assert.equal(SITE_HEADER_HIT >= 48, true);
   assert.equal(SITE_HEADER_INSET, 8);
   assert.equal(SITE_BAR_BADGE_SIZE >= 20 && SITE_BAR_BADGE_SIZE <= 22, true);
-  assert.equal(SITE_BAR_BADGE_FONT, 12);
+  assert.equal(SITE_BAR_BADGE_FONT, 15);
   assert.equal(DRAWINGS_LIST_BOTTOM_PAD >= SITE_BAR_MIN_HEIGHT, true);
   assert.deepEqual(
     SITE_BAR.map((item) => item.path('oak')),
@@ -148,6 +148,8 @@ test('site page is drawings, a People button, and a three-item bar', () => {
   assert.match(site, /headerBackVisible: false/);
   assert.match(site, /<SitesBackButton \/>/);
   assert.match(site, /<PeoplePill /);
+  assert.match(site, /headerTitle: \(\) => null/);
+  assert.match(site, /numberOfLines=\{2\}/);
   assert.equal(site.includes('label="People"'), false);
   assert.equal(site.includes('Invite to this site'), false);
   assert.equal(site.includes('Who joined'), false);

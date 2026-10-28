@@ -1,5 +1,5 @@
 import { SITE_HEADER_HIT, SITE_HEADER_INSET } from '@/data/siteListSeen';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, Text } from 'react-native';
 
@@ -17,7 +17,7 @@ export function SitesBackButton() {
         marginLeft: SITE_HEADER_INSET,
         paddingRight: 8,
       }}>
-      <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }}>← Sites</Text>
+      <Text style={textStyle.bodyStrong} numberOfLines={1}>← Sites</Text>
     </Pressable>
   );
 }
@@ -41,7 +41,7 @@ export function PeoplePill({ siteId }: { siteId: string }) {
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      <Text style={{ color: theme.text, fontWeight: '800' }}>People</Text>
+      <Text style={textStyle.bodyStrong} numberOfLines={1}>People</Text>
     </Pressable>
   );
 }

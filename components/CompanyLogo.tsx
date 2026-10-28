@@ -1,10 +1,11 @@
 import { PhotoPicker, type PickedPhoto } from '@/components/PhotoPicker';
-import { Button, ErrorText, Muted } from '@/components/ui';
+import { Button, ErrorText, Muted, Wordmark } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { logoFailureMessage, LOGO_MAX_BYTES, LOGO_MAX_EDGE } from '@/data/companyLogo';
 import { repo } from '@/data/index';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Icon } from '@/components/icon';
+import { brandFitsOneRow } from '@/lib/brandRow';
+import { logo, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
@@ -42,37 +43,94 @@ export function CompanyLogo() {
   if (!person) return null;
   const owner = person.role === 'owner';
   const showLogo = Boolean(logoUrl) && !broken;
-  const mark = showLogo ? (
-    <Image
-      accessibilityLabel={name || 'Company logo'}
-      source={{ uri: logoUrl ?? undefined }}
-      onError={() => setBroken(true)}
-      style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: theme.surface }}
-    />
-  ) : (
-    <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', flex: 1 }}>{name}</Text>
-  );
 
   if (!owner) {
-    return <View style={{ minHeight: 48, justifyContent: 'center' }}>{mark}</View>;
+    return (
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <FittedBrand name={name} showLogo={showLogo} logoUrl={logoUrl} onBroken={() => setBroken(true)} />
+      </View>
+    );
   }
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={name || 'Company'}
         onPress={() => router.push('/company')}
-        style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}>
-        {mark}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, justifyContent: 'center' }}>
+        <FittedBrand name={name} showLogo={showLogo} logoUrl={logoUrl} onBroken={() => setBroken(true)} />
       </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Company settings"
         onPress={() => router.push('/company')}
         style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
-        <MaterialIcons name="settings" size={24} color={theme.text} />
+        <Icon name="settings" color={theme.text} />
       </Pressable>
+    </View>
+  );
+}
+
+/** Full SitePack wordmark beside the company name, or a smaller stack when the row would clip. */
+function FittedBrand({
+  name,
+  showLogo,
+  logoUrl,
+  onBroken,
+}: {
+  name: string;
+  showLogo: boolean;
+  logoUrl: string | null;
+  onBroken: () => void;
+}) {
+  const [box, setBox] = useState(0);
+  const [markWidth, setMarkWidth] = useState(0);
+  const [nameWidth, setNameWidth] = useState(0);
+  const nameSlot = showLogo ? logo.company : nameWidth;
+  const row = brandFitsOneRow(markWidth, nameSlot, box);
+  const company = showLogo ? (
+    <Image
+      accessibilityLabel={name || 'Company logo'}
+      source={{ uri: logoUrl ?? undefined }}
+      onError={onBroken}
+      style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
+    />
+  ) : (
+    <Text style={row ? textStyle.title : textStyle.body} numberOfLines={row ? 1 : 2}>
+      {name}
+    </Text>
+  );
+
+  return (
+    <View style={{ flex: 1, minWidth: 0 }} onLayout={(event) => setBox(event.nativeEvent.layout.width)}>
+      <View
+        pointerEvents="none"
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        aria-hidden
+        style={{ position: 'absolute', opacity: 0, alignSelf: 'flex-start' }}>
+        <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => setMarkWidth(event.nativeEvent.layout.width)}>
+          <Wordmark />
+        </View>
+        {showLogo ? null : (
+          <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => setNameWidth(event.nativeEvent.layout.width)}>
+            <Text style={textStyle.title}>{name}</Text>
+          </View>
+        )}
+      </View>
+      {row ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 48 }}>
+          <Wordmark />
+          <View style={{ flexShrink: 1, minWidth: 0 }}>{company}</View>
+        </View>
+      ) : (
+        <View style={{ gap: space.xs }}>
+          <Wordmark size={typeScale.title} />
+          <View style={{ minHeight: 48, justifyContent: 'center' }}>{company}</View>
+        </View>
+      )}
     </View>
   );
 }
@@ -140,11 +198,10 @@ export function CompanyLogoEditor() {
           accessibilityLabel={name || 'Company logo'}
           source={{ uri: logoUrl ?? undefined }}
           onError={() => setBroken(true)}
-          style={{ width: 96, height: 96, borderRadius: 16, backgroundColor: theme.surface }}
+          style={{ width: logo.company, height: logo.company, borderRadius: 8, backgroundColor: theme.surface }}
         />
       ) : null}
-      <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>{name}</Text>
-      <Muted>The company name stays as it is.</Muted>
+      <Text style={textStyle.title}>{name}</Text>
       {showLogo && !picking ? (
         <Button label="Change logo" variant="secondary" minHeight={48} disabled={saving} onPress={() => setPicking(true)} />
       ) : null}
@@ -179,9 +236,9 @@ export function CompanyLogoEditor() {
         />
       ) : null}
       <Modal visible={confirmRemove} transparent animationType="fade" onRequestClose={() => setConfirmRemove(false)}>
-        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.65)' }}>
-          <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 20, gap: 12 }}>
-            <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800' }}>Remove the company logo?</Text>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: theme.scrim }}>
+          <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 16, gap: 12 }}>
+            <Text style={textStyle.title}>Remove the company logo?</Text>
             <Button label="Remove logo" variant="danger" minHeight={48} disabled={saving} onPress={() => void save(null)} />
             <Button label="Cancel" variant="secondary" minHeight={48} disabled={saving} onPress={() => setConfirmRemove(false)} />
           </View>

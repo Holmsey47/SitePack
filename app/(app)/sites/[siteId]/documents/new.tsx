@@ -1,8 +1,8 @@
-import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ChoiceChip, ErrorText, Field, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { SITE_DOCUMENT_KINDS, siteDocumentBytesError, siteDocumentPickError, type SiteDocumentKind } from '@/data/siteDocuments';
-import { theme } from '@/lib/theme';
+import { textStyle } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -78,9 +78,8 @@ export default function NewSiteDocumentScreen() {
 
   return (
     <Screen>
-      <Title>Upload document</Title>
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="sentences" maxLength={120} />
-      <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Type</Text>
+      <Text style={textStyle.metaStrong}>Type</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {SITE_DOCUMENT_KINDS.map((item) => (
           <ChoiceChip

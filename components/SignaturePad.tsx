@@ -64,7 +64,7 @@ export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUr
         style={{
           minHeight: HEIGHT,
           height: HEIGHT,
-          backgroundColor: '#F4F1EA',
+          backgroundColor: theme.text,
           borderRadius: 12,
           borderWidth: 1,
           borderColor: theme.line,
@@ -83,7 +83,7 @@ export function SignaturePad({ onChange, disabled = false }: { onChange: (dataUr
               width: 8,
               height: 8,
               borderRadius: 4,
-              backgroundColor: '#111111',
+              backgroundColor: theme.currentInk,
             }}
           />
         ))}

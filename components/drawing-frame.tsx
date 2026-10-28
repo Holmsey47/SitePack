@@ -33,7 +33,7 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
   if (!html) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={theme.current} />
+        <ActivityIndicator color={theme.text} />
       </View>
     );
   }
@@ -44,6 +44,9 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
       source={{ html }}
       style={{ flex: 1, backgroundColor: theme.bg }}
       setSupportMultipleWindows={false}
+      scalesPageToFit={false}
+      setBuiltInZoomControls={false}
+      setDisplayZoomControls={false}
     />
   );
 }

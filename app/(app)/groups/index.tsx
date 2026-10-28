@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canAssignPeopleGroup, canEditPeopleGroup, groupFailureMessage } from '@/data/peopleGroups';
 import type { PeopleGroup } from '@/data/types';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Text } from 'react-native';
@@ -54,11 +54,10 @@ export default function GroupsScreen() {
 
   return (
     <Screen footer={person ? <AppTabs role={person.role} /> : null}>
-      <Title>Groups</Title>
       <Muted>A group puts the same people on a site in one go. It does not change who can see a site.</Muted>
       <ErrorText>{error}</ErrorText>
       {!loaded && !error ? <Muted>Loading groups…</Muted> : null}
-      {loaded && groups.length === 0 ? <EmptyState title="No groups yet" /> : null}
+      {loaded && groups.length === 0 ? <EmptyState icon="group" title="No groups yet" /> : null}
       {groups.map((group) => (
         <Pressable
           key={group.id}
@@ -66,7 +65,7 @@ export default function GroupsScreen() {
           onPress={() => router.push(`/groups/${group.id}`)}
           style={{ minHeight: 48 }}>
           <Card>
-            <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{group.name}</Text>
+            <Text style={{ ...textStyle.bodyStrong }}>{group.name}</Text>
             <Muted>
               {group.members.length} {group.members.length === 1 ? 'person' : 'people'}
             </Muted>

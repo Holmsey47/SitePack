@@ -85,6 +85,11 @@ test('fixture seed shows the level filter only when a folder has two current lev
     manifest.filter((item) => item.title.startsWith('Set out')).length,
     4
   );
+  const landscape = oak.find((row) => row.id === IDS.a1);
+  assert.equal(landscape?.title, 'A1 landscape');
+  assert.equal(landscape?.folder, 'Site layout');
+  assert.equal(landscape?.is_current, true);
+  assert.equal(landscape?.title.startsWith('Set out'), false);
 });
 
 test('the level migration is only a nullable column and a narrower-or-same RPC', () => {

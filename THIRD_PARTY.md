@@ -7,3 +7,9 @@ Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-gree
 Noto Sans Regular and Noto Sans Bold are subset for Latin, Latin Extended-A, Latin Extended-B (including Romanian Ș ș Ț ț, U+0218–U+021B), and Cyrillic, then embedded in the snag sign-off PDF. The font files are `assets/fonts/NotoSans-Regular.ttf` and `assets/fonts/NotoSans-Bold.ttf`. The same bytes are embedded from `lib/snagPdfFonts.ts`.
 
 Licensed under the SIL Open Font License, Version 1.1. The license names no Reserved Font Name, so this subset keeps the name Noto Sans. The full license is `assets/fonts/OFL.txt`.
+
+## Material Symbols Rounded
+
+Copyright 2026 Google LLC. All Rights Reserved.
+
+The icon font is `assets/fonts/MaterialSymbolsRounded.ttf`, subset to the ligatures SitePack draws. Rebuild it with `scripts/subset-icons.sh`. The full Apache License, Version 2.0, is `assets/fonts/MaterialSymbols-LICENSE.txt`.

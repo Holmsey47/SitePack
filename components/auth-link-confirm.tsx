@@ -1,7 +1,7 @@
 import { useBackOverlay } from '@/components/useBackOverlay';
 import { Button, Screen } from '@/components/ui';
 import { AUTH_LINK_STAY_HINT, signOutAndUseLabel, staySignedInLabel } from '@/lib/authLink';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { useState } from 'react';
 import { Text } from 'react-native';
 
@@ -28,10 +28,10 @@ export function AuthLinkConfirm({
 
   return (
     <Screen>
-      <Text style={{ color: theme.text, fontSize: 22, lineHeight: 30, fontWeight: '700', paddingTop: 24 }}>
+      <Text style={{ ...textStyle.title, paddingTop: 24 }}>
         {`You're signed in as ${currentAccount}. This link is for ${linkAccount}.`}
       </Text>
-      <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>{AUTH_LINK_STAY_HINT}</Text>
+      <Text style={{ ...textStyle.meta }}>{AUTH_LINK_STAY_HINT}</Text>
       <Button
         label={staySignedInLabel(currentAccount)}
         minHeight={theme.thumb}

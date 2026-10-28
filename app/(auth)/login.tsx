@@ -1,9 +1,9 @@
-import { Button, ChoiceChip, ErrorText, Field, Screen, Title } from '@/components/ui';
+import { Button, ChoiceChip, ErrorText, Field, LogoSlot, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { theme } from '@/lib/theme';
+import { logo, space, textStyle, theme } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function LoginScreen() {
   const { signIn, signInWithUsername } = useAuth();
@@ -41,9 +41,8 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      <View style={{ gap: 12, paddingTop: 24, alignItems: 'flex-start' }}>
-        <Image source={require('@/assets/images/icon.png')} style={{ width: 72, height: 72, borderRadius: 16 }} />
-        <Text style={{ color: theme.current, fontWeight: '800', letterSpacing: 1.4 }}>SITEPACK</Text>
+      <View style={{ gap: space.md, paddingTop: space.xl, alignItems: 'flex-start' }}>
+        <LogoSlot size={logo.welcome} />
         <Title>Sign in</Title>
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -68,7 +67,7 @@ export default function LoginScreen() {
         accessibilityRole="button"
         onPress={() => router.push('/reset')}
         style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={{ color: theme.current, fontSize: 17, fontWeight: '800' }}>Got a reset code?</Text>
+        <Text style={textStyle.bodyStrong}>Got a reset code?</Text>
       </Pressable>
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>

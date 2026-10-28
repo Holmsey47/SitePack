@@ -1,6 +1,7 @@
 import { DrawingFrame } from '@/components/drawing-frame';
 import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
-import { Button, Muted, NewRevBadge, RevBadge, Screen, OutOfDateBadge, SeenCountChip, SeenRejectNotice, Title } from '@/components/ui';
+import { Icon } from '@/components/icon';
+import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   seenButtonLabel,
@@ -28,22 +29,27 @@ import {
   type SeenNotice,
 } from '@/lib/drawingSeenQueue';
 import { clearNoticesAfterOpen, currentRevisionAfter, flushQueuedDrawingSeen, openReplacedNotice } from '@/lib/drawingSeenSync';
-import { formatDate, formatUkDateTime } from '@/lib/format';
+import { drawingFooterLine, formatSheetDay, formatUkDateTime } from '@/lib/format';
 import { deviceIsOnline } from '@/lib/variationQueue';
 import { localDrawingUri, readCachedSites, readPackMeta } from '@/lib/offline';
 import { drawingCopyIsStale } from '@/lib/offlinePack';
 import { saveSheet } from '@/lib/saveSheet';
-import { theme } from '@/lib/theme';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { hit, space, textStyle, theme } from '@/lib/theme';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DrawingViewerScreen() {
   const { siteId, drawingId } = useLocalSearchParams<{ siteId: string; drawingId: string }>();
   const { person } = useAuth();
   const ownerId = person?.auth_user_id ?? null;
   const router = useRouter();
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
   const [drawing, setDrawing] = useState<Drawing | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -349,51 +355,84 @@ export default function DrawingViewerScreen() {
     return (
       <Screen scroll={false}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={theme.current} />
+          <ActivityIndicator color={theme.text} />
         </View>
       </Screen>
     );
   }
 
   const canReplace = person ? canManageSite(person.role) && drawing?.is_current : false;
+  const menuItems = [
+    ...(uri ? [{ label: 'Download', onPress: () => void onSave() }] : []),
+    ...(canReplace && drawing
+      ? [{ label: 'Replace', onPress: () => router.push(`/sites/${siteId}/upload?replace=${drawing.id}`) }]
+      : []),
+  ];
+
+  const statusLine =
+    drawing || revision
+      ? drawingFooterLine({
+          current: drawing ? drawing.is_current : null,
+          day: drawing ? formatSheetDay(drawing.dated) : '',
+          level: drawing ? displayLevel(drawing.level) : null,
+          seen:
+            manage && drawing?.is_current && roster
+              ? `${roster.seen_count} of ${roster.assigned_count} seen`
+              : drawing?.is_current && proof?.seen_at
+                ? `Seen ${formatUkDateTime(proof.seen_at)}`
+                : null,
+          stale,
+        })
+      : '';
+  const openSeen = manage && drawing?.is_current && roster && siteId
+    ? () => router.push(`/sites/${siteId}/seen/${drawing.id}`)
+    : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 8 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Title>{title}</Title>
-            {stale ? <OutOfDateBadge /> : null}
-          </View>
-          {uri ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Download sheet"
-              hitSlop={12}
-              disabled={saving}
-              onPress={() => void onSave()}>
-              <MaterialIcons name="file-download" size={26} color={theme.current} />
-            </Pressable>
-          ) : null}
+    <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: insets.top }}>
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, backgroundColor: theme.bg }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: hit.secondary }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={() => router.back()}
+            style={{ width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="arrow_back" color={theme.text} />
+          </Pressable>
+          <Text style={[textStyle.bodyStrong, { flex: 1, flexShrink: 1 }]} numberOfLines={2}>
+            {title}
+          </Text>
+          {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}
+          <OverflowMenu
+            items={[
+              ...menuItems,
+              ...(person?.role === 'owner' && drawing
+                ? [{ label: 'Delete drawing', danger: true, onPress: () => setConfirmDelete(true) }]
+                : []),
+            ]}
+          />
         </View>
+      </View>
+      <View style={{ flex: 1, minHeight: 0 }}>
+        {uri ? <DrawingFrame uri={uri} onError={setError} /> : (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            {error ? null : <ActivityIndicator color={theme.text} />}
+          </View>
+        )}
+      </View>
+      <View
+        style={{
+          paddingHorizontal: space.lg,
+          paddingBottom: Math.max(insets.bottom, space.sm),
+          backgroundColor: theme.bg,
+          gap: space.sm,
+        }}>
         <FixtureOfflineSwitch />
         {drawing && confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <FixtureReplaceRev
             drawingId={drawing.id}
             onReplaced={() => router.replace('/sites')}
           />
-        ) : null}
-        {drawing || revision ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}
-            <Muted>
-              {drawing ? (drawing.is_current ? 'Current' : 'Superseded') : 'On this phone'}
-              {drawing ? ` · ${formatDate(drawing.dated)}` : ''}
-            </Muted>
-            {drawing && displayLevel(drawing.level) ? (
-              <Text style={{ color: theme.text, fontWeight: '800' }}>{displayLevel(drawing.level)}</Text>
-            ) : null}
-          </View>
         ) : null}
         {drawing?.is_current && proof?.assigned && !proof.seen_at && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
           <NewRevBadge sheet={sheetLabel(drawing)} revision={drawing.revision} />
@@ -416,22 +455,15 @@ export default function DrawingViewerScreen() {
             accessibilityRole="text"
             accessibilityLabel={SAVED_ON_PHONE}
             style={{
-              minHeight: 56,
+              minHeight: hit.secondary,
               borderRadius: 14,
               backgroundColor: theme.surfaceAlt,
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: 18,
-              paddingVertical: 12,
             }}>
-            <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800', textAlign: 'center' }}>{SAVED_ON_PHONE}</Text>
+            <Text style={[textStyle.bodyStrong, { textAlign: 'center' }]}>{SAVED_ON_PHONE}</Text>
           </View>
-        ) : null}
-        {drawing?.is_current && proof?.seen_at && !confirmQueued(queuedSeen, drawing.id, drawing.revision) ? (
-          <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>
-            You saw rev {drawing.revision}
-            {formatUkDateTime(proof.seen_at) ? ` · ${formatUkDateTime(proof.seen_at)}` : ''}
-          </Text>
         ) : null}
         {drawing?.is_current &&
         proof?.assigned !== false &&
@@ -446,47 +478,40 @@ export default function DrawingViewerScreen() {
           />
         ) : null}
         {seenNote && seenNote !== SAVED_ON_PHONE ? <Text style={{ color: theme.danger }}>{seenNote}</Text> : null}
-        {manage && drawing?.is_current && roster ? (
-          <SeenCountChip
-            seen={roster.seen_count}
-            total={roster.assigned_count}
-            onPress={() => router.push(`/sites/${siteId}/seen/${drawing.id}`)}
-          />
-        ) : null}
-        {canReplace && drawing ? (
-          <Button
-            label="Replace"
-            variant="secondary"
-            onPress={() => router.push(`/sites/${siteId}/upload?replace=${drawing.id}`)}
-          />
-        ) : null}
-        {person?.role === 'owner' && drawing ? (
-          confirmDelete ? (
-            <View style={{ gap: 8 }}>
-              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{DELETE_DRAWING_CONFIRM}</Text>
-              <Button
-                label="Delete drawing"
-                variant="danger"
-                minHeight={48}
-                loading={deleting}
-                onPress={() => void onDelete()}
-              />
-              <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(false)} />
-            </View>
-          ) : (
+        {person?.role === 'owner' && drawing && confirmDelete ? (
+          <View style={{ gap: space.sm }}>
+            <Text style={textStyle.bodyStrong}>{DELETE_DRAWING_CONFIRM}</Text>
             <Button
               label="Delete drawing"
               variant="danger"
               minHeight={48}
-              onPress={() => setConfirmDelete(true)}
+              loading={deleting}
+              onPress={() => void onDelete()}
             />
-          )
+            <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(false)} />
+          </View>
         ) : null}
         {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
         {error ? <Button label="Retry" variant="secondary" onPress={() => setRetrying((value) => !value)} /> : null}
         {saveError ? <Text style={{ color: theme.danger }}>{saveError}</Text> : null}
+        {statusLine && openSeen ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={statusLine}
+            onPress={openSeen}
+            style={{ minHeight: hit.secondary, justifyContent: 'center' }}>
+            <Text style={textStyle.metaStrong} numberOfLines={1}>
+              {statusLine}
+            </Text>
+          </Pressable>
+        ) : statusLine ? (
+          <View accessibilityRole="text" accessibilityLabel={statusLine} style={{ minHeight: hit.secondary, justifyContent: 'center' }}>
+            <Text style={textStyle.metaStrong} numberOfLines={1}>
+              {statusLine}
+            </Text>
+          </View>
+        ) : null}
       </View>
-      {uri ? <DrawingFrame uri={uri} onError={setError} /> : null}
     </View>
   );
 }

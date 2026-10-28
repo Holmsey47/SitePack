@@ -1,4 +1,4 @@
-import { theme } from '@/lib/theme';
+import { fontFamily, textStyle, theme } from '@/lib/theme';
 import { Stack } from 'expo-router';
 
 export default function AppLayout() {
@@ -7,7 +7,7 @@ export default function AppLayout() {
       screenOptions={{
         headerStyle: { backgroundColor: theme.bg },
         headerTintColor: theme.text,
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fontFamily.bold, fontWeight: '700', fontSize: textStyle.title.fontSize },
         headerShadowVisible: false,
         contentStyle: { backgroundColor: theme.bg },
       }}>
@@ -15,9 +15,9 @@ export default function AppLayout() {
       <Stack.Screen name="create-site" options={{ title: 'Create site' }} />
       <Stack.Screen
         name="sites/index"
-        options={{ title: 'Sites', headerBackVisible: false, headerLeft: () => null }}
+        options={{ title: 'Sites', headerShown: false, headerBackVisible: false, headerLeft: () => null }}
       />
-      <Stack.Screen name="sites/[siteId]/index" options={{ title: 'Site pack' }} />
+      <Stack.Screen name="sites/[siteId]/index" options={{ title: 'Site' }} />
       <Stack.Screen name="sites/[siteId]/people" options={{ title: 'People' }} />
       <Stack.Screen name="sites/[siteId]/documents/index" options={{ title: 'Induction & RAMS' }} />
       <Stack.Screen name="sites/[siteId]/documents/new" options={{ title: 'Upload document' }} />
@@ -41,10 +41,10 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/assignments" options={{ title: 'Assigned people' }} />
       <Stack.Screen name="sites/[siteId]/invite-code" options={{ title: 'Invite to site' }} />
       <Stack.Screen name="sites/[siteId]/joined" options={{ title: 'Who joined' }} />
-      <Stack.Screen name="requests/index" options={{ title: 'Drawing requests' }} />
+      <Stack.Screen name="requests/index" options={{ title: 'Drawing requests', headerShown: false }} />
       <Stack.Screen name="requests/[requestId]" options={{ title: 'Request' }} />
       <Stack.Screen name="invite" options={{ title: 'Invite' }} />
-      <Stack.Screen name="people" options={{ title: 'People' }} />
+      <Stack.Screen name="people" options={{ title: 'People', headerShown: false }} />
       <Stack.Screen name="company" options={{ title: 'Company' }} />
       <Stack.Screen name="groups/index" options={{ title: 'Groups' }} />
       <Stack.Screen name="groups/[groupId]" options={{ title: 'Group' }} />

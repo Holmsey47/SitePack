@@ -1,4 +1,4 @@
-import { theme } from '@/lib/theme';
+import { hit, textStyle, theme } from '@/lib/theme';
 import { fixtureForceOffline, setFixtureForceOffline } from '@/lib/variationQueue';
 import { useState } from 'react';
 import { Pressable, Text } from 'react-native';
@@ -8,21 +8,18 @@ const enabled = __DEV__ && process.env.EXPO_PUBLIC_USE_FIXTURES === '1';
 /** Dev fixture control. Release builds drop this because the flag is off. */
 export function FixtureOfflineSwitch() {
   const [offline, setOffline] = useState(() => (enabled ? fixtureForceOffline() : false));
-  if (!enabled) return null;
+  if (!enabled || !offline) return null;
   return (
     <Pressable
       accessibilityRole="switch"
-      accessibilityState={{ checked: offline }}
-      accessibilityLabel={offline ? 'Phone offline' : 'Phone online'}
+      accessibilityState={{ checked: true }}
+      accessibilityLabel="Offline"
       onPress={() => {
-        const next = !offline;
-        setFixtureForceOffline(next);
-        setOffline(next);
+        setFixtureForceOffline(false);
+        setOffline(false);
       }}
-      style={{ minHeight: 48, justifyContent: 'center' }}>
-      <Text style={{ color: theme.current, fontSize: 16, fontWeight: '800' }}>
-        {offline ? 'Phone offline — taps stay on this phone' : 'Phone online'}
-      </Text>
+      style={{ minHeight: hit.min, justifyContent: 'center' }}>
+      <Text style={textStyle.bodyStrong}>Offline</Text>
     </Pressable>
   );
 }
@@ -50,7 +47,7 @@ export function FixtureReplaceRev({
         onReplaced(next.revision);
       }}
       style={{ minHeight: 48, justifyContent: 'center' }}>
-      <Text style={{ color: theme.muted, fontSize: 16, fontWeight: '800' }}>Mark this rev replaced</Text>
+      <Text style={{ ...textStyle.metaStrong, color: theme.muted }}>Mark this rev replaced</Text>
     </Pressable>
   );
 }

@@ -15,7 +15,7 @@ import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
 import { revisionCurrentLine } from '@/data/walk';
 import { setUploadBackGuard } from '@/lib/backRegistry';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -159,7 +159,6 @@ export default function UploadScreen() {
   return (
     <View style={{ flex: 1 }}>
     <Screen>
-      <Title>Upload</Title>
       <Field label="Title" value={title} onChangeText={setTitle} autoCapitalize="words" placeholder="Ground Floor GA" />
       <Field label="Sheet number" value={sheetNumber} onChangeText={setSheetNumber} placeholder="A-101" />
       <Field label="Revision" value={revision} onChangeText={setRevision} placeholder="D" />
@@ -236,8 +235,8 @@ export default function UploadScreen() {
     </Screen>
     <Modal visible={leaveAsk} transparent animationType="fade" onRequestClose={() => setLeaveAsk(false)}>
       <View style={{ flex: 1, backgroundColor: 'rgba(8, 10, 14, 0.86)', justifyContent: 'flex-end', padding: 16, gap: 12 }}>
-        <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>This upload is still going.</Text>
-        <Text style={{ color: theme.text, fontSize: 16, lineHeight: 22 }}>
+        <Text style={{ ...textStyle.title }}>This upload is still going.</Text>
+        <Text style={{ ...textStyle.meta }}>
           The upload keeps going. It becomes current when it finishes.
         </Text>
         <Button

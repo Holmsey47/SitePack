@@ -1,5 +1,5 @@
 import { SignaturePad } from '@/components/SignaturePad';
-import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
+import { Button, ErrorText, Field, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { newId } from '@/data/newId';
@@ -11,7 +11,7 @@ import { deviceIsOnline, persistThenSendSnag, SAVED_ON_PHONE } from '@/lib/snagQ
 import { saveSheet } from '@/lib/saveSheet';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine, SIGNED_ON_PHONE, signoffFormOpen, snagConfirmation, snagDisplayText, takeSignAgain } from '@/lib/snagWording';
-import { theme } from '@/lib/theme';
+import { textStyle, theme } from '@/lib/theme';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -330,25 +330,24 @@ export default function SnagSignScreen() {
 
   return (
     <Screen>
-      <Title>Sign off snags put right</Title>
       {shownSign ? (
         <View nativeID="signer-block" style={{ gap: 8 }}>
-          <Text nativeID="sign-off-state" style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>
+          <Text nativeID="sign-off-state" style={{ ...textStyle.title }}>
             {savedOnPhone ? SIGNED_ON_PHONE : 'Signed off'}
           </Text>
-          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+          <Text nativeID="put-right-list" style={{ ...textStyle.bodyStrong }}>
             {signedPutRight}
           </Text>
           {savedOnPhone ? (
             <Text
               nativeID="saved-on-phone"
-              style={{ color: theme.currentInk, backgroundColor: theme.current, fontWeight: '800', padding: 12, borderRadius: 12 }}
+              style={{ ...textStyle.bodyStrong, backgroundColor: theme.surface, padding: 12, borderRadius: 12 }}
             >
               {SAVED_ON_PHONE}
             </Text>
           ) : null}
           <Muted>{snagDisplayText(shownSign.confirmation)}</Muted>
-          <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>{snagDisplayText(shownSign.name)}</Text>
+          <Text style={{ ...textStyle.bodyStrong }}>{snagDisplayText(shownSign.name)}</Text>
           <Muted>{snagDisplayText(shownSign.role)}</Muted>
           <Muted>{snagDisplayText(shownSign.company)}</Muted>
           <Muted>Signed {formatUkDateTime(shownSign.signedAt)}</Muted>
@@ -356,12 +355,12 @@ export default function SnagSignScreen() {
       ) : null}
       {formOpen ? (
         <>
-          <Text nativeID="put-right-list" style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>
+          <Text nativeID="put-right-list" style={{ ...textStyle.bodyStrong }}>
             {formPutRight}
           </Text>
           {internal ? (
             <View nativeID="internal-check" style={{ gap: 8 }}>
-              <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Internal check</Text>
+              <Text style={{ ...textStyle.title }}>Internal check</Text>
               <Muted>This is an internal check. It is not sign-off by the main contractor.</Muted>
               <Field label="Company" value={internalCompany} onChangeText={setInternalCompany} autoCapitalize="words" maxLength={120} />
               <Muted>{snagDisplayText(snagConfirmation(internalCompany, 'internal', fixed.length))}</Muted>
@@ -375,7 +374,7 @@ export default function SnagSignScreen() {
             </View>
           ) : null}
           <View nativeID="contractor-sign" style={{ gap: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800' }}>Main contractor</Text>
+            <Text style={{ ...textStyle.title }}>Main contractor</Text>
             <Field label="Name" value={signerName} onChangeText={setSignerName} autoCapitalize="words" maxLength={120} />
             <Field label="Role" value={signerRole} onChangeText={setSignerRole} autoCapitalize="words" maxLength={80} />
             <Field
@@ -398,7 +397,7 @@ export default function SnagSignScreen() {
         </>
       ) : null}
       <View nativeID="outstanding-snags" style={{ gap: 8 }}>
-        <Text style={{ color: theme.text, fontSize: 18, fontWeight: '800' }}>Not signed off</Text>
+        <Text style={{ ...textStyle.bodyStrong }}>Not signed off</Text>
         <Muted>{outstandingHeading(outstandingCount)}</Muted>
         {shownOutstanding.map((line) => (
           <Muted key={line}>{line}</Muted>
