@@ -7,6 +7,7 @@ import { inviteFailureMessage } from '@/data/inviteError';
 import { groupCount } from '@/data/peopleGroups';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
+import { removeStoredAuthSession } from '@/lib/signOut';
 import type {
   CreateVariationInput,
   VariationDetail,
@@ -329,7 +330,7 @@ export const supabaseRepo: SitePackRepo = {
     }
     const person = await this.me();
     if (!person) {
-      await supabase.auth.signOut();
+      await this.signOut();
       throw new Error('Couldn’t sign in. Check email and password and try again.');
     }
     return { person, needsPassword: false };
@@ -347,7 +348,13 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signOut() {
-    await getSupabase().auth.signOut();
+    await removeStoredAuthSession();
+    try {
+      await getSupabase().auth.signOut({ scope: 'local' });
+    } catch {
+      // A network failure must not keep the sb-* key.
+    }
+    await removeStoredAuthSession();
   },
 
   async restoreSession() {
@@ -830,7 +837,7 @@ export const supabaseRepo: SitePackRepo = {
     if (error) throw new Error('sign_in_failed');
     const person = await this.me();
     if (!person) {
-      await getSupabase().auth.signOut();
+      await this.signOut();
       throw new Error('sign_in_failed');
     }
     return { person, needsPassword: false };

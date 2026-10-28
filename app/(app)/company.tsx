@@ -15,7 +15,7 @@ import { Pressable, View } from 'react-native';
 export default function CompanyScreen() {
   const { person, signOut } = useAuth();
   const router = useRouter();
-  if (!person) return <Redirect href="/sites" />;
+  if (!person) return <Redirect href="/login" />;
   if (person.role !== 'owner') {
     return <MemberCompany showMembers={person.role === 'cm'} onSignOut={() => void signOut()} onMembers={() => router.push('/people')} />;
   }
