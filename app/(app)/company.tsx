@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import type { PulseRow } from '@/data/types';
 import { archivedRows, RESTORE_SITE_CONFIRM } from '@/data/walk';
+import { appVersionLine } from '@/lib/appVersionLabel';
 import { hit, logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
@@ -24,6 +25,7 @@ export default function CompanyScreen() {
     <Screen>
       <OwnerList onMembers={() => router.push('/people')} onSignOut={() => void signOut()} />
       <ArchivedSites />
+      <AppVersion />
     </Screen>
   );
 }
@@ -65,6 +67,7 @@ function MemberCompany({
         </Pressable>
       ) : null}
       <SignOutRow confirm={confirm} setConfirm={setConfirm} onSignOut={onSignOut} />
+      <AppVersion />
     </Screen>
   );
 }
@@ -105,6 +108,14 @@ function SignOutRow({
       <Button label="Sign out" variant="danger" onPress={onSignOut} />
       <Button label="Cancel" variant="secondary" onPress={() => setConfirm(false)} />
     </View>
+  );
+}
+
+function AppVersion() {
+  return (
+    <Text accessibilityLabel="App version" style={[textStyle.meta, { textAlign: 'center', marginTop: space.xxl }]}>
+      {appVersionLine()}
+    </Text>
   );
 }
 

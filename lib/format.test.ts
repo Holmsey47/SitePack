@@ -58,14 +58,16 @@ test('a signature time is London wall time without the year', () => {
   assert.equal(formatSignedWhen(''), '');
 });
 
-test('the share panel and the active code list use the same expiry helper', () => {
+test('the share panel and the invite offer use the same expiry helper', () => {
   const panel = fs.readFileSync(new URL('../components/JoinSharePanel.tsx', import.meta.url), 'utf8');
-  const invite = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/invite-code.tsx', import.meta.url), 'utf8');
+  const offer = fs.readFileSync(new URL('../components/JoinCodeOffer.tsx', import.meta.url), 'utf8');
+  const cache = fs.readFileSync(new URL('./joinCodeCache.ts', import.meta.url), 'utf8');
   assert.match(panel, /formatCodeExpiry\(expiresAt\)/);
-  assert.match(invite, /formatCodeExpiry\(row\.expires_at\)/);
-  assert.match(panel, /uses > 0/);
-  assert.match(invite, /row\.uses > 0/);
-  assert.match(invite, /Share again/);
+  assert.match(cache, /formatCodeExpiry\(expiresAt/);
+  assert.match(offer, /activeCodeNotice\(/);
+  assert.match(offer, /uses=\{visible\.row\.uses\}/);
+  assert.match(panel, /\{uses\} of \{maxUses\} joined/);
+  assert.match(offer, /label="Regenerate"/);
   assert.doesNotMatch(panel, /formatDate\(expiresAt\)/);
-  assert.doesNotMatch(invite, /formatDate\(row\.expires_at\)/);
+  assert.doesNotMatch(offer, /formatDate\(/);
 });

@@ -142,11 +142,14 @@ test('the migration locks the code, hides the hash, and does not commit a pepper
   assert.match(migration, /drop function if exists public\.username_is_taken\(text\)/);
   assert.doesNotMatch(migration, /grant execute on function public\.username_is_taken\(text\) /);
   assert.doesNotMatch(migration, /'reset_code'/);
-  const invite = fs.readFileSync(
-    new URL('../app/(app)/sites/[siteId]/invite-code.tsx', import.meta.url),
-    'utf8'
+  const reuse = fs.readFileSync(new URL('../lib/joinCodeCache.ts', import.meta.url), 'utf8');
+  const regen = reuse.slice(
+    reuse.indexOf('export async function regenerateJoinCode'),
+    reuse.indexOf('export async function confirmThenRegenerate'),
   );
-  assert.match(invite, /createJoinCode[\s\S]*revokeJoinCode\(row\.id\)/);
+  assert.ok(regen.indexOf('await input.revoke(input.codeId)') < regen.indexOf('await input.forget(input.codeId)'));
+  assert.ok(regen.indexOf('await input.forget(input.codeId)') < regen.indexOf('input.onRevoked()'));
+  assert.ok(regen.indexOf('input.onRevoked()') < regen.indexOf('await input.issue()'));
   const vercelText = fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8');
   const vercelJson = JSON.parse(vercelText);
   const spa = vercelJson.rewrites.find((rule) => rule.destination === '/index.html');

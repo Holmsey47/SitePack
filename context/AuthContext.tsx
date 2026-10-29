@@ -9,6 +9,8 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
+import { clearJoinCodeCache } from '@/lib/joinCodeCache';
+import { joinCodeCachePort } from '@/lib/joinCodeCacheStorage';
 import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
@@ -49,6 +51,7 @@ async function bindCache(userId: string | null) {
     else {
       writeRemembered(null);
       await deleteAllDrawingCaches();
+      await clearJoinCodeCache(joinCodeCachePort());
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.
