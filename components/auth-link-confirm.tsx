@@ -2,8 +2,8 @@ import { useBackOverlay } from '@/components/useBackOverlay';
 import { Button, Screen } from '@/components/ui';
 import { AUTH_LINK_STAY_HINT, signOutAndUseLabel, staySignedInLabel } from '@/lib/authLink';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useState } from 'react';
-import { Text } from 'react-native';
 
 export function AuthLinkConfirm({
   currentAccount,

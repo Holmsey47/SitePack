@@ -1,8 +1,9 @@
 import { Icon } from '@/components/icon';
 import type { Role } from '@/data/types';
 import { hit, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { usePathname, useRouter } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TABS: { href: '/sites' | '/people' | '/requests'; label: string; icon: string }[] = [

@@ -2,6 +2,9 @@
 # Rebuild assets/fonts/MaterialSymbolsRounded.ttf from the glyph list.
 # The face is ligature-based (rlig). pyftsubset keeps those rules only when
 # layout closure is off and both the icon glyphs and their letter parts are named.
+# The subset is then pinned to a static Regular instance. expo-font 14 on
+# Android loads fonts with Typeface.createFromFile, which aborts on the
+# variable fvar/gvar tables this family ships with.
 # Requires: pip install fonttools
 set -eu
 cd "$(dirname "$0")/.."
@@ -73,7 +76,12 @@ pyftsubset "$FONT" \
 python3 - "$LIST" "$WORK/MaterialSymbolsRounded.ttf" << 'PY'
 import sys
 from pathlib import Path
-from fontTools.ttLib import TTFont
+
+try:
+    from fontTools.ttLib import TTFont
+    from fontTools.varLib.instancer import instantiateVariableFont
+except ImportError:
+    raise SystemExit("fontTools is not installed. Install it with: pip install fonttools")
 
 list_path, font_path = sys.argv[1:]
 digits = (
@@ -94,6 +102,18 @@ names = [
     if line.split("#", 1)[0].strip()
 ]
 font = TTFont(font_path)
+if "fvar" in font:
+    font = instantiateVariableFont(
+        font,
+        {"FILL": 0, "GRAD": 0, "opsz": 24, "wght": 400},
+        inplace=True,
+    )
+for tag in ("fvar", "gvar", "avar", "cvar", "HVAR", "VVAR", "MVAR", "STAT"):
+    if tag in font:
+        del font[tag]
+leftover = [tag for tag in ("fvar", "gvar", "avar", "STAT") if tag in font]
+if leftover:
+    raise SystemExit("variable tables remain: " + ", ".join(leftover))
 order = set(font.getGlyphOrder())
 missing = [name for name in names if name not in order]
 if missing:
@@ -131,6 +151,8 @@ for name in names:
         failed.append(name)
 if failed:
     raise SystemExit("ligatures did not resolve: " + ", ".join(failed))
+font.save(font_path)
+print("tables " + " ".join(tag for tag in font.keys() if tag != "GlyphOrder"))
 print(f"glyphs {len(order)}")
 print(f"bytes {Path(font_path).stat().st_size}")
 PY

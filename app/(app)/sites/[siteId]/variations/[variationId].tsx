@@ -21,11 +21,12 @@ import { variationConfirmation, variationHandoverSummary, variationPdfAmountLine
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { saveSheet } from '@/lib/saveSheet';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { createElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Image, Platform, Text, View } from 'react-native';
+import { Image, Platform, View } from 'react-native';
 
 function bytesToBlob(bytes: Uint8Array, type: string): Blob {
   const copy = new ArrayBuffer(bytes.byteLength);

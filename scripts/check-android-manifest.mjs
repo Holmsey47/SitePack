@@ -191,6 +191,19 @@ if (gradle.includes('storePassword "') || gradle.includes("storePassword 'upload
   process.exit(1);
 }
 
+const gradlePropertiesPath = path.resolve('android/gradle.properties');
+if (!fs.existsSync(gradlePropertiesPath)) {
+  console.error('android/gradle.properties is missing. Run expo prebuild first.');
+  process.exit(1);
+}
+const architectures = [...fs.readFileSync(gradlePropertiesPath, 'utf8').matchAll(/^reactNativeArchitectures=(.*)$/gm)].map(
+  (match) => match[1]
+);
+if (architectures.length !== 1 || architectures[0] !== 'arm64-v8a') {
+  console.error(`reactNativeArchitectures must be arm64-v8a. Found: ${architectures.join(' | ') || 'none'}`);
+  process.exit(1);
+}
+
 const autoStart = xml.indexOf('android:autoVerify="true"');
 const start = xml.lastIndexOf('<intent-filter', autoStart);
 const end = xml.indexOf('</intent-filter>', autoStart) + '</intent-filter>'.length;
@@ -200,3 +213,4 @@ console.log('Blocked permissions are present only as tools:node="remove".');
 console.log('service_role grep: clean.');
 console.log('android:allowBackup is false.');
 console.log('Release signing reads SITEPACK_KEYSTORE_* from the environment and fails closed.');
+console.log('reactNativeArchitectures is arm64-v8a.');

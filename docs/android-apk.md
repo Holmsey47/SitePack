@@ -39,7 +39,7 @@ Values may be wrapped in single or double quotes. Lines starting with `#` are ig
 
 The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1`, if a `SERVICE_ROLE` variable is set, or if `EXPO_PUBLIC_SUPABASE_ANON_KEY` is not an `sb_publishable_` key or a JWT whose role is `anon`. The refusal names the variable and does not print the key.
 
-It runs a clean Android prebuild, then `gradlew assembleRelease`. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project. A release build fails if any of those four is missing. It does not fall back to the debug keystore. Debug builds are unchanged and do not need the keystore.
+It runs a clean Android prebuild, then `gradlew assembleRelease`. Prebuild keeps `reactNativeArchitectures=arm64-v8a` via `plugins/withArm64Architectures.js`, so the release APK contains the arm64-v8a native libraries only. A 32-bit-only phone cannot install it. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project. A release build fails if any of those four is missing. It does not fall back to the debug keystore. Debug builds are unchanged and do not need the keystore.
 
 `expo prebuild` rewrites `package.json` (the `android` and `ios` scripts) and can rewrite other tracked files. On exit, including when the build fails, the script runs `git checkout` to put `package.json` back to HEAD and to restore any other tracked file that was clean when the script started. Do not leave uncommitted edits in `package.json` while you run it. Those edits are discarded. The generated `android/` directory is gitignored and is left in place.
 

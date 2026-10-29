@@ -4,9 +4,9 @@ import type { DrawingRequest } from '@/data/types';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { timeAgo } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text } from 'react-native';
 
 export default function SiteRequestsScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

@@ -20,10 +20,11 @@ import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from 
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/siteListSeenSync';
 import { space, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

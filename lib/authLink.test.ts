@@ -400,7 +400,8 @@ test('the address bar is cleared before boot awaits the network', () => {
   assert.ok(stripAt !== -1 && bootAt !== -1 && stripAt < bootAt);
   assert.ok(boot.includes('takeWebAuthUrl()'));
   assert.ok(boot.indexOf('takeWebAuthUrl()') < boot.indexOf('await'));
-  assert.equal(source.includes('localStorage?.setItem(PENDING_KEY'), true);
+  assert.match(source, /setItem\(PENDING_KEY, '1'\)/);
+  assert.match(source, /typeof storage\.setItem !== 'function'/);
   assert.doesNotMatch(source, /sessionStorage/);
   assert.doesNotMatch(source, /localStorage[\s\S]{0,80}accessToken/);
   const confirm = fs.readFileSync(new URL('../components/auth-link-confirm.tsx', import.meta.url), 'utf8');

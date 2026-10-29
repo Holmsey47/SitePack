@@ -8,9 +8,10 @@ import { claimSaveTap, releaseSaveTap, SAVED_OFFLINE, saveControl, type SavePhas
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { textStyle, theme } from '@/lib/theme';
 import { deviceIsOnline, persistThenSendSnag } from '@/lib/snagQueue';
+import { Text } from '@/src/theme/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { Image, Pressable, View } from 'react-native';
 
 export default function NewSnagScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

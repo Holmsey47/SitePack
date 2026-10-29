@@ -93,7 +93,6 @@ export const textStyle: {
     fontSize: typeScale.display,
     lineHeight: 34,
     fontFamily: fontFamily.extraBold,
-    fontWeight: '800' as const,
     letterSpacing: -0.4,
   },
   title: {
@@ -101,28 +100,24 @@ export const textStyle: {
     fontSize: typeScale.title,
     lineHeight: 28,
     fontFamily: fontFamily.bold,
-    fontWeight: '700' as const,
   },
   body: {
     color: theme.text,
     fontSize: typeScale.body,
     lineHeight: 24,
     fontFamily: fontFamily.regular,
-    fontWeight: '400' as const,
   },
   bodyStrong: {
     color: theme.text,
     fontSize: typeScale.body,
     lineHeight: 24,
     fontFamily: fontFamily.bold,
-    fontWeight: '700' as const,
   },
   meta: {
     color: theme.muted,
     fontSize: typeScale.meta,
     lineHeight: 20,
     fontFamily: fontFamily.regular,
-    fontWeight: '400' as const,
     ...tabular,
   },
   metaStrong: {
@@ -130,7 +125,6 @@ export const textStyle: {
     fontSize: typeScale.meta,
     lineHeight: 20,
     fontFamily: fontFamily.semibold,
-    fontWeight: '600' as const,
     ...tabular,
   },
   label: {
@@ -138,7 +132,6 @@ export const textStyle: {
     fontSize: typeScale.label,
     lineHeight: 18,
     fontFamily: fontFamily.semibold,
-    fontWeight: '600' as const,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },

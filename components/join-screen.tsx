@@ -5,7 +5,7 @@ import { clearStagedJoinCode, peekStagedJoinCode, stageJoinCode } from '@/lib/ap
 import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Text } from 'react-native';
+import { Platform } from 'react-native';
 
 /**
  * The form is the only check. Opening the link does not call the server.
@@ -26,7 +26,7 @@ export function JoinScreen({ routeCode }: { routeCode?: string }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      if (!routeCode || typeof window === 'undefined') return;
+      if (!routeCode || typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') return;
       // The router writes the code into the address bar after this effect.
       // Strip again on the next turn so the code does not stay in the URL.
       const strip = () => {

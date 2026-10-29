@@ -1,4 +1,5 @@
 import { currentSheetId } from '@/data/drawingSeen';
+import { usableLocalStorage } from '@/lib/hostStorage';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
 
@@ -160,8 +161,8 @@ let active: DrawingSeenQueue | null = null;
 
 export function getDrawingSeenQueue(): DrawingSeenQueue {
   if (!active) {
-    active =
-      typeof localStorage !== 'undefined' ? storageDrawingSeenQueue(localStorage) : memoryDrawingSeenQueue();
+    const stored = usableLocalStorage();
+    active = stored ? storageDrawingSeenQueue(stored) : memoryDrawingSeenQueue();
   }
   return active;
 }

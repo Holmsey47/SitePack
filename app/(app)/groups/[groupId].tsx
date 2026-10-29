@@ -17,10 +17,11 @@ import type { CompanyPerson, PeopleGroup, PulseRow } from '@/data/types';
 import { personLabel } from '@/data/walk';
 import { Icon } from '@/components/icon';
 import { iconSize, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function GroupScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();

@@ -1,4 +1,5 @@
 import { isRetryableSnagFailure, snagFailureCode, snagFailureFrom } from '@/data/snagFailure';
+import { usableLocalStorage } from '@/lib/hostStorage';
 import { createSaveGate, enqueueOnce } from '@/lib/offlineSave';
 
 export { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
@@ -430,7 +431,8 @@ let active: SnagQueueStore | null = null;
 
 export function getSnagQueue(): SnagQueueStore {
   if (!active) {
-    active = indexedDbQueue() ?? (typeof localStorage !== 'undefined' ? storageSnagQueue(localStorage) : memorySnagQueue());
+    const stored = usableLocalStorage();
+    active = indexedDbQueue() ?? (stored ? storageSnagQueue(stored) : memorySnagQueue());
   }
   return active;
 }

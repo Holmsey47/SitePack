@@ -4,10 +4,11 @@ import { repo } from '@/data/index';
 import { SITE_DOCUMENT_KINDS, siteDocumentBytesError, siteDocumentPickError, type SiteDocumentKind } from '@/data/siteDocuments';
 import { textStyle } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
+import { Text } from '@/src/theme/text';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 export default function NewSiteDocumentScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();

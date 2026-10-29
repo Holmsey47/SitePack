@@ -35,9 +35,10 @@ import { localDrawingUri, readCachedSites, readPackMeta } from '@/lib/offline';
 import { drawingCopyIsStale } from '@/lib/offlinePack';
 import { saveSheet } from '@/lib/saveSheet';
 import { hit, space, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DrawingViewerScreen() {

@@ -1,7 +1,8 @@
 import { SITE_HEADER_HIT, SITE_HEADER_INSET } from '@/data/siteListSeen';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { type Href, useRouter } from 'expo-router';
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
 
 export function SitesBackButton() {
   const router = useRouter();

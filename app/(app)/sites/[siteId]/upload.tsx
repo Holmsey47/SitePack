@@ -17,11 +17,12 @@ import { revisionCurrentLine } from '@/data/walk';
 import { setUploadBackGuard } from '@/lib/backRegistry';
 import { textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
+import { Text } from '@/src/theme/text';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Redirect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Platform, Text, View } from 'react-native';
+import { Modal, Platform, View } from 'react-native';
 
 export default function UploadScreen() {
   const { siteId, replace } = useLocalSearchParams<{ siteId: string; replace?: string }>();

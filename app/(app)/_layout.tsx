@@ -1,13 +1,15 @@
-import { fontFamily, textStyle, theme } from '@/lib/theme';
+import { theme } from '@/lib/theme';
+import { navigationTitleStyle, useCustomFonts } from '@/src/theme/text';
 import { Stack } from 'expo-router';
 
 export default function AppLayout() {
+  const customFonts = useCustomFonts();
   return (
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: theme.bg },
         headerTintColor: theme.text,
-        headerTitleStyle: { fontFamily: fontFamily.bold, fontWeight: '700', fontSize: textStyle.title.fontSize },
+        headerTitleStyle: navigationTitleStyle(customFonts),
         headerShadowVisible: false,
         contentStyle: { backgroundColor: theme.bg },
       }}>

@@ -7,8 +7,9 @@ import {
 } from '@/data/siteListSeen';
 import { Icon } from '@/components/icon';
 import { iconSize, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { type Href, useRouter } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function SiteBar({

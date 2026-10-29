@@ -4,9 +4,10 @@ import type { DrawingRequest } from '@/data/types';
 import { timeAgo } from '@/lib/format';
 import { Icon } from '@/components/icon';
 import { iconSize, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function RequestDetailScreen() {
   const { requestId } = useLocalSearchParams<{ requestId: string }>();

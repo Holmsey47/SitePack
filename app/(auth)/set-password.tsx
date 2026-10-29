@@ -2,9 +2,10 @@ import { Button, ErrorText, Field, Muted, Screen, Title } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext';
 import { spentInviteGuidance } from '@/lib/inviteGrant';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 
 export default function SetPasswordScreen() {
   const { setPassword, signOut, person } = useAuth();
@@ -31,7 +32,10 @@ export default function SetPasswordScreen() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not set password.';
       if (message.toLowerCase().includes('different from the old password')) {
-        const pageUrl = typeof window !== 'undefined' ? window.location.href : null;
+        const pageUrl =
+          Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.location?.href === 'string'
+            ? window.location.href
+            : null;
         setError(spentInviteGuidance(pageUrl));
         return;
       }

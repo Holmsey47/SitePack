@@ -6,15 +6,16 @@ import { repo } from '@/data/index';
 import type { PulseRow } from '@/data/types';
 import { archivedRows, RESTORE_SITE_CONFIRM } from '@/data/walk';
 import { hit, logo, space, textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 /** Company settings. Owners edit the mark. Everyone can sign out from the bottom of the list. */
 export default function CompanyScreen() {
   const { person, signOut } = useAuth();
   const router = useRouter();
-  if (!person) return <Redirect href="/sites" />;
+  if (!person) return <Redirect href="/login" />;
   if (person.role !== 'owner') {
     return <MemberCompany showMembers={person.role === 'cm'} onSignOut={() => void signOut()} onMembers={() => router.push('/people')} />;
   }

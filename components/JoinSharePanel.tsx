@@ -13,10 +13,11 @@ import {
 import { formatJoinCode } from '@/data/joinCodes';
 import { formatCodeExpiry } from '@/lib/format';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, Share, StyleSheet, View } from 'react-native';
 
 type JoinSharePanelProps = {
   code: string;

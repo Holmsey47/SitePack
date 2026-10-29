@@ -12,6 +12,7 @@ import { captureIncomingLink } from '@/lib/appLinks';
 import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
+import { authTokenStorageKey, performSignOut, removeStoredAuthSession, userIdAfterAuthEvent } from '@/lib/signOut';
 import { repo, useFixtures } from '@/data/index';
 import { getSupabase, hasSupabaseConfig } from '@/lib/supabase';
 import type { JoinWithCodeInput, Person, Role } from '@/data/types';
@@ -55,13 +56,7 @@ async function bindCache(userId: string | null) {
 }
 
 function authTokenKey(): string | null {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-  try {
-    const host = new URL(url).hostname.split('.')[0];
-    return host ? `sb-${host}-auth-token` : null;
-  } catch {
-    return null;
-  }
+  return authTokenStorageKey();
 }
 
 /** The session blob in auth storage. getSession() drops it when an offline refresh fails. */
@@ -84,9 +79,26 @@ function isRole(value: unknown): value is Role {
   return value === 'operative' || value === 'cm' || value === 'owner';
 }
 
+function rememberedStorage(): Storage | null {
+  try {
+    const storage = globalThis.localStorage;
+    if (
+      !storage ||
+      typeof storage.getItem !== 'function' ||
+      typeof storage.setItem !== 'function' ||
+      typeof storage.removeItem !== 'function'
+    ) {
+      return null;
+    }
+    return storage;
+  } catch {
+    return null;
+  }
+}
+
 function readRemembered(userId: string): Person | null {
   try {
-    const raw = globalThis.localStorage?.getItem(PERSON_KEY);
+    const raw = rememberedStorage()?.getItem(PERSON_KEY);
     if (!raw) return null;
     const person = JSON.parse(raw) as Person;
     if (person?.auth_user_id !== userId || !isRole(person.role) || typeof person.id !== 'string') return null;
@@ -98,8 +110,10 @@ function readRemembered(userId: string): Person | null {
 
 function writeRemembered(person: Person | null) {
   try {
-    if (!person?.auth_user_id) globalThis.localStorage?.removeItem(PERSON_KEY);
-    else globalThis.localStorage?.setItem(PERSON_KEY, JSON.stringify(person));
+    const storage = rememberedStorage();
+    if (!storage) return;
+    if (!person?.auth_user_id) storage.removeItem(PERSON_KEY);
+    else storage.setItem(PERSON_KEY, JSON.stringify(person));
   } catch {
     // The in-memory person still signs this launch in.
   }
@@ -171,7 +185,7 @@ async function restoreStoredSession(): Promise<{ userId: string | null; person: 
 
 function readPending(): boolean {
   try {
-    return globalThis.localStorage?.getItem(PENDING_KEY) === '1';
+    return rememberedStorage()?.getItem(PENDING_KEY) === '1';
   } catch {
     return false;
   }
@@ -179,8 +193,10 @@ function readPending(): boolean {
 
 function writePending(value: boolean) {
   try {
-    if (value) globalThis.localStorage?.setItem(PENDING_KEY, '1');
-    else globalThis.localStorage?.removeItem(PENDING_KEY);
+    const storage = rememberedStorage();
+    if (!storage) return;
+    if (value) storage.setItem(PENDING_KEY, '1');
+    else storage.removeItem(PENDING_KEY);
   } catch {
     // ignore
   }
@@ -194,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [confirmAccounts, setConfirmAccounts] = useState<ConfirmAccounts | null>(null);
   const confirmResolve = useRef<((accepted: boolean) => void) | null>(null);
+  const sessionEpoch = useRef(0);
 
   useLayoutEffect(() => {
     ensureWebAuthUrlStripped();
@@ -251,7 +268,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         signOut: async () => {
           await bindCache(null);
-          await supabase.auth.signOut();
+          await removeStoredAuthSession();
+          try {
+            await supabase.auth.signOut({ scope: 'local' });
+          } catch {
+            // The stored key is removed with the rest of the session.
+          }
+          await removeStoredAuthSession();
         },
         confirm,
       };
@@ -310,16 +333,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await accept(linkUrl, Platform.OS !== 'web');
         if (!useFixtures && hasSupabaseConfig) {
           const supabase = getSupabase();
-          supabase.auth.onAuthStateChange(async (_event, session) => {
-            const live = session?.user?.id
-              ? { userId: session.user.id, email: session.user.email ?? null }
-              : await readStoredSessionUser();
+          supabase.auth.onAuthStateChange(async (event, session) => {
+            const epoch = sessionEpoch.current;
+            const still = () => !cancelled && sessionEpoch.current === epoch;
+            const stored = event === 'SIGNED_OUT' || session?.user?.id ? null : await readStoredSessionUser();
+            if (!still()) return;
+            const userId = userIdAfterAuthEvent(event, session?.user?.id ?? null, stored?.userId ?? null);
+            const live = userId ? { userId, email: session?.user?.email ?? stored?.email ?? null } : null;
             if (!live) {
               await bindCache(null);
-              if (!cancelled) setPerson(null);
+              if (still()) setPerson(null);
               return;
             }
             const online = session?.user?.id ? await classifyOnlineUser() : 'offline';
+            if (!still()) return;
             const decision = coldStartCache(live.userId, online);
             if (decision.wipe || !decision.userId) {
               await bindCache(null);
@@ -329,18 +356,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 } catch {
                   // The stored session is already gone.
                 }
+                await removeStoredAuthSession();
               }
-              if (!cancelled) setPerson(null);
+              if (still()) setPerson(null);
               return;
             }
             await bindCache(decision.userId);
             const person = await personForStoredUser(decision.userId, live.email, online);
+            if (!still()) return;
             if (!person) {
               await bindCache(null);
-              if (!cancelled) setPerson(null);
+              if (still()) setPerson(null);
               return;
             }
-            if (!cancelled) setPerson(person);
+            if (still()) setPerson(person);
           });
         }
         if (!useFixtures && hasSupabaseConfig) {
@@ -451,12 +480,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPerson(me);
       },
       signOut: async () => {
-        await bindCache(null);
-        await repo.signOut();
+        sessionEpoch.current += 1;
+        const href = await performSignOut({
+          signOutLocal: () => repo.signOut(),
+          clearStoredSession: () => removeStoredAuthSession(),
+          clearAppCache: () => bindCache(null),
+        });
         writePending(false);
         setLinkError(null);
         setNeedsPassword(false);
         setPerson(null);
+        router.replace(href);
       },
       setPassword: async (password) => {
         await repo.setPassword(password);

@@ -5,7 +5,7 @@ import { clearStagedResetCode, peekStagedResetCode, stageResetCode } from '@/lib
 import { logo } from '@/lib/theme';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Text } from 'react-native';
+import { Platform } from 'react-native';
 
 export function ResetScreen({ routeCode }: { routeCode?: string }) {
   const { redeemPasswordReset } = useAuth();
@@ -18,7 +18,7 @@ export function ResetScreen({ routeCode }: { routeCode?: string }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      if (!routeCode || typeof window === 'undefined') return;
+      if (!routeCode || typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') return;
       const strip = () => {
         const next = publicCodePath(window.location.pathname);
         if (next) window.history.replaceState(window.history.state, '', next);

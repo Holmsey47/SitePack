@@ -136,7 +136,8 @@ test('company logo policies stay on the private bucket and the owner column', ()
   assert.match(editor.slice(editor.indexOf('<Modal'), editor.indexOf('</Modal>')), /save\(null\)/);
   const page = fs.readFileSync('app/(app)/company.tsx', 'utf8');
   assert.match(page, /person\.role !== 'owner'/);
-  assert.match(page, /<Redirect href="\/sites" \/>/);
+  assert.match(page, /<Redirect href="\/login" \/>/);
+  assert.doesNotMatch(page, /<Redirect href="\/sites" \/>/);
   assert.match(page, /<CompanyLogoEditor \/>/);
   assert.doesNotMatch(page, /TextInput|setCompanyName|rename/);
   assert.match(fs.readFileSync('app/(app)/sites/index.tsx', 'utf8'), /<CompanyLogo \/>/);

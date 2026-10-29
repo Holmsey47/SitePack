@@ -1,5 +1,5 @@
 import { fontFamily, iconSize as defaultSize, theme } from '@/lib/theme';
-import { Text } from 'react-native';
+import { Text } from '@/src/theme/text';
 
 /** Material Icons names still used by the site bar, mapped to Material Symbols ligatures. */
 const LIGATURE: Record<string, string> = {

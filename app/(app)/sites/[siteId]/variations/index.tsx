@@ -7,9 +7,10 @@ import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariati
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 const FILTERS: VariationFilter[] = ['All', 'Draft', 'Signed', 'Sent'];
 

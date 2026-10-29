@@ -13,11 +13,12 @@ import {
 import { formatSignedWhen, formatUkDateTime } from '@/lib/format';
 import { space, textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
+import { Text } from '@/src/theme/text';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Platform, ScrollView, Text, View } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 
 export default function SiteDocumentScreen() {
   const { siteId, documentId } = useLocalSearchParams<{ siteId: string; documentId: string }>();

@@ -3,9 +3,10 @@ import { personLabel, sheetLabel } from '@/data/drawingSeen';
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
 import { textStyle, theme } from '@/lib/theme';
+import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 export default function NotSeenPersonScreen() {
   const { siteId, personId } = useLocalSearchParams<{ siteId: string; personId: string }>();
