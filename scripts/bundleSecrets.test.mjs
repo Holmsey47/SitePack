@@ -16,7 +16,7 @@ function fakeJwt(payload) {
 
 const anonJwt = fakeJwt({ role: 'anon', ref: 'fake-test-not-a-secret' });
 const serviceJwt = fakeJwt({ role: 'service_role', ref: 'fake-test-not-a-secret' });
-const secretKey = `sb_secret_${'FAKE'.repeat(8)}`;
+const secretKey = `sb_secret_${'FAKE'.repeat(8)}9`;
 const pem = '-----BEGIN RSA PRIVATE KEY-----\nFAKEFAKEFAKE\n-----END RSA PRIVATE KEY-----';
 
 test('a publishable key is accepted and a legacy JWT or sb_secret_ key is refused without printing it', () => {
@@ -47,6 +47,11 @@ test('the bundle scan allows a fake anon JWT and rejects a fake service role, sb
   const prefixOnly = "value.startsWith('sb_secret_') || error === 'secret_key_missing'";
   assert.equal(
     inspectBundleText(prefixOnly).some((finding) => finding.kind === 'sb_secret'),
+    false
+  );
+  const glued = 'sb_secret_key_missing-native-performanceEntryTypeToRaw';
+  assert.equal(
+    inspectBundleText(glued).some((finding) => finding.kind === 'sb_secret'),
     false
   );
 

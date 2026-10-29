@@ -17,7 +17,10 @@ const forbidden = [
 
 const maxBytes = 50_000_000;
 const jwtPattern = /[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
-const secretKeyPattern = /sb_secret_[A-Za-z0-9_-]{20,}/g;
+// A real sb_secret_ value has a long suffix and a digit. The Hermes string
+// table packs the SDK's "sb_secret_" prefix against the next identifier, which
+// is letters, underscores, and hyphens with no digit.
+const secretKeyPattern = /sb_secret_(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g;
 const pemPattern = /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----/g;
 
 export function inspectBundleText(text) {
