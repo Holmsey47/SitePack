@@ -19,7 +19,7 @@ registerHooks({
       return nextResolve(resolveSource(base).href, context);
     }
     const parent = context.parentURL ?? '';
-    const inApp = parent.includes('/workspace/') && !parent.includes('/node_modules/');
+    const inApp = parent.startsWith('file:') && !parent.includes('/node_modules/') && /\.(tsx|ts|mjs)$/.test(parent);
     if (inApp && (specifier.startsWith('./') || specifier.startsWith('../')) && !/\.[a-zA-Z0-9]+$/.test(specifier)) {
       return nextResolve(resolveSource(new URL(specifier, parent)).href, context);
     }
