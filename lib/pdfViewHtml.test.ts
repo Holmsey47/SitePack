@@ -38,9 +38,10 @@ test('Open PDF stays inside the app for every signed-url browser open', () => {
   const frame = fs.readFileSync('components/pdf-frame.tsx', 'utf8');
   assert.match(frame, /source=\{\{ html, baseUrl: 'about:blank' \}\}/);
   assert.match(frame, /setSupportMultipleWindows=\{false\}/);
-  assert.match(frame, /supabase\\.co/);
+  assert.match(frame, /allowsEmbeddedViewerUrl/);
   const web = fs.readFileSync('components/pdf-frame.web.tsx', 'utf8');
   assert.match(web, /srcDoc: html/);
+  assert.match(web, /sandbox: 'allow-scripts'/);
   assert.equal(web.includes('window.open'), false);
   const share = fs.readFileSync('lib/sharePdf.ts', 'utf8');
   assert.equal(share.includes('supabase.co'), false);

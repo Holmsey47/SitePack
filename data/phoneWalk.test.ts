@@ -76,7 +76,10 @@ test('phone walk copy and ids', () => {
   assert.match(fs.readFileSync('assets/pdfjs/pdf.min.pdfjs', 'utf8'), /pdfjsLib/);
   assert.match(fs.readFileSync('assets/pdfjs/pdf.worker.min.pdfjs', 'utf8'), /pdfjsWorker/);
   assert.equal(frame.includes('createObjectURL'), false);
-  assert.match(frame, /source=\{\{ html \}\}/);
+  assert.match(frame, /source=\{\{ html, baseUrl: 'about:blank' \}\}/);
+  assert.match(frame, /allowsEmbeddedViewerUrl/);
+  assert.match(webFrame, /sandbox: 'allow-scripts'/);
+  assert.equal(webFrame.includes('allow-same-origin'), false);
   assert.equal(webFrame.includes('src: uri'), false);
   assert.match(webFrame, /srcDoc: html/);
   const namesMigration = fs.readFileSync('supabase/migrations/20260924120000_contracts_manager_names.sql', 'utf8');

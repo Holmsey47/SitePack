@@ -11,6 +11,7 @@ export function PdfFrame({
   onPage: (page: number, total: number) => void;
   onError: () => void;
 }) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   const onPageRef = useRef(onPage);
   const onErrorRef = useRef(onError);
   onPageRef.current = onPage;
@@ -18,6 +19,7 @@ export function PdfFrame({
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
+      if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
       const parsed = parsePdfMessage(event.data);
       if (!parsed) return;
       if ('error' in parsed) onErrorRef.current();
@@ -28,7 +30,9 @@ export function PdfFrame({
   }, []);
 
   return createElement('iframe', {
+    ref: frameRef,
     title: 'PDF',
+    sandbox: 'allow-scripts',
     srcDoc: html,
     style: {
       flex: 1,

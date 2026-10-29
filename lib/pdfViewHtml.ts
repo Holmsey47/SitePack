@@ -117,7 +117,7 @@ async function drawAll() {
   }
   currentPage();
 }
-pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise.then(async function (doc) {
+pdfjsLib.getDocument({ data: bytes(${pdf}), isEvalSupported: false }).promise.then(async function (doc) {
   var holder = document.getElementById('pages');
   for (var n = 1; n <= doc.numPages; n++) {
     var page = await doc.getPage(n);

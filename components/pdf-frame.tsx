@@ -1,11 +1,8 @@
 import { parsePdfMessage } from '@/lib/pdfViewHtml';
 import { theme } from '@/lib/theme';
+import { allowsEmbeddedViewerUrl } from '@/lib/viewerNavigation';
 import { useRef } from 'react';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-
-function allowsViewerUrl(url: string): boolean {
-  return !/supabase\.co/i.test(url);
-}
 
 export function PdfFrame({
   html,
@@ -40,7 +37,7 @@ export function PdfFrame({
         failed.current = true;
         onError();
       }}
-      onShouldStartLoadWithRequest={(request) => allowsViewerUrl(request.url)}
+      onShouldStartLoadWithRequest={(request) => allowsEmbeddedViewerUrl(request.url)}
       setSupportMultipleWindows={false}
       scalesPageToFit={false}
       setBuiltInZoomControls={false}
