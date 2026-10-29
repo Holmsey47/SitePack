@@ -44,6 +44,8 @@
     "data/startCompany.test.ts",
     "data/companyLogo.test.ts",
     "lib/photoPrep.test.ts",
+    "lib/joinCodeCache.test.ts",
+    "lib/appVersion.test.ts",
     "lib/variationQueue.test.ts",
     "lib/variationPdf.test.ts",
     "lib/variationWording.test.ts"

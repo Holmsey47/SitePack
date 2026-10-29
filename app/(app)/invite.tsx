@@ -1,13 +1,12 @@
-import { JoinSharePanel } from '@/components/JoinSharePanel';
+import { JoinCodeOffer } from '@/components/JoinCodeOffer';
 import { Button, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { inviteFailureMessage } from '@/data/inviteError';
 import { inviteSiteChoice, inviteSitesFromPulse } from '@/data/inviteEntry';
-import { JOIN_DEFAULT_HOURS, JOIN_DEFAULT_MAX_USES, joinFailureMessage } from '@/data/joinCodes';
 import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
-import type { JoinCodeCreated, PulseRow, Role } from '@/data/types';
+import type { PulseRow, Role } from '@/data/types';
 import { roleLabel } from '@/data/walk';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
@@ -29,12 +28,10 @@ export default function InviteScreen() {
   const [sites, setSites] = useState<PulseRow[]>([]);
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [share, setShare] = useState<JoinCodeCreated | null>(null);
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState('');
   const [emailDone, setEmailDone] = useState(false);
   const [emailOpen, setEmailOpen] = useState(emailFlag === '1');
-  const [creating, setCreating] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -88,24 +85,6 @@ export default function InviteScreen() {
 
   function toggleSite(siteId: string) {
     setSiteIds((current) => (current.includes(siteId) ? current.filter((id) => id !== siteId) : [...current, siteId]));
-  }
-
-  async function onCreateCode() {
-    if (!selectedId) return;
-    setCreating(true);
-    setError('');
-    try {
-      const created = await repo.createJoinCode({
-        siteId: selectedId,
-        maxUses: JOIN_DEFAULT_MAX_USES,
-        hours: JOIN_DEFAULT_HOURS,
-      });
-      setShare(created);
-    } catch (err) {
-      setError(joinFailureMessage(err instanceof Error ? err.message : 'join_rejected'));
-    } finally {
-      setCreating(false);
-    }
   }
 
   async function onSubmit() {
@@ -171,23 +150,14 @@ export default function InviteScreen() {
               </Pressable>
             );
           })}
-          <Button
-            label="Create code"
-            minHeight={56}
-            onPress={() => void onCreateCode()}
-            loading={creating}
-            disabled={!selectedId}
-          />
+          {selectedId ? (
+            <JoinCodeOffer
+              key={selectedId}
+              siteId={selectedId}
+              siteName={openSites.find((site) => site.id === selectedId)?.name ?? 'this site'}
+            />
+          ) : null}
         </View>
-      ) : null}
-      {share ? (
-        <JoinSharePanel
-          code={share.code}
-          siteName={share.site_name}
-          expiresAt={share.expires_at}
-          uses={0}
-          maxUses={share.max_uses}
-        />
       ) : null}
       <ErrorText>{error}</ErrorText>
       <Pressable

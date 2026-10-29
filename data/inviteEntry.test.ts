@@ -150,9 +150,10 @@ test('operatives never see the invite buttons', () => {
   const invite = fs.readFileSync(new URL('../app/(app)/invite.tsx', import.meta.url), 'utf8');
   assert.match(invite, /canManageSite/);
   assert.match(invite, /Redirect href="\/sites"/);
-  assert.match(invite, /JoinSharePanel/);
+  assert.match(invite, /JoinCodeOffer/);
   assert.match(invite, /Invite by email instead/);
   assert.match(invite, /Make a site first/);
+  assert.doesNotMatch(invite, /createJoinCode/);
   assert.doesNotMatch(invite, /console\.(log|debug|info|warn)/);
 
   const site = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/index.tsx', import.meta.url), 'utf8');
@@ -180,9 +181,11 @@ test('operatives never see the invite buttons', () => {
   assert.equal(COPIED_CONFIRMATION_MS, 2000);
 
   const perSite = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/invite-code.tsx', import.meta.url), 'utf8');
-  assert.match(perSite, /JoinSharePanel/);
-  assert.match(perSite, /createJoinCode[\s\S]*revokeJoinCode\(row\.id\)/);
+  const offer = fs.readFileSync(new URL('../components/JoinCodeOffer.tsx', import.meta.url), 'utf8');
+  assert.match(perSite, /JoinCodeOffer/);
+  assert.match(offer, /JoinSharePanel/);
   assert.match(perSite, /canManageSite/);
+  assert.doesNotMatch(perSite, /createJoinCode/);
   assert.doesNotMatch(perSite, /Copy the message below/);
   assert.doesNotMatch(perSite, /console\.(log|debug|info|warn)/);
 });
