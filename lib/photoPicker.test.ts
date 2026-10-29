@@ -92,8 +92,8 @@ test('app.json asks for the camera in plain words and keeps the Android camera p
   if (typeof options.cameraPermission !== 'string') throw new Error('camera permission missing');
   assert.match(options.cameraPermission, /camera/i);
   assert.equal(options.microphonePermission, false);
-  assert.equal(app.expo.version, '0.2.9');
-  assert.equal(app.expo.android.versionCode, 12);
+  assert.equal(app.expo.version, '0.2.10');
+  assert.equal(app.expo.android.versionCode, 13);
   assert.ok(app.expo.android.permissions.includes('android.permission.CAMERA'));
   assert.equal(app.expo.android.blockedPermissions.includes('CAMERA'), false);
   const manifest = fs.readFileSync('scripts/check-android-manifest.mjs', 'utf8');

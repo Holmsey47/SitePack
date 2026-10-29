@@ -31,7 +31,7 @@ function shareWasCancelled(error: unknown): boolean {
   return typeof error === 'object' && error != null && 'name' in error && (error as { name?: string }).name === 'AbortError';
 }
 
-/** One share card for /invite and the per-site screen, including after Share again. */
+/** Share card for the code currently on screen. WhatsApp, Share and Copy all use that code. */
 export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: JoinSharePanelProps) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -111,11 +111,9 @@ export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: Joi
         {displayCode}
       </Text>
       <Muted>{formatCodeExpiry(expiresAt)}</Muted>
-      {uses > 0 ? (
-        <Muted>
-          {uses} of {maxUses} joined
-        </Muted>
-      ) : null}
+      <Muted>
+        {uses} of {maxUses} joined
+      </Muted>
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
