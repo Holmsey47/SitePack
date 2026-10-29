@@ -18,7 +18,7 @@ export function ResetScreen({ routeCode }: { routeCode?: string }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      if (!routeCode || typeof window === 'undefined') return;
+      if (!routeCode || typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') return;
       const strip = () => {
         const next = publicCodePath(window.location.pathname);
         if (next) window.history.replaceState(window.history.state, '', next);

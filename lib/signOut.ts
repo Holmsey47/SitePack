@@ -27,10 +27,14 @@ export function userIdAfterAuthEvent(
 }
 
 export async function removeAuthSessionKeys(storage: AuthStorage, storageKey: string | null): Promise<void> {
-  if (!storageKey) return;
-  await storage.removeItem(storageKey);
-  await storage.removeItem(`${storageKey}-user`);
-  await storage.removeItem(`${storageKey}-code-verifier`);
+  if (!storageKey || typeof storage.removeItem !== 'function') return;
+  for (const key of [storageKey, `${storageKey}-user`, `${storageKey}-code-verifier`]) {
+    try {
+      await storage.removeItem(key);
+    } catch {
+      // A partial localStorage on native must not throw during sign-out.
+    }
+  }
 }
 
 /** Drop the sb-* session from web localStorage or the native SecureStore chunks. */

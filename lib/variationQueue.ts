@@ -1,3 +1,4 @@
+import { usableLocalStorage } from '@/lib/hostStorage';
 import { createSaveGate, enqueueOnce } from '@/lib/offlineSave';
 
 export const SAVED_ON_PHONE = 'Saved on phone, will send';
@@ -263,7 +264,8 @@ let active: VariationQueueStore | null = null;
 
 export function getVariationQueue(): VariationQueueStore {
   if (!active) {
-    active = indexedDbQueue() ?? (typeof localStorage !== 'undefined' ? storageVariationQueue(localStorage) : memoryVariationQueue());
+    const stored = usableLocalStorage();
+    active = indexedDbQueue() ?? (stored ? storageVariationQueue(stored) : memoryVariationQueue());
   }
   return active;
 }
@@ -292,15 +294,24 @@ export function setFixtureForceOffline(offline: boolean): void {
   }
 }
 
+function navigatorOnLine(): boolean | null {
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') return null;
+    return navigator.onLine;
+  } catch {
+    return null;
+  }
+}
+
 export async function deviceIsOnline(): Promise<boolean> {
   if (fixtureForceOffline()) return false;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  if (navigatorOnLine() === false) return false;
   try {
     const network = await import('expo-network');
     const state = await network.getNetworkStateAsync();
     if (state.isConnected === false || state.isInternetReachable === false) return false;
   } catch {
-    return typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+    return navigatorOnLine() !== false;
   }
   return true;
 }
@@ -344,7 +355,7 @@ export async function flushVariationQueue(
 /** Drop every variation queue key and the web IndexedDB store. */
 export async function clearVariationQueue(storage?: MemoryStorage): Promise<void> {
   active = null;
-  const store = storage ?? (typeof localStorage !== 'undefined' ? localStorage : null);
+  const store = storage ?? usableLocalStorage();
   if (store) clearVariationQueueStorage(store);
   try {
     openDatabase?.close();

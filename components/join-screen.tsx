@@ -26,7 +26,7 @@ export function JoinScreen({ routeCode }: { routeCode?: string }) {
 
   useEffect(() => {
     if (Platform.OS === 'web') {
-      if (!routeCode || typeof window === 'undefined') return;
+      if (!routeCode || typeof window === 'undefined' || typeof window.history?.replaceState !== 'function') return;
       // The router writes the code into the address bar after this effect.
       // Strip again on the next turn so the code does not stay in the URL.
       const strip = () => {

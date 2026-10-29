@@ -8,7 +8,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import 'expo-sqlite/localStorage/install';
 
@@ -40,7 +40,8 @@ function Gate() {
   }, [fontsReady, ready]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') return;
+    if (Platform.OS !== 'web' || typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    if (!document.head) return;
     let meta = document.querySelector('meta[name="referrer"]');
     if (!meta) {
       meta = document.createElement('meta');

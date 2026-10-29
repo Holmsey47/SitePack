@@ -79,9 +79,26 @@ function isRole(value: unknown): value is Role {
   return value === 'operative' || value === 'cm' || value === 'owner';
 }
 
+function rememberedStorage(): Storage | null {
+  try {
+    const storage = globalThis.localStorage;
+    if (
+      !storage ||
+      typeof storage.getItem !== 'function' ||
+      typeof storage.setItem !== 'function' ||
+      typeof storage.removeItem !== 'function'
+    ) {
+      return null;
+    }
+    return storage;
+  } catch {
+    return null;
+  }
+}
+
 function readRemembered(userId: string): Person | null {
   try {
-    const raw = globalThis.localStorage?.getItem(PERSON_KEY);
+    const raw = rememberedStorage()?.getItem(PERSON_KEY);
     if (!raw) return null;
     const person = JSON.parse(raw) as Person;
     if (person?.auth_user_id !== userId || !isRole(person.role) || typeof person.id !== 'string') return null;
@@ -93,8 +110,10 @@ function readRemembered(userId: string): Person | null {
 
 function writeRemembered(person: Person | null) {
   try {
-    if (!person?.auth_user_id) globalThis.localStorage?.removeItem(PERSON_KEY);
-    else globalThis.localStorage?.setItem(PERSON_KEY, JSON.stringify(person));
+    const storage = rememberedStorage();
+    if (!storage) return;
+    if (!person?.auth_user_id) storage.removeItem(PERSON_KEY);
+    else storage.setItem(PERSON_KEY, JSON.stringify(person));
   } catch {
     // The in-memory person still signs this launch in.
   }
@@ -166,7 +185,7 @@ async function restoreStoredSession(): Promise<{ userId: string | null; person: 
 
 function readPending(): boolean {
   try {
-    return globalThis.localStorage?.getItem(PENDING_KEY) === '1';
+    return rememberedStorage()?.getItem(PENDING_KEY) === '1';
   } catch {
     return false;
   }
@@ -174,8 +193,10 @@ function readPending(): boolean {
 
 function writePending(value: boolean) {
   try {
-    if (value) globalThis.localStorage?.setItem(PENDING_KEY, '1');
-    else globalThis.localStorage?.removeItem(PENDING_KEY);
+    const storage = rememberedStorage();
+    if (!storage) return;
+    if (value) storage.setItem(PENDING_KEY, '1');
+    else storage.removeItem(PENDING_KEY);
   } catch {
     // ignore
   }
