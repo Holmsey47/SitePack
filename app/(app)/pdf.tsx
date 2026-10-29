@@ -1,3 +1,4 @@
+import { Icon } from '@/components/icon';
 import { PdfFrame } from '@/components/pdf-frame';
 import { Button, ErrorText, OverflowMenu, Screen } from '@/components/ui';
 import { repo } from '@/data/index';
@@ -5,22 +6,24 @@ import { PDF_OPEN_ERROR, loadPdfHtml, readPdfBytes } from '@/lib/pdfDocument';
 import { writeCachedDocument } from '@/lib/pdfCacheFiles';
 import { sharePdfBytes } from '@/lib/sharePdf';
 import { pdfFileName } from '@/lib/pdfCache';
-import { radius, space, textStyle, theme } from '@/lib/theme';
+import { hit, radius, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
-import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PdfScreen() {
   const params = useLocalSearchParams<{ documentId?: string | string[] }>();
   const documentId = Array.isArray(params.documentId) ? params.documentId[0] : params.documentId;
   const navigation = useNavigation();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('PDF');
   const [html, setHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState<{ page: number; total: number } | null>(null);
-  const [canShare, setCanShare] = useState(false);
   const [shareError, setShareError] = useState('');
   const bytesRef = useRef<Uint8Array | null>(null);
   const shareName = useRef('document.pdf');
@@ -37,20 +40,18 @@ export default function PdfScreen() {
     }
   }, []);
 
+  const viewer = Boolean(html) && !failed;
   useLayoutEffect(() => {
-    navigation.setOptions({
-      title,
-      headerRight: () =>
-        canShare ? <OverflowMenu label="More" items={[{ label: 'Share / Save', onPress: () => void share() }]} /> : null,
-    });
-  }, [canShare, navigation, share, title]);
+    // The sheet lives in this screen, not in headerRight. Page updates re-render
+    // the header slot, and a menu created there was left open with no live close handler.
+    navigation.setOptions({ headerShown: !viewer, title });
+  }, [navigation, title, viewer]);
 
   useEffect(() => {
     let cancelled = false;
     setHtml(null);
     setFailed(false);
     setPage(null);
-    setCanShare(false);
     setShareError('');
     bytesRef.current = null;
     void (async () => {
@@ -72,7 +73,6 @@ export default function PdfScreen() {
         const next = await loadPdfHtml(bytes);
         if (cancelled) return;
         setHtml(next);
-        setCanShare(true);
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -104,11 +104,35 @@ export default function PdfScreen() {
   }
 
   return (
-    <Screen scroll={false}>
+    <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: insets.top }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.sm,
+          minHeight: hit.secondary,
+          paddingHorizontal: space.lg,
+        }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          style={{ width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="arrow_back" color={theme.text} />
+        </Pressable>
+        <Text style={[textStyle.bodyStrong, { flex: 1 }]} numberOfLines={1}>
+          {title}
+        </Text>
+        <OverflowMenu label="More" items={[{ label: 'Share / Save', onPress: () => void share() }]} />
+      </View>
       <View style={{ flex: 1 }}>
         <PdfFrame
           html={html}
-          onPage={(nextPage, total) => setPage({ page: nextPage, total })}
+          onPage={(nextPage, total) =>
+            setPage((current) =>
+              current && current.page === nextPage && current.total === total ? current : { page: nextPage, total: total },
+            )
+          }
           onError={() => setFailed(true)}
         />
         {page ? (
@@ -133,6 +157,6 @@ export default function PdfScreen() {
         ) : null}
         <ErrorText>{shareError}</ErrorText>
       </View>
-    </Screen>
+    </View>
   );
 }

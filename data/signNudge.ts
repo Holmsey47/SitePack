@@ -62,14 +62,21 @@ export function unsignedSignDocuments(
   return next;
 }
 
-/** One document names itself. Several share one count. None is no card. */
-export function signNudgeLabel(docs: readonly Pick<UnsignedSignDocument, 'kind' | 'title' | 'siteName'>[]): string | null {
+/** Title line, then the site or the list hint. None is no card. */
+export type SignNudgeCopy = { title: string; detail: string };
+
+export function signNudgeCopy(
+  docs: readonly Pick<UnsignedSignDocument, 'kind' | 'title' | 'siteName'>[],
+): SignNudgeCopy | null {
   if (docs.length === 0) return null;
   if (docs.length === 1) {
     const doc = docs[0];
-    return `Sign ${siteDocumentKindLabel(doc.kind)}: ${doc.title} · ${doc.siteName}`;
+    return {
+      title: `Sign ${siteDocumentKindLabel(doc.kind)}: ${doc.title}`,
+      detail: doc.siteName,
+    };
   }
-  return `${docs.length} documents to sign`;
+  return { title: `${docs.length} documents to sign`, detail: 'Tap to see them' };
 }
 
 export type SignNudgeTarget =

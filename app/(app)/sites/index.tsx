@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { countsForSite, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
-import { loadSignNudge, signNudgeLabel, signNudgeTarget, signNudgeVisible, type UnsignedSignDocument } from '@/data/signNudge';
+import { loadSignNudge, signNudgeCopy, signNudgeTarget, signNudgeVisible, type UnsignedSignDocument } from '@/data/signNudge';
 import { memberMustSign } from '@/data/siteDocuments';
 import { canManageSite } from '@/data/repo';
 import { badgeReadIsCurrent } from '@/data/siteListSeen';
@@ -181,7 +181,7 @@ export default function SitesScreen() {
   }, [person]);
 
   const footer = person ? <AppTabs role={person.role} /> : null;
-  const nudgeLabelText = signNudgeVisible(nudge) ? signNudgeLabel(nudge ?? []) : null;
+  const nudgeCopy = signNudgeVisible(nudge) ? signNudgeCopy(nudge ?? []) : null;
 
   function openNudge() {
     if (!nudge) return;
@@ -194,7 +194,9 @@ export default function SitesScreen() {
     router.push(`/sites/${target.siteId}/documents/${target.documentId}`);
   }
 
-  const nudgeCard = nudgeLabelText ? <SignNudgeCard label={nudgeLabelText} onPress={openNudge} /> : null;
+  const nudgeCard = nudgeCopy ? (
+    <SignNudgeCard title={nudgeCopy.title} detail={nudgeCopy.detail} onPress={openNudge} />
+  ) : null;
 
   function acknowledge() {
     void acknowledgePasswordReset().catch(() => setError('Could not clear that notice.'));

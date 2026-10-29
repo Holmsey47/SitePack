@@ -33,3 +33,9 @@ export const Text = host('Text');
 export const TextInput = host('TextInput');
 export const Pressable = host('Pressable');
 export const ActivityIndicator = host('ActivityIndicator');
+export const ScrollView = host('ScrollView');
+
+export function Modal({ visible, children, onRequestClose }) {
+  if (!visible) return null;
+  return createElement('Modal', { onRequestClose, visible }, children);
+}
