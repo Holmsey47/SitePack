@@ -4,8 +4,8 @@ import { Icon } from '@/components/icon';
 import { PhoneStatus } from '@/components/phone-status';
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { cardCountLine, newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
-import { countsForSite, homeCountPills, type HomeKindCounts } from '@/data/homeNewCounts';
+import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
+import { countsForSite, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import { badgeReadIsCurrent } from '@/data/siteListSeen';
@@ -19,7 +19,7 @@ import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
 import { loadHomeSiteNewCounts } from '@/lib/homeNewCounts';
 import { allPendingSiteListSaves } from '@/lib/siteListSeenSync';
-import { hit, radius, space, textStyle, theme } from '@/lib/theme';
+import { hit, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -188,8 +188,7 @@ export default function SitesScreen() {
                 name={site.name}
                 meta={siteMeta(site.address_line, site.updated_at)}
                 stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
-                counts={cardCountLine(site.my_open_request_count ?? 0, 0)}
-                newCounts={countsForSite(newCounts, site.id)}
+                lines={homeCardLines(site.my_open_request_count ?? 0, 0, countsForSite(newCounts, site.id))}
                 onPress={() => router.push(`/sites/${site.id}`)}
               />
               <SeenNotes
@@ -235,8 +234,11 @@ export default function SitesScreen() {
               name={row.name}
               meta={siteMeta(row.address_line, row.last_pack_update)}
               stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
-              counts={cardCountLine(row.open_request_count, seenNotes(row.site_id).unseenDrawings)}
-              newCounts={countsForSite(newCounts, row.site_id)}
+              lines={homeCardLines(
+                row.open_request_count,
+                seenNotes(row.site_id).unseenDrawings,
+                countsForSite(newCounts, row.site_id),
+              )}
               onPress={() => router.push(`/sites/${row.site_id}`)}
             />
             <SeenNotes
@@ -281,15 +283,13 @@ function SiteCard({
   name,
   meta,
   stale,
-  counts,
-  newCounts,
+  lines,
   onPress,
 }: {
   name: string;
   meta: string;
   stale: boolean;
-  counts: string | null;
-  newCounts: HomeKindCounts | null;
+  lines: HomeCardLines;
   onPress: () => void;
 }) {
   return (
@@ -298,46 +298,21 @@ function SiteCard({
         <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
           <Text style={textStyle.bodyStrong}>{name}</Text>
           {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
-          {counts ? (
+          {lines.status ? (
             <Text style={textStyle.metaStrong} numberOfLines={2}>
-              {counts}
+              {lines.status}
             </Text>
           ) : null}
-          <NewCountPills counts={newCounts} />
+          {lines.fresh ? (
+            <Text style={[textStyle.bodyStrong, textStyle.tabular]} numberOfLines={2}>
+              {lines.fresh}
+            </Text>
+          ) : null}
         </View>
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
     </Card>
-  );
-}
-
-function NewCountPills({ counts }: { counts: HomeKindCounts | null }) {
-  const pills = homeCountPills(counts);
-  if (pills.length === 0) return null;
-  return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-      {pills.map((pill) => (
-        <View
-          key={pill.kind}
-          accessibilityRole="text"
-          accessibilityLabel={`${pill.text} new ${pill.label}`}
-          style={{
-            minHeight: hit.min,
-            minWidth: hit.min,
-            paddingHorizontal: space.md,
-            borderRadius: radius.pill,
-            backgroundColor: theme.danger,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: space.xs,
-          }}>
-          <Icon name={pill.icon} color={theme.currentInk} />
-          <Text style={[textStyle.metaStrong, textStyle.tabular, { color: theme.currentInk }]}>{pill.text}</Text>
-        </View>
-      ))}
-    </View>
   );
 }
 

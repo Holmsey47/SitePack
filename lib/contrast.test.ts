@@ -9,7 +9,7 @@ test('the out of date badge contrast is at least 4.5', () => {
   assert.ok(contrastRatio('#F4F1EA', '#D96B4F') < 4.5);
 });
 
-test('a home count pill stays legible on the danger fill', () => {
+test('ink stays legible on the danger fill', () => {
   const ratio = contrastRatio(theme.currentInk, theme.danger);
   assert.ok(ratio >= 4.5, `ink on danger is ${ratio.toFixed(2)}`);
 });

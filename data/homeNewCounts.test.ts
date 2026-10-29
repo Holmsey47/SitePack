@@ -4,11 +4,13 @@ import test from 'node:test';
 import { contrastRatio } from '../lib/contrast.ts';
 import { theme } from '../lib/theme.ts';
 import { loadHomeSiteNewCounts } from '../lib/homeNewCounts.ts';
+import { cardCountLine } from './drawingSeen.ts';
 import {
   HOME_COUNT_CAP,
   countsForSite,
   formatHomeCount,
-  homeCountPills,
+  homeCardLines,
+  homeNewCountLine,
   mapHomeNewCounts,
 } from './homeNewCounts.ts';
 
@@ -31,26 +33,57 @@ test('home counts map one row per site and keep the three kinds', () => {
   assert.deepEqual(mapHomeNewCounts([]), {});
 });
 
-test('a home count caps at 999+ and hides zero', () => {
+function bareRequestNumbers(text: string): string[] {
+  return [...text.matchAll(/(?<!open )(\d+\+?) requests?\b/g)].map((match) => match[1] ?? '');
+}
+
+test('the new line hides zero kinds, pluralises, and caps at 999+', () => {
   assert.equal(HOME_COUNT_CAP, 999);
   assert.equal(formatHomeCount(0), null);
-  assert.equal(formatHomeCount(-3), null);
-  assert.equal(formatHomeCount(Number.NaN), null);
-  assert.equal(formatHomeCount(1), '1');
-  assert.equal(formatHomeCount(999), '999');
   assert.equal(formatHomeCount(1000), '999+');
-  assert.equal(formatHomeCount(5000), '999+');
-  const pills = homeCountPills({ snags: 1000, variations: 0, requests: 2 });
-  assert.deepEqual(
-    pills.map((pill) => `${pill.kind}:${pill.text}`),
-    ['snags:999+', 'requests:2'],
+  assert.equal(homeNewCountLine({ snags: 0, variations: 0, requests: 0 }), null);
+  assert.equal(homeNewCountLine(null), null);
+  assert.equal(homeNewCountLine({ snags: 1, variations: 1, requests: 1 }), 'New: 1 snag · 1 variation · 1 request');
+  assert.equal(
+    homeNewCountLine({ snags: 2, variations: 2, requests: 2 }),
+    'New: 2 snags · 2 variations · 2 requests',
   );
-  assert.equal(pills.some((pill) => pill.kind === 'variations'), false);
-  assert.deepEqual(homeCountPills({ snags: 0, variations: 0, requests: 0 }), []);
-  assert.deepEqual(homeCountPills(null), []);
+  assert.equal(homeNewCountLine({ snags: 1000, variations: 0, requests: 0 }), 'New: 999+ snags');
+  assert.equal(homeNewCountLine({ snags: 0, variations: 1000, requests: 4 }), 'New: 999+ variations · 4 requests');
+  assert.equal(homeNewCountLine({ snags: 3, variations: 0, requests: 0 }), 'New: 3 snags');
 });
 
-test('a failed or unreadable count payload hides every pill', () => {
+test('a failed read hides the new line and keeps the line main shows today', () => {
+  const failed = homeCardLines(1, 2, null);
+  assert.equal(failed.fresh, null);
+  assert.equal(failed.status, cardCountLine(1, 2));
+  assert.equal(failed.status, '1 request · 2 unseen');
+  assert.equal(homeCardLines(0, 0, null).status, null);
+  assert.equal(homeNewCountLine(null), null);
+});
+
+test('a card does not show two request numbers', () => {
+  const both = homeCardLines(1, 2, { snags: 1, variations: 1, requests: 1 });
+  assert.equal(both.status, '1 open request · 2 unseen');
+  assert.equal(both.fresh, 'New: 1 snag · 1 variation · 1 request');
+  assert.deepEqual(bareRequestNumbers(`${both.status}\n${both.fresh}`), ['1']);
+
+  const many = homeCardLines(4, 0, { snags: 0, variations: 0, requests: 3 });
+  assert.equal(many.status, '4 open requests');
+  assert.equal(many.fresh, 'New: 3 requests');
+  assert.deepEqual(bareRequestNumbers(`${many.status}\n${many.fresh}`), ['3']);
+
+  const noNewRequests = homeCardLines(2, 1, { snags: 5, variations: 0, requests: 0 });
+  assert.equal(noNewRequests.status, '2 requests · 1 unseen');
+  assert.equal(noNewRequests.fresh, 'New: 5 snags');
+  assert.deepEqual(bareRequestNumbers(`${noNewRequests.status}\n${noNewRequests.fresh}`), ['2']);
+
+  const quiet = homeCardLines(1, 7, { snags: 0, variations: 0, requests: 0 });
+  assert.equal(quiet.fresh, null);
+  assert.equal(quiet.status, '1 request · 7 unseen');
+});
+
+test('a failed or unreadable count payload hides every count', () => {
   assert.equal(mapHomeNewCounts(null), null);
   assert.equal(mapHomeNewCounts(undefined), null);
   assert.equal(mapHomeNewCounts({ site_id: 'oak' }), null);
@@ -117,11 +150,14 @@ test('the home count migration is one invoker function and the screen hides a ze
   const refresh = home.slice(home.indexOf('const token = ++countToken.current'));
   assert.match(refresh, /setNewCounts\(null\)[\s\S]*allPendingSiteListSaves[\s\S]*loadHomeSiteNewCounts/);
   assert.match(home, /badgeReadIsCurrent/);
-  assert.match(home, /countsForSite\(newCounts/);
-  assert.match(home, /minHeight: hit\.min/);
-  assert.match(home, /backgroundColor: theme\.danger/);
-  assert.match(home, /color: theme\.currentInk/);
+  assert.match(home, /homeCardLines\(/);
+  assert.match(home, /lines\.fresh/);
+  assert.match(home, /textStyle\.bodyStrong/);
   assert.match(home, /textStyle\.tabular/);
+  assert.match(home, /minHeight: hit\.min/);
+  assert.equal(home.includes('NewCountPills'), false);
+  assert.equal(home.includes('homeCountPills'), false);
+  assert.equal(home.includes('backgroundColor: theme.danger'), false);
   assert.equal(/#[0-9A-Fa-f]{3,8}/.test(home), false);
   assert.match(sync, /export function allPendingSiteListSaves/);
   assert.ok(contrastRatio(theme.currentInk, theme.danger) >= 4.5);

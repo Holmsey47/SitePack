@@ -1,4 +1,4 @@
-import { SITE_BAR, type SiteListKind } from '@/data/siteListSeen';
+import { cardCountLine } from '@/data/drawingSeen';
 
 /** Home shows 999+ past this. The site bar uses a smaller cap. */
 export const HOME_COUNT_CAP = 999;
@@ -9,15 +9,8 @@ export type HomeKindCounts = {
   requests: number;
 };
 
-export type HomeCountPill = {
-  kind: SiteListKind;
-  icon: string;
-  label: string;
-  text: string;
-};
-
 /**
- * Digits for a pill. Zero and anything that is not a positive count are hidden,
+ * Digits for one kind. Zero and anything that is not a positive count are hidden,
  * so a failed read and a true zero look the same and neither prints "0".
  */
 export function formatHomeCount(count: number): string | null {
@@ -59,7 +52,7 @@ export function mapHomeNewCounts(rows: unknown): Record<string, HomeKindCounts> 
   return mapped;
 }
 
-/** Null hides the pills. A site missing from a successful read is a true zero. */
+/** Null hides the new line. A site missing from a successful read is a true zero. */
 export function countsForSite(
   read: Readonly<Record<string, HomeKindCounts>> | null,
   siteId: string,
@@ -68,14 +61,61 @@ export function countsForSite(
   return read[siteId] ?? { snags: 0, variations: 0, requests: 0 };
 }
 
-/** Icon pills for counts above zero. A zero is omitted, not drawn in a neutral colour. */
-export function homeCountPills(counts: HomeKindCounts | null): HomeCountPill[] {
-  if (counts == null) return [];
-  const pills: HomeCountPill[] = [];
-  for (const item of SITE_BAR) {
-    const text = formatHomeCount(counts[item.kind]);
-    if (text == null) continue;
-    pills.push({ kind: item.kind, icon: item.icon, label: item.label, text });
+function kindPhrase(count: number, singular: string, plural: string): string | null {
+  const text = formatHomeCount(count);
+  if (text == null) return null;
+  return text === '1' ? `1 ${singular}` : `${text} ${plural}`;
+}
+
+/**
+ * One bold sentence for the kinds above zero. A failed read and an all-zero
+ * read both return null, so the card does not print "New:" or "0".
+ */
+export function homeNewCountLine(counts: HomeKindCounts | null): string | null {
+  if (counts == null) return null;
+  const parts = [
+    kindPhrase(counts.snags, 'snag', 'snags'),
+    kindPhrase(counts.variations, 'variation', 'variations'),
+    kindPhrase(counts.requests, 'request', 'requests'),
+  ].filter((part): part is string => part != null);
+  if (parts.length === 0) return null;
+  return `New: ${parts.join(' · ')}`;
+}
+
+/** Open requests, worded so they are not a second bare "N request" next to New. */
+function openRequestsLine(requests: number, unseen: number): string | null {
+  const parts: string[] = [];
+  if (requests === 1) parts.push('1 open request');
+  else if (requests > 1) parts.push(`${requests} open requests`);
+  if (unseen === 1) parts.push('1 unseen');
+  else if (unseen > 1) parts.push(`${unseen} unseen`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+export type HomeCardLines = {
+  /** Open requests and unseen drawings. Main's wording unless New also names requests. */
+  status: string | null;
+  /** The new-counts sentence. Null when the read failed or every kind is zero. */
+  fresh: string | null;
+};
+
+/**
+ * Failed read: status is exactly the line main shows today, and fresh is hidden.
+ * Successful read that includes new requests: the open count is labelled "open"
+ * so the card does not show two request numbers.
+ */
+export function homeCardLines(
+  openRequests: number,
+  unseenDrawings: number,
+  counts: HomeKindCounts | null,
+): HomeCardLines {
+  const fresh = homeNewCountLine(counts);
+  if (counts == null) {
+    return { status: cardCountLine(openRequests, unseenDrawings), fresh: null };
   }
-  return pills;
+  const status =
+    fresh != null && fresh.includes('request')
+      ? openRequestsLine(openRequests, unseenDrawings)
+      : cardCountLine(openRequests, unseenDrawings);
+  return { status, fresh };
 }
