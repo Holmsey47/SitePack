@@ -429,3 +429,8 @@ export function isPackReady(siteId: string, currentIds: string[]): boolean {
 }
 
 session.ownerUserId = persistedOwnerUserId();
+
+/** The user the on-device cache belongs to, or null when nobody owns it yet. */
+export function cacheOwnerUserId(): string | null {
+  return session.ownerUserId;
+}

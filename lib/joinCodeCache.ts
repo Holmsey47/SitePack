@@ -91,6 +91,16 @@ export async function clearJoinCodeCache(port: JoinCodeCachePort): Promise<void>
   await port.remove();
 }
 
+/** A different signed-in user must not see the previous owner's plaintext. The same owner keeps it. */
+export async function bindJoinCodeCacheOwner(
+  currentOwner: string | null,
+  nextUserId: string,
+  port: JoinCodeCachePort,
+): Promise<void> {
+  if (currentOwner === nextUserId) return;
+  await clearJoinCodeCache(port);
+}
+
 /** Not revoked, not expired, and still under the use cap. */
 export function isActiveJoinCode(row: JoinCodeRow, now = Date.now()): boolean {
   if (row.revoked_at) return false;

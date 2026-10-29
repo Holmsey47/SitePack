@@ -9,9 +9,9 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
-import { clearJoinCodeCache } from '@/lib/joinCodeCache';
+import { bindJoinCodeCacheOwner, clearJoinCodeCache } from '@/lib/joinCodeCache';
 import { joinCodeCachePort } from '@/lib/joinCodeCacheStorage';
-import { adoptCacheOwner, deleteAllDrawingCaches } from '@/lib/offline';
+import { adoptCacheOwner, cacheOwnerUserId, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
 import { authTokenStorageKey, performSignOut, removeStoredAuthSession, userIdAfterAuthEvent } from '@/lib/signOut';
@@ -47,8 +47,10 @@ const PERSON_KEY = 'sitepack.auth.person';
 
 async function bindCache(userId: string | null) {
   try {
-    if (userId) await adoptCacheOwner(userId);
-    else {
+    if (userId) {
+      await bindJoinCodeCacheOwner(cacheOwnerUserId(), userId, joinCodeCachePort());
+      await adoptCacheOwner(userId);
+    } else {
       writeRemembered(null);
       await deleteAllDrawingCaches();
       await clearJoinCodeCache(joinCodeCachePort());

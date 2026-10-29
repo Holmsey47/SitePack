@@ -8,6 +8,7 @@ import { performSignOut } from './signOut.ts';
 import {
   JOIN_CODE_CACHE_KEY,
   activeCodeNotice,
+  bindJoinCodeCacheOwner,
   clearJoinCodeCache,
   confirmThenRegenerate,
   forgetJoinCode,
@@ -358,6 +359,34 @@ test('sign-out clears the join-code cache, and a lad cannot issue or revoke', as
     assert.match(screen, /canManageSite/);
     assert.match(screen, /Redirect href="\/sites"/);
   }
+});
+
+test('bindCache for a different user drops the previous plaintext', async () => {
+  const port = memoryPort();
+  const id = '88888888-8888-4888-8888-888888888888';
+  const owner = { id: 'user-a' as string | null };
+  async function bindCache(userId: string | null) {
+    if (userId) {
+      await bindJoinCodeCacheOwner(owner.id, userId, port);
+      owner.id = userId;
+      return;
+    }
+    await clearJoinCodeCache(port);
+    owner.id = null;
+  }
+
+  await rememberJoinCode(port, id, 'K7QM-4XPR');
+  await bindCache('user-a');
+  assert.equal((await readJoinCodeCache(port))[id], 'K7QM-4XPR');
+  await bindCache('user-b');
+  assert.equal((await readJoinCodeCache(port))[id], undefined);
+  assert.deepEqual(await readJoinCodeCache(port), {});
+
+  const auth = fs.readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
+  const bind = auth.slice(auth.indexOf('async function bindCache'), auth.indexOf('function authTokenKey'));
+  const clearAt = bind.indexOf('await bindJoinCodeCacheOwner(cacheOwnerUserId(), userId, joinCodeCachePort())');
+  const adoptAt = bind.indexOf('await adoptCacheOwner(userId)');
+  assert.ok(clearAt > 0 && adoptAt > clearAt);
 });
 
 test('web keeps the plaintext in sessionStorage and native uses SecureStore', async () => {
