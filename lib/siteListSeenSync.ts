@@ -65,6 +65,11 @@ export function pendingSiteListSaves(siteId: string): Promise<boolean>[] {
   return waiting;
 }
 
+/** Every seen save still in flight, on any site. Home waits for these before it re-reads. */
+export function allPendingSiteListSaves(): Promise<boolean>[] {
+  return [...pendingSaves.values()];
+}
+
 type CountQuery = {
   data: Record<string, string | null>[] | null;
   error: { message?: string } | null;

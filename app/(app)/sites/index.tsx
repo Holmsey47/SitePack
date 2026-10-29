@@ -5,8 +5,10 @@ import { PhoneStatus } from '@/components/phone-status';
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { cardCountLine, newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
+import { countsForSite, homeCountPills, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
+import { badgeReadIsCurrent } from '@/data/siteListSeen';
 import type { HomeSite, PulseRow } from '@/data/types';
 import { workingRows } from '@/data/walk';
 import { cacheAssignedSites, readCachedSites, readPackMeta } from '@/lib/offline';
@@ -15,10 +17,12 @@ import { syncAssignedPacks } from '@/lib/syncPacks';
 import { confirmQueued, SAVED_ON_PHONE, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatWhen } from '@/lib/format';
-import { space, textStyle, theme } from '@/lib/theme';
+import { loadHomeSiteNewCounts } from '@/lib/homeNewCounts';
+import { allPendingSiteListSaves } from '@/lib/siteListSeenSync';
+import { hit, radius, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 export default function SitesScreen() {
@@ -36,6 +40,8 @@ export default function SitesScreen() {
   const [gaps, setGaps] = useState<SiteSeenGap[]>([]);
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
   const [notices, setNotices] = useState<SeenNotice[]>([]);
+  const [newCounts, setNewCounts] = useState<Record<string, HomeKindCounts> | null>(null);
+  const countToken = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,6 +77,26 @@ export default function SitesScreen() {
           if (!active) return;
           setError('Could not load sites.');
         });
+      return () => {
+        active = false;
+      };
+    }, [person])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person) return;
+      let active = true;
+      const token = ++countToken.current;
+      // Drop the previous numbers before the read, including while a seen save is still in flight.
+      setNewCounts(null);
+      void (async () => {
+        await Promise.all(allPendingSiteListSaves());
+        if (!active || !badgeReadIsCurrent(token, countToken.current)) return;
+        const next = await loadHomeSiteNewCounts();
+        if (!active || !badgeReadIsCurrent(token, countToken.current)) return;
+        setNewCounts(next);
+      })();
       return () => {
         active = false;
       };
@@ -163,6 +189,7 @@ export default function SitesScreen() {
                 meta={siteMeta(site.address_line, site.updated_at)}
                 stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
                 counts={cardCountLine(site.my_open_request_count ?? 0, 0)}
+                newCounts={countsForSite(newCounts, site.id)}
                 onPress={() => router.push(`/sites/${site.id}`)}
               />
               <SeenNotes
@@ -209,6 +236,7 @@ export default function SitesScreen() {
               meta={siteMeta(row.address_line, row.last_pack_update)}
               stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
               counts={cardCountLine(row.open_request_count, seenNotes(row.site_id).unseenDrawings)}
+              newCounts={countsForSite(newCounts, row.site_id)}
               onPress={() => router.push(`/sites/${row.site_id}`)}
             />
             <SeenNotes
@@ -254,17 +282,19 @@ function SiteCard({
   meta,
   stale,
   counts,
+  newCounts,
   onPress,
 }: {
   name: string;
   meta: string;
   stale: boolean;
   counts: string | null;
+  newCounts: HomeKindCounts | null;
   onPress: () => void;
 }) {
   return (
     <Card onPress={onPress}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: hit.min }}>
         <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
           <Text style={textStyle.bodyStrong}>{name}</Text>
           {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
@@ -273,11 +303,41 @@ function SiteCard({
               {counts}
             </Text>
           ) : null}
+          <NewCountPills counts={newCounts} />
         </View>
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
     </Card>
+  );
+}
+
+function NewCountPills({ counts }: { counts: HomeKindCounts | null }) {
+  const pills = homeCountPills(counts);
+  if (pills.length === 0) return null;
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+      {pills.map((pill) => (
+        <View
+          key={pill.kind}
+          accessibilityRole="text"
+          accessibilityLabel={`${pill.text} new ${pill.label}`}
+          style={{
+            minHeight: hit.min,
+            minWidth: hit.min,
+            paddingHorizontal: space.md,
+            borderRadius: radius.pill,
+            backgroundColor: theme.danger,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: space.xs,
+          }}>
+          <Icon name={pill.icon} color={theme.currentInk} />
+          <Text style={[textStyle.metaStrong, textStyle.tabular, { color: theme.currentInk }]}>{pill.text}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
