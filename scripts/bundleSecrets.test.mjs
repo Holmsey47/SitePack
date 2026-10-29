@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { anonKeyProblem, clientKeyMessage } from './anonKey.mjs';
+import { clientKeyMessage, publishableKeyProblem } from './anonKey.mjs';
 import { inspectBundleText, scanDirectory } from './check-js-bundle.mjs';
 
 function fakeJwt(payload) {
@@ -19,21 +19,24 @@ const serviceJwt = fakeJwt({ role: 'service_role', ref: 'fake-test-not-a-secret'
 const secretKey = `sb_secret_${'FAKE'.repeat(8)}`;
 const pem = '-----BEGIN RSA PRIVATE KEY-----\nFAKEFAKEFAKE\n-----END RSA PRIVATE KEY-----';
 
-test('a fake anon JWT is accepted and a secret-shaped client key is refused without printing it', () => {
-  assert.equal(anonKeyProblem(anonJwt), null);
-  assert.equal(anonKeyProblem('sb_publishable_fake_test_key'), null);
-  assert.equal(anonKeyProblem(serviceJwt), 'rejected');
-  assert.equal(anonKeyProblem(secretKey), 'rejected');
-  assert.equal(anonKeyProblem('test-anon-key-not-a-secret'), 'rejected');
+test('a publishable key is accepted and a legacy JWT or sb_secret_ key is refused without printing it', () => {
+  assert.equal(publishableKeyProblem('sb_publishable_fake_test_key'), null);
+  assert.equal(publishableKeyProblem(anonJwt), 'rejected');
+  assert.equal(publishableKeyProblem(serviceJwt), 'rejected');
+  assert.equal(publishableKeyProblem(secretKey), 'rejected');
+  assert.equal(publishableKeyProblem('test-anon-key-not-a-secret'), 'rejected');
+  assert.equal(publishableKeyProblem(''), 'missing');
 
-  const message = clientKeyMessage({ EXPO_PUBLIC_SUPABASE_ANON_KEY: secretKey });
-  assert.match(message, /EXPO_PUBLIC_SUPABASE_ANON_KEY must start with sb_publishable_/);
-  assert.equal(message.includes(secretKey), false);
-  assert.equal(message.includes(serviceJwt), false);
-
-  const publishable = clientKeyMessage({ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: serviceJwt });
-  assert.match(publishable, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
-  assert.equal(publishable.includes(serviceJwt), false);
+  for (const marker of [secretKey, anonJwt]) {
+    const message = clientKeyMessage({ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: marker });
+    assert.match(message, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY must start with sb_publishable_/);
+    assert.equal(message.includes(marker), false);
+  }
+  assert.equal(clientKeyMessage({ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_fake_test_key' }), null);
+  assert.match(
+    clientKeyMessage({ EXPO_PUBLIC_SUPABASE_ANON_KEY: 'sb_publishable_fake_test_key' }),
+    /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY must start with sb_publishable_/
+  );
 });
 
 test('the bundle scan allows a fake anon JWT and rejects a fake service role, sb_secret key, and PEM', () => {
@@ -66,14 +69,31 @@ test('the bundle scan allows a fake anon JWT and rejects a fake service role, sb
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('check-anon-key prints the variable name and not the fake key', () => {
-  const marker = 'sb_secret_MUST_NOT_APPEAR_IN_OUTPUT_FAKE';
-  const result = spawnSync('node', ['scripts/check-anon-key.mjs'], {
-    encoding: 'utf8',
-    env: { ...process.env, EXPO_PUBLIC_SUPABASE_ANON_KEY: marker, EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: '' },
-  });
-  assert.notEqual(result.status, 0);
-  const output = `${result.stdout}${result.stderr}`;
-  assert.match(output, /EXPO_PUBLIC_SUPABASE_ANON_KEY must start with sb_publishable_/);
-  assert.equal(output.includes(marker), false);
+test('check-anon-key and export-web reject a legacy JWT and an sb_secret_ key without printing them', () => {
+  const secret = 'sb_secret_MUST_NOT_APPEAR_IN_OUTPUT_FAKE';
+  for (const marker of [secret, anonJwt]) {
+    const checked = spawnSync('node', ['scripts/check-anon-key.mjs'], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: marker },
+    });
+    assert.notEqual(checked.status, 0);
+    const checkedOutput = `${checked.stdout}${checked.stderr}`;
+    assert.match(checkedOutput, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY must start with sb_publishable_/);
+    assert.equal(checkedOutput.includes(marker), false);
+
+    const exported = spawnSync(process.execPath, ['scripts/export-web.mjs'], {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        EXPO_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: marker,
+        EXPO_PUBLIC_SUPABASE_ANON_KEY: 'sb_publishable_legacy_fallback_must_not_count',
+      },
+    });
+    assert.notEqual(exported.status, 0);
+    const exportedOutput = `${exported.stdout}${exported.stderr}`;
+    assert.match(exportedOutput, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY must start with sb_publishable_/);
+    assert.equal(exportedOutput.includes(marker), false);
+    assert.equal(exportedOutput.includes('expo'), false);
+  }
 });

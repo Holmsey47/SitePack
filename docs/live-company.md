@@ -42,7 +42,7 @@ node scripts/live-company.mjs --check
 node scripts/live-company.mjs
 ```
 
-The script creates or reuses `sitepack-live`, turns public signup off, pushes both migrations, creates the owner, deploys `invite-person`, and writes `.env.local`. It does not run `seed.sql`.
+The script creates or reuses `sitepack-live`, turns public signup off, pushes both migrations, creates the owner, deploys `invite-person`, and writes `.env.local` with `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. It does not run `seed.sql`.
 
 Restart the web app:
 

@@ -7,6 +7,7 @@ import {
   normalizeUsername,
   passwordHasLettersAndDigits,
   placeholderEmail,
+  loadPublishableKey,
   loadSecretKey,
   platformClientIp,
 } from './joinCodes.ts';
@@ -70,12 +71,19 @@ export function serviceClient(ip: string): SupabaseClient | null {
   });
 }
 
-/** Calls RPCs as the signed-in person. verify_jwt on the function checks the bearer token. */
-export function userClient(req: Request): SupabaseClient {
+/**
+ * Calls RPCs as the signed-in person. The key is SUPABASE_PUBLISHABLE_KEYS['default'].
+ * A missing or invalid key refuses the request. There is no other key.
+ */
+export function userClient(req: Request): SupabaseClient | null {
   const url = Deno.env.get('SUPABASE_URL') ?? '';
-  const anon = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const loaded = loadPublishableKey(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS'));
+  if (!loaded.ok) {
+    console.error(JSON.stringify({ error: 'publishable_key_missing' }));
+    return null;
+  }
   const authorization = req.headers.get('Authorization') ?? '';
-  return createClient(url, anon, {
+  return createClient(url, loaded.key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: authorization } },
   });

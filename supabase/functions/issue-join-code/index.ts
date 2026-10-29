@@ -1,8 +1,9 @@
-import { generateJoinCode } from '../_shared/joinCodes.ts';
+import { accessTokenFromAuthorization, generateJoinCode } from '../_shared/joinCodes.ts';
 import { hashCode, json, knownCode, pepperOrNull, preflight, readResult, userClient } from '../_shared/joinHttp.ts';
 
 /**
- * Logged-in code issue. verify_jwt is true.
+ * Logged-in code issue. verify_jwt stays true: the caller sends a user access token.
+ * The handler rejects a bearer that is not that token. The publishable key is not a JWT.
  * Generates the code, HMACs it with JOIN_CODE_PEPPER, and stores only the hash.
  * Role and site checks stay in SQL under the caller's identity.
  */
@@ -14,8 +15,7 @@ Deno.serve(async (req) => {
   const pepper = pepperOrNull();
   if (!pepper) return json({ error: 'join_rejected' }, 500);
 
-  const authorization = req.headers.get('Authorization') ?? '';
-  if (!authorization.toLowerCase().startsWith('bearer ')) {
+  if (!accessTokenFromAuthorization(req.headers.get('Authorization'))) {
     return json({ error: 'not_authorized' }, 401);
   }
 
@@ -27,6 +27,7 @@ Deno.serve(async (req) => {
   }
 
   const user = userClient(req);
+  if (!user) return json({ error: 'join_rejected' }, 500);
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const code = generateJoinCode();

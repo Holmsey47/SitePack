@@ -283,31 +283,25 @@ function keyValue(key) {
   return key?.api_key ?? key?.key ?? key?.apiKey ?? key?.value ?? '';
 }
 
+function pickNamedPrefix(payload, prefix) {
+  const matches = keyList(payload).filter((key) => keyValue(key).startsWith(prefix));
+  const named = matches.find((key) => String(key.name ?? '').toLowerCase() === 'default') ?? matches[0];
+  return keyValue(named);
+}
+
 export function pickClientKey(payload) {
-  const list = keyList(payload);
-  const client =
-    list.find((key) => String(key.name ?? '').toLowerCase() === 'anon') ??
-    list.find((key) => {
-      const type = String(key.type ?? '').toLowerCase();
-      return type === 'anon' || type === 'publishable';
-    });
-  const value = keyValue(client);
-  if (!value || /service_role|sb_secret_/i.test(value)) {
-    throw new Error('No anon or publishable key was returned.');
+  const value = pickNamedPrefix(payload, 'sb_publishable_');
+  if (!value.startsWith('sb_publishable_')) {
+    throw new Error('No publishable key was returned.');
   }
   return value;
 }
 
 export function pickServiceKey(payload) {
-  const list = keyList(payload);
-  const secret =
-    list.find((key) => String(key.name ?? '').toLowerCase() === 'service_role') ??
-    list.find((key) => {
-      const type = String(key.type ?? '').toLowerCase();
-      return type === 'service_role' || type === 'secret';
-    });
-  const value = keyValue(secret);
-  if (!value) throw new Error('No service role key was returned.');
+  const value = pickNamedPrefix(payload, 'sb_secret_');
+  if (!value.startsWith('sb_secret_')) {
+    throw new Error('No secret key was returned.');
+  }
   return value;
 }
 
@@ -315,13 +309,13 @@ export function liveUrl(ref) {
   return `https://${assertLiveProjectRef(ref)}.supabase.co`;
 }
 
-export function renderEnvLocal(existing, { url, anonKey }) {
+export function renderEnvLocal(existing, { url, publishableKey }) {
   if (!/^https:\/\/[a-z]{20}\.supabase\.co$/.test(url)) {
     throw new Error('Refusing to write a Supabase URL that is not the live project.');
   }
   assertLiveProjectRef(url.slice('https://'.length, -'.supabase.co'.length));
-  if (/service_role|sb_secret_/i.test(anonKey) || !anonKey) {
-    throw new Error('Refusing to write a secret key into .env.local.');
+  if (typeof publishableKey !== 'string' || !publishableKey.startsWith('sb_publishable_')) {
+    throw new Error('Refusing to write a client key that is not publishable.');
   }
   const kept = String(existing ?? '')
     .split('\n')
@@ -333,7 +327,9 @@ export function renderEnvLocal(existing, { url, anonKey }) {
         !/^EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=/.test(line) &&
         !/^EXPO_PUBLIC_USE_FIXTURES=/.test(line),
     );
-  return [`EXPO_PUBLIC_SUPABASE_URL=${url}`, `EXPO_PUBLIC_SUPABASE_ANON_KEY=${anonKey}`, ...kept, ''].join('\n');
+  return [`EXPO_PUBLIC_SUPABASE_URL=${url}`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`, ...kept, ''].join(
+    '\n',
+  );
 }
 
 export function dollarQuote(value) {
@@ -573,7 +569,7 @@ async function main() {
     secrets: [input.password, input.dbPassword],
   });
   const serviceKey = pickServiceKey(keys);
-  const anonKey = pickClientKey(keys);
+  const publishableKey = pickClientKey(keys);
   const url = liveUrl(ref);
   const userId = await ensureAuthUser({
     url,
@@ -597,7 +593,7 @@ async function main() {
   runSupabase(deployArgs(ref, 'invite-person'), { secrets: [input.password, input.dbPassword, serviceKey] });
   runSupabase(deployArgs(ref, 'start-company'), { secrets: [input.password, input.dbPassword, serviceKey] });
 
-  fs.writeFileSync(envPath, renderEnvLocal(existing, { url, anonKey }), { mode: 0o600 });
+  fs.writeFileSync(envPath, renderEnvLocal(existing, { url, publishableKey }), { mode: 0o600 });
 
   console.log('');
   console.log('Bootstrap finished. seed.sql was not loaded.');
