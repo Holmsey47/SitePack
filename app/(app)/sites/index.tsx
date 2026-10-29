@@ -1,4 +1,5 @@
 import { AppTabs } from '@/components/app-tabs';
+import { SignNudgeCard } from '@/components/sign-nudge';
 import { CompanyLogo } from '@/components/CompanyLogo';
 import { Icon } from '@/components/icon';
 import { PhoneStatus } from '@/components/phone-status';
@@ -7,6 +8,8 @@ import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { countsForSite, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
+import { loadSignNudge, signNudgeLabel, signNudgeTarget, signNudgeVisible, type UnsignedSignDocument } from '@/data/signNudge';
+import { memberMustSign } from '@/data/siteDocuments';
 import { canManageSite } from '@/data/repo';
 import { badgeReadIsCurrent } from '@/data/siteListSeen';
 import type { HomeSite, PulseRow } from '@/data/types';
@@ -41,6 +44,7 @@ export default function SitesScreen() {
   const [queued, setQueued] = useState<QueuedSeen[]>([]);
   const [notices, setNotices] = useState<SeenNotice[]>([]);
   const [newCounts, setNewCounts] = useState<Record<string, HomeKindCounts> | null>(null);
+  const [nudge, setNudge] = useState<UnsignedSignDocument[] | null>(null);
   const countToken = useRef(0);
 
   useFocusEffect(
@@ -107,6 +111,25 @@ export default function SitesScreen() {
     useCallback(() => {
       if (!person) return;
       let active = true;
+      if (!memberMustSign(person.role)) {
+        setNudge([]);
+        return () => {
+          active = false;
+        };
+      }
+      loadSignNudge(() => repo.listUnsignedSiteDocuments()).then((next) => {
+        if (active) setNudge(next);
+      });
+      return () => {
+        active = false;
+      };
+    }, [person]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!person) return;
+      let active = true;
       refreshDrawingSeen(manager, person.auth_user_id)
         .then((next) => {
           if (!active) return;
@@ -158,6 +181,20 @@ export default function SitesScreen() {
   }, [person]);
 
   const footer = person ? <AppTabs role={person.role} /> : null;
+  const nudgeLabelText = signNudgeVisible(nudge) ? signNudgeLabel(nudge ?? []) : null;
+
+  function openNudge() {
+    if (!nudge) return;
+    const target = signNudgeTarget(nudge);
+    if (!target) return;
+    if (target.kind === 'list') {
+      router.push('/to-sign');
+      return;
+    }
+    router.push(`/sites/${target.siteId}/documents/${target.documentId}`);
+  }
+
+  const nudgeCard = nudgeLabelText ? <SignNudgeCard label={nudgeLabelText} onPress={openNudge} /> : null;
 
   function acknowledge() {
     void acknowledgePasswordReset().catch(() => setError('Could not clear that notice.'));
@@ -176,6 +213,7 @@ export default function SitesScreen() {
     return (
       <Screen footer={footer}>
         <SitesHeader memberSettings={person != null && person.role !== 'owner'} onSettings={() => router.push('/company')} />
+        {nudgeCard}
         {resetNotice}
         <PhoneStatus />
         {error ? <ErrorText>{error}</ErrorText> : null}
@@ -208,6 +246,7 @@ export default function SitesScreen() {
   return (
     <Screen footer={footer}>
       <SitesHeader memberSettings={person.role !== 'owner'} onSettings={() => router.push('/company')} />
+      {nudgeCard}
       {resetNotice}
       <PhoneStatus />
       {showCreate ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
