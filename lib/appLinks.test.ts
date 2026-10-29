@@ -148,7 +148,13 @@ test('app.json opens only the join, set-password, and reset https paths', () => 
     'RECORD_AUDIO',
     'READ_EXTERNAL_STORAGE',
     'WRITE_EXTERNAL_STORAGE',
+    'com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE',
   ]);
+  assert.ok(
+    app.expo.android.blockedPermissions.includes(
+      'com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE'
+    )
+  );
   const filters = app.expo.android.intentFilters;
   assert.equal(filters.length, 1);
   assert.equal(filters[0].action, 'VIEW');
