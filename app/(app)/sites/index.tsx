@@ -312,19 +312,24 @@ export default function SitesScreen() {
 
 function FreshLine({ line }: { line: string }) {
   const parts = freshLineParts(line);
+  const pieces: { key: string; text: string; hold: boolean }[] = [];
+  parts.forEach((part, index) => {
+    if (index > 0) pieces.push({ key: `dot-${index}`, text: ' · ', hold: false });
+    pieces.push({ key: `part-${index}`, text: part, hold: true });
+  });
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-      {parts.map((part, index) => (
+      {pieces.map((piece) => (
         <Text
-          key={`${index}:${part}`}
+          key={piece.key}
           textBreakStrategy="simple"
           style={[
             textStyle.bodyStrong,
             textStyle.tabular,
-            { flexShrink: 0 },
-            Platform.OS === 'web' ? ({ whiteSpace: 'nowrap' } as object) : null,
+            piece.hold ? { flexShrink: 0 } : null,
+            piece.hold && Platform.OS === 'web' ? ({ whiteSpace: 'nowrap' } as object) : null,
           ]}>
-          {index < parts.length - 1 ? `${part}\u00a0·` : part}
+          {piece.text}
         </Text>
       ))}
     </View>

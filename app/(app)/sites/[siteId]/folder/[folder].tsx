@@ -161,7 +161,7 @@ export default function FolderScreen() {
       ) : null}
       {superseded.length > 0 && !archiveOnly ? (
         <Button
-          label={showOld ? 'Hide superseded' : 'Show old revisions'}
+          label={showOld ? 'Hide old revisions' : 'Show old revisions'}
           variant="secondary"
           minHeight={48}
           onPress={() => setShowOld((value) => !value)}

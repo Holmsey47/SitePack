@@ -139,6 +139,8 @@ test('a superseded sheet says not to build from it, in readable ink', () => {
   assert.match(folder, /<SupersededSafetyLabel \/>/);
   assert.match(folder, /Old revisions hidden\. Clear the filter to see them\./);
   assert.match(folder, /Show old revisions/);
+  assert.match(folder, /Hide old revisions/);
+  assert.doesNotMatch(folder, /Hide superseded/);
   assert.doesNotMatch(folder, /Show superseded \/ archive/);
   assert.doesNotMatch(folder, /Tap All to see them/);
   assert.match(folder, /SeenCountSlot/);
