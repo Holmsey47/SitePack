@@ -15,27 +15,50 @@ async function readOfflineNow(): Promise<boolean> {
   }
 }
 
-/** While this screen is focused, a reconnect runs load once. Blur and unmount unsubscribe. */
-export function useRefetchOnReconnect(load: () => Promise<void> | void) {
+/**
+ * While this screen is focused, a reconnect runs load once. Blur and unmount unsubscribe.
+ * Call the returned noteOffline when this screen's own load fails with a network error
+ * or shows an offline line. A browser that still says online will not count as a reconnect
+ * until that happens, and the next real online event then refetches once.
+ */
+export function useRefetchOnReconnect(load: () => Promise<unknown> | void): () => void {
   const loadRef = useRef(load);
   loadRef.current = load;
+  const pendingOffline = useRef(false);
+  const noteRef = useRef<() => void>(() => {
+    pendingOffline.current = true;
+  });
+  const noteOffline = useCallback(() => {
+    noteRef.current();
+  }, []);
   useFocusEffect(
     useCallback(() => {
       let stopped = false;
       let unsubscribe = () => {};
       void (async () => {
-        const initiallyOffline = await readOfflineNow();
+        const initiallyOffline = (await readOfflineNow()) || pendingOffline.current;
         if (stopped) return;
-        unsubscribe = createReconnectRefetch({
+        const session = createReconnectRefetch({
           load: () => loadRef.current(),
           subscribe: subscribeDeviceOnline,
           initiallyOffline,
-        }).stop;
+        });
+        noteRef.current = session.noteOffline;
+        if (pendingOffline.current) {
+          pendingOffline.current = false;
+          session.noteOffline();
+        }
+        unsubscribe = session.stop;
       })();
       return () => {
         stopped = true;
         unsubscribe();
+        pendingOffline.current = false;
+        noteRef.current = () => {
+          pendingOffline.current = true;
+        };
       };
     }, [])
   );
+  return noteOffline;
 }

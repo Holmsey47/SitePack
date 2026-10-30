@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { OFFLINE_SHOWING_SAVED, OFFLINE_SNAGS_LATER } from './offlineCopy.ts';
-import { createReconnectRefetch } from './reconnectRefetch.ts';
+import { subscribeOnline } from './onlineSignal.ts';
+import { createReconnectRefetch, readWebOffline } from './reconnectRefetch.ts';
+import { setFixtureForceOffline } from './variationQueue.ts';
 
 type Handlers = { onOnline: () => void; onOffline: () => void };
 
@@ -100,6 +102,206 @@ test('no refetch after unmount, and an in-flight load is not started twice', asy
   screen.online();
   await tick();
   assert.equal(screen.loads(), 1);
+});
+
+type StorageLike = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+  key: (index: number) => string | null;
+  readonly length: number;
+  clear: () => void;
+};
+
+function memoryStorage(): StorageLike {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    key: (index) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+  };
+}
+
+function installBrowser() {
+  const previousWindow = globalThis.window;
+  const previousStorage = globalThis.localStorage;
+  const listeners = new Map<string, Array<() => void>>();
+  const target = {
+    navigator: { onLine: true },
+    addEventListener(type: string, fn: () => void) {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    },
+    removeEventListener(type: string, fn: () => void) {
+      listeners.set(type, (listeners.get(type) ?? []).filter((item) => item !== fn));
+    },
+    dispatchEvent(event: { type: string }) {
+      for (const fn of listeners.get(event.type) ?? []) fn();
+      return true;
+    },
+  };
+  globalThis.localStorage = memoryStorage() as Storage;
+  globalThis.window = target as unknown as Window & typeof globalThis.window;
+  return {
+    target,
+    restore() {
+      globalThis.window = previousWindow;
+      globalThis.localStorage = previousStorage;
+    },
+  };
+}
+
+function withFixtures<T>(enabled: boolean, run: () => T): T {
+  const previousDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+  const previousFixtures = process.env.EXPO_PUBLIC_USE_FIXTURES;
+  (globalThis as { __DEV__?: boolean }).__DEV__ = true;
+  if (enabled) process.env.EXPO_PUBLIC_USE_FIXTURES = '1';
+  else delete process.env.EXPO_PUBLIC_USE_FIXTURES;
+  try {
+    return run();
+  } finally {
+    (globalThis as { __DEV__?: boolean }).__DEV__ = previousDev;
+    if (previousFixtures === undefined) delete process.env.EXPO_PUBLIC_USE_FIXTURES;
+    else process.env.EXPO_PUBLIC_USE_FIXTURES = previousFixtures;
+  }
+}
+
+test('Snags opened while offline, then an online event refetches exactly once', async () => {
+  const browser = installBrowser();
+  try {
+    await withFixtures(true, async () => {
+      setFixtureForceOffline(true);
+      assert.equal(browser.target.navigator.onLine, true);
+      assert.equal(readWebOffline(), true);
+      let probe = 0;
+      const stopProbe = subscribeOnline(
+        'web',
+        {
+          onOnline: () => {
+            probe += 1;
+          },
+          onOffline: () => {},
+        },
+        { windowTarget: browser.target }
+      );
+      assert.equal(probe, 0);
+      stopProbe();
+
+      let loads = 0;
+      let later: () => void = () => {};
+      const opened = createReconnectRefetch({
+        initiallyOffline: true,
+        subscribe(handlers) {
+          // navigator.onLine is true, so the old subscribe called this before returning.
+          handlers.onOnline();
+          later = handlers.onOnline;
+          return () => {};
+        },
+        load: () => {
+          loads += 1;
+        },
+      });
+      assert.equal(loads, 0);
+      later();
+      assert.equal(loads, 1);
+      later();
+      assert.equal(loads, 1);
+      opened.stop();
+
+      let live = 0;
+      const screen = createReconnectRefetch({
+        initiallyOffline: readWebOffline(),
+        subscribe: (handlers) => subscribeOnline('web', handlers, { windowTarget: browser.target }),
+        load: () => {
+          live += 1;
+        },
+      });
+      assert.equal(live, 0);
+      setFixtureForceOffline(false);
+      await tick();
+      assert.equal(live, 1);
+      browser.target.dispatchEvent({ type: 'online' });
+      await tick();
+      assert.equal(live, 1);
+      screen.stop();
+    });
+  } finally {
+    browser.restore();
+  }
+});
+
+test('navigator.onLine was true at subscribe, but the load failed, then an online event refetches', async () => {
+  const browser = installBrowser();
+  try {
+    await withFixtures(true, async () => {
+      assert.equal(browser.target.navigator.onLine, true);
+      assert.equal(readWebOffline(), false);
+      let loads = 0;
+      const screen = createReconnectRefetch({
+        initiallyOffline: readWebOffline(),
+        subscribe: (handlers) => subscribeOnline('web', handlers, { windowTarget: browser.target }),
+        load: () => {
+          loads += 1;
+        },
+      });
+      assert.equal(loads, 0);
+      try {
+        throw new TypeError('Failed to fetch');
+      } catch (err) {
+        assert.equal(err instanceof TypeError, true);
+        screen.noteOffline();
+      }
+      assert.equal(loads, 0);
+      browser.target.dispatchEvent({ type: 'online' });
+      await tick();
+      assert.equal(loads, 1);
+      browser.target.dispatchEvent({ type: 'online' });
+      await tick();
+      assert.equal(loads, 1);
+      screen.stop();
+      const snags = fs.readFileSync('app/(app)/sites/[siteId]/snags/index.tsx', 'utf8');
+      assert.match(snags, /noteOfflineRef\.current\(\)/);
+      const variations = fs.readFileSync('app/(app)/sites/[siteId]/variations/index.tsx', 'utf8');
+      assert.match(variations, /noteOfflineRef\.current\(\)/);
+    });
+  } finally {
+    browser.restore();
+  }
+});
+
+test('opened online, a spurious online event does not refetch', async () => {
+  const browser = installBrowser();
+  try {
+    await withFixtures(false, async () => {
+      assert.equal(browser.target.navigator.onLine, true);
+      assert.equal(readWebOffline(), false);
+      let loads = 0;
+      const screen = createReconnectRefetch({
+        initiallyOffline: false,
+        subscribe: (handlers) => subscribeOnline('web', handlers, { windowTarget: browser.target }),
+        load: () => {
+          loads += 1;
+        },
+      });
+      assert.equal(loads, 0);
+      browser.target.dispatchEvent({ type: 'online' });
+      await tick();
+      assert.equal(loads, 0);
+      screen.stop();
+    });
+  } finally {
+    browser.restore();
+  }
 });
 
 test('already online does not refetch, and the open screens subscribe while focused', () => {

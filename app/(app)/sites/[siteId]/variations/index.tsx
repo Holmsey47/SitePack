@@ -12,7 +12,7 @@ import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 const FILTERS: VariationFilter[] = ['All', 'Draft', 'Signed', 'Sent'];
@@ -26,6 +26,7 @@ export default function VariationsScreen() {
   const [queued, setQueued] = useState<QueuedVariation[]>([]);
   const [filter, setFilter] = useState<VariationFilter>('All');
   const [error, setError] = useState('');
+  const noteOfflineRef = useRef<() => void>(() => {});
 
   const load = useCallback(async () => {
     const userId = person?.auth_user_id;
@@ -40,8 +41,10 @@ export default function VariationsScreen() {
       await seen;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown';
-      if (isRawNetworkText(message)) setError(offlineStatusLine(pending.length > 0));
-      else setError(variationError(message));
+      if (isRawNetworkText(message)) {
+        noteOfflineRef.current();
+        setError(offlineStatusLine(pending.length > 0));
+      } else setError(variationError(message));
     }
   }, [person, siteId]);
 
@@ -50,7 +53,8 @@ export default function VariationsScreen() {
       load().catch(() => setError('Could not load variations.'));
     }, [load])
   );
-  useRefetchOnReconnect(load);
+  const noteOffline = useRefetchOnReconnect(load);
+  noteOfflineRef.current = noteOffline;
 
   const rows = list ? filterVariations(list.rows, filter) : [];
 

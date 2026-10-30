@@ -29,7 +29,7 @@ import { File as PhoneFile, Paths } from 'expo-file-system';
 import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 
 const STATUSES: SnagStatusFilter[] = ['All', 'Open', 'Fixed', 'Signed off'];
@@ -60,6 +60,7 @@ export default function SnagsScreen() {
   const [level, setLevel] = useState<SnagLevelFilter>('All');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const noteOfflineRef = useRef<() => void>(() => {});
 
   const load = useCallback(async () => {
     if (!siteId) return;
@@ -89,6 +90,7 @@ export default function SnagsScreen() {
       if (!signInRequired) {
         const message = err instanceof Error ? err.message : 'unknown';
         if (isRawNetworkText(message)) {
+          noteOfflineRef.current();
           const shown = cached ?? readCachedSnagList(siteId);
           if (shown) setList(shown);
           const saved = (shown?.rows.length ?? 0) > 0 || pending.length > 0;
@@ -106,7 +108,8 @@ export default function SnagsScreen() {
       load().catch(() => setError('Could not load snags.'));
     }, [load])
   );
-  useRefetchOnReconnect(load);
+  const noteOffline = useRefetchOnReconnect(load);
+  noteOfflineRef.current = noteOffline;
 
   const rows = list ? filterSnags(list.rows, status, level) : [];
   const levels = list ? snagLevels(list.rows) : [];
