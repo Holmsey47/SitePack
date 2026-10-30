@@ -1,17 +1,53 @@
 const LONDON = 'Europe/London';
+/** Keeps a date on one line. A normal space is where "Updated 17" / "Sept" was splitting. */
+const NBSP = '\u00a0';
+
+function parseStamp(iso: string, dateOnlyNoon: boolean): Date | null {
+  const date = new Date(dateOnlyNoon && iso.length === 10 ? `${iso}T12:00:00Z` : iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+type UkStamp = { day: string; month: string; year: string; time: string };
+
+/** One London clock for every UK date in the app. Short month names, no trailing dot. */
+function ukStamp(date: Date): UkStamp {
+  const clock = londonClock(date);
+  const year = new Intl.DateTimeFormat('en-GB', { timeZone: LONDON, year: 'numeric' }).format(date);
+  return { day: clock.day, month: clock.month, year, time: clock.time };
+}
+
+/** "21 Oct 2026". Shared by the on-screen date and the dated line. */
+export function formatUkDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = parseStamp(iso, true);
+  if (!date) return '';
+  const stamp = ukStamp(date);
+  return `${stamp.day} ${stamp.month} ${stamp.year}`;
+}
+
+/** "17 Sept", no year. Same clock as formatUkDate. */
+export function formatUkDayMonth(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = parseStamp(iso, true);
+  if (!date) return '';
+  const stamp = ukStamp(date);
+  return `${stamp.day} ${stamp.month}`;
+}
 
 export function formatWhen(iso: string | null | undefined): string {
   if (!iso) return 'Never updated';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return 'Updated —';
-  return `Updated ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: LONDON })}`;
+  const date = parseStamp(iso, true);
+  if (!date) return 'Updated —';
+  const stamp = ukStamp(date);
+  return `Updated${NBSP}${stamp.day}${NBSP}${stamp.month}`;
 }
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return 'No date';
-  const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: LONDON });
+  const text = formatUkDate(iso);
+  if (!text) return iso;
+  return text.replaceAll(' ', NBSP);
 }
 
 type LondonClock = {
@@ -86,23 +122,18 @@ export function formatCodeExpiry(expiresAt: string, now: Date | string | number 
   return `Ends ${end.weekday} ${end.day} ${end.month}, ${end.time}`;
 }
 
-/** UK wall time for a variation PDF and a signature. Example: 22 Oct 2026, 2:05pm. */
+/** UK wall time for a variation PDF and a signature. Example: 22 Oct 2026, 2:56pm. */
 export function formatUkDateTime(iso: string | null | undefined): string {
   if (!iso) return '';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  const clock = londonClock(date);
-  const year = new Intl.DateTimeFormat('en-GB', { timeZone: LONDON, year: 'numeric' }).format(date);
-  return `${clock.day} ${clock.month} ${year}, ${clock.time}`;
+  const date = parseStamp(iso, false);
+  if (!date) return '';
+  const stamp = ukStamp(date);
+  return `${stamp.day} ${stamp.month} ${stamp.year}, ${stamp.time}`;
 }
 
-/** Day and short month in London, with no year. Drawing footers use this. */
+/** Day and short month in London, with no year. Drawing footers use this, and the day does not split from the month. */
 export function formatSheetDay(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
-  if (Number.isNaN(date.getTime())) return '';
-  const clock = londonClock(date);
-  return `${clock.day} ${clock.month}`;
+  return formatUkDayMonth(iso).replace(' ', NBSP);
 }
 
 /** One line under a drawing: Current · 1 Oct · Ground · 0 of 2 seen. */
@@ -145,4 +176,9 @@ export function timeAgo(iso: string): string {
 export function tradeLabel(trade: string | null | undefined): string {
   if (!trade) return '';
   return trade;
+}
+
+/** Action on the clear-filter button. Counts are the rows on screen and the full list. */
+export function clearFilterLabel(shown: number, total: number, noun: string): string {
+  return `Clear filter (showing ${shown} of ${total} ${noun})`;
 }

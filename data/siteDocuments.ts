@@ -24,12 +24,41 @@ export function siteDocumentSignLabel(kind: string): string {
   return "I've read this and understand it";
 }
 
+const archivedNow = new Set<string>();
+
+/** Remember an archive before the list refetches, so the first paint is not "Version 2". */
+export function rememberArchivedDocument(id: string): void {
+  archivedNow.add(id);
+}
+
+export function documentIsArchived(row: { id: string; archived_at: string | null }): boolean {
+  return row.archived_at != null || archivedNow.has(row.id);
+}
+
+/** Archived wins over the version line. A live owner row still names the version. */
+export function siteDocumentStatusLine(row: {
+  id: string;
+  archived_at: string | null;
+  version_no: number;
+  owner: boolean;
+  signed: boolean;
+}): string {
+  if (documentIsArchived(row)) return 'Archived';
+  if (row.owner) return `Version ${row.version_no}`;
+  return row.signed ? 'Signed' : 'To sign';
+}
+
+function rowIsArchived(row: { id?: string; archived_at: string | null }): boolean {
+  if (row.archived_at != null) return true;
+  return row.id != null && archivedNow.has(row.id);
+}
+
 /** Live documents first, archived at the bottom, then title. */
-export function orderedSiteDocuments<T extends { title: string; archived_at: string | null }>(
+export function orderedSiteDocuments<T extends { title: string; archived_at: string | null; id?: string }>(
   rows: readonly T[],
 ): T[] {
   return [...rows].sort((left, right) => {
-    const archived = Number(left.archived_at != null) - Number(right.archived_at != null);
+    const archived = Number(rowIsArchived(left)) - Number(rowIsArchived(right));
     if (archived !== 0) return archived;
     return left.title.localeCompare(right.title, 'en');
   });

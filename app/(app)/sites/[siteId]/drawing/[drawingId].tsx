@@ -1,7 +1,7 @@
 import { DrawingFrame } from '@/components/drawing-frame';
 import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
 import { Icon } from '@/components/icon';
-import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice } from '@/components/ui';
+import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   seenButtonLabel,
@@ -392,7 +392,7 @@ export default function DrawingViewerScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: insets.top }}>
       <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, backgroundColor: theme.bg }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: hit.secondary }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, minHeight: hit.secondary }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
@@ -400,11 +400,14 @@ export default function DrawingViewerScreen() {
             style={{ width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="arrow_back" color={theme.text} />
           </Pressable>
-          <Text style={[textStyle.bodyStrong, { flex: 1, flexShrink: 1 }]} numberOfLines={2}>
-            {title}
-          </Text>
-          {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}
+          <View style={{ flex: 1, flexShrink: 1, gap: space.xs, paddingVertical: space.xs }}>
+            <Text style={textStyle.bodyStrong} numberOfLines={2}>
+              {title}
+            </Text>
+            {revision ? <RevBadge revision={revision} current={drawing ? drawing.is_current : true} /> : null}
+          </View>
           <OverflowMenu
+            title={title}
             items={[
               ...menuItems,
               ...(person?.role === 'owner' && drawing
@@ -413,6 +416,7 @@ export default function DrawingViewerScreen() {
             ]}
           />
         </View>
+        {drawing && drawing.is_current === false ? <SupersededSafetyLabel /> : null}
       </View>
       <View style={{ flex: 1, minHeight: 0 }}>
         {uri ? <DrawingFrame uri={uri} onError={setError} /> : (

@@ -10,13 +10,38 @@ import {
   signRoster,
   siteDocumentBytesError,
   orderedSiteDocuments,
+  rememberArchivedDocument,
   siteDocumentKindLabel,
   siteDocumentSignLabel,
   siteDocumentPath,
   siteDocumentPickError,
+  siteDocumentStatusLine,
 } from './siteDocuments.ts';
 
 const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+
+test('an archived document says Archived on the first paint, before the list refetches', () => {
+  const live = { id: 'doc-live', archived_at: null, version_no: 2, owner: true, signed: false };
+  assert.equal(siteDocumentStatusLine(live), 'Version 2');
+  assert.equal(siteDocumentStatusLine({ ...live, id: 'doc-signed', owner: false, signed: true }), 'Signed');
+  assert.equal(siteDocumentStatusLine({ ...live, id: 'doc-open', owner: false, signed: false }), 'To sign');
+  assert.equal(
+    siteDocumentStatusLine({ ...live, id: 'doc-stored', archived_at: '2026-10-01T00:00:00.000Z' }),
+    'Archived',
+  );
+  rememberArchivedDocument('doc-just-archived');
+  assert.equal(
+    siteDocumentStatusLine({ ...live, id: 'doc-just-archived', archived_at: null }),
+    'Archived',
+  );
+  assert.deepEqual(
+    orderedSiteDocuments([
+      { id: 'doc-just-archived', title: 'Alpha', archived_at: null },
+      { id: 'doc-live', title: 'Bravo', archived_at: null },
+    ]).map((row) => row.title),
+    ['Bravo', 'Alpha'],
+  );
+});
 
 test('document types are Induction, Toolbox talk, and RAMS', () => {
   assert.deepEqual(
@@ -182,13 +207,17 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(site, /numberOfLines=\{2\}/);
   assert.match(site, /headerTitle: \(\) => null/);
   assert.match(site, /minHeight=\{48\}/);
-  assert.match(list, /To sign/);
+  const wording = fs.readFileSync('data/siteDocuments.ts', 'utf8');
+  assert.match(list, /siteDocumentStatusLine/);
+  assert.match(wording, /To sign/);
+  assert.match(wording, /return 'Archived'/);
+  assert.match(detail, /siteDocumentStatusLine/);
+  assert.match(detail, /rememberArchivedDocument/);
   assert.match(upload, /person\.role !== 'owner'/);
   assert.match(upload, /Choose PDF/);
   assert.match(detail, /siteDocumentSignLabel\(detail\.kind\)/);
   assert.match(detail, /formatSignedWhen/);
   assert.match(detail, /Signed \$\{signedWhen\}/);
-  const wording = fs.readFileSync('data/siteDocuments.ts', 'utf8');
   assert.match(wording, /I've read the site induction and understand it/);
   assert.match(wording, /I've read the toolbox talk and understand it/);
   assert.match(wording, /I've read the RAMS and understand it/);

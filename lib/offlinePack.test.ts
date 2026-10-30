@@ -110,10 +110,10 @@ test('an out of date phone copy names the changed sheets and the last sync day',
   assert.equal(rows[1].changedLabel, null);
   assert.equal(
     phoneCopyOutOfDateLine(1, '2026-10-22T12:00:00.000Z'),
-    'Phone copy is out of date. 1 sheet changed since 22 Oct.'
+    'Phone copy is out of date. 1 sheet changed since 22\u00a0Oct.'
   );
   assert.equal(
     phoneCopyOutOfDateLine(2, '2026-10-22T12:00:00.000Z'),
-    'Phone copy is out of date. 2 sheets changed since 22 Oct.'
+    'Phone copy is out of date. 2 sheets changed since 22\u00a0Oct.'
   );
 });

@@ -7,12 +7,13 @@ import { CustomFontsProvider, Text, navigationTitleStyle } from '@/src/theme/tex
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import 'expo-sqlite/localStorage/install';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+SplashScreen.setOptions({ duration: 250, fade: true });
 
 export default function RootLayout() {
   return (
@@ -33,6 +34,13 @@ function Gate() {
   const [fontsLoaded, fontError] = useSitepackFonts();
   const fontsReady = fontsLoaded || fontError != null;
   const customFonts = fontsLoaded && fontError == null;
+  const [revealed, setRevealed] = useState(Platform.OS !== 'web');
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !fontsReady || !ready) return;
+    const frame = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(frame);
+  }, [fontsReady, ready]);
 
   useEffect(() => {
     if (!fontsReady || !ready) return;
@@ -73,7 +81,18 @@ function Gate() {
 
   return (
     <CustomFontsProvider enabled={customFonts}>
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <View
+        style={[
+          { flex: 1, backgroundColor: theme.bg },
+          Platform.OS === 'web'
+            ? ({
+                opacity: revealed ? 1 : 0,
+                fontFamily: 'system-ui, sans-serif',
+                transitionProperty: 'opacity',
+                transitionDuration: '250ms',
+              } as object)
+            : null,
+        ]}>
         {linkError ? (
           <SafeAreaView edges={['top']} style={{ backgroundColor: theme.bg }}>
             <View accessibilityRole="alert" style={{ paddingHorizontal: 20, paddingBottom: 8 }}>

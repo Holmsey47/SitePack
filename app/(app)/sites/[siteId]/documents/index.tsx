@@ -1,7 +1,13 @@
 import { Button, Card, EmptyState, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
-import { orderedSiteDocuments, siteDocumentKindLabel, type SiteDocumentSummary } from '@/data/siteDocuments';
+import {
+  documentIsArchived,
+  orderedSiteDocuments,
+  siteDocumentKindLabel,
+  siteDocumentStatusLine,
+  type SiteDocumentSummary,
+} from '@/data/siteDocuments';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -53,8 +59,14 @@ export default function SiteDocumentsScreen() {
         />
       ) : null}
       {orderedSiteDocuments(rows).map((row) => {
-        const archived = row.archived_at != null;
-        const status = archived ? 'Archived' : owner ? `Version ${row.version_no}` : row.signed_by_me ? 'Signed' : 'To sign';
+        const archived = documentIsArchived(row);
+        const status = siteDocumentStatusLine({
+          id: row.id,
+          archived_at: row.archived_at,
+          version_no: row.version_no,
+          owner,
+          signed: row.signed_by_me,
+        });
         const statusColor = archived ? theme.muted : row.signed_by_me || owner ? theme.text : theme.danger;
         return (
           <Card key={row.id} onPress={() => router.push(`/sites/${siteId}/documents/${row.id}`)}>

@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { drawingFooterLine, formatCodeExpiry, formatSheetDay, formatSignedWhen } from './format.ts';
+import { contrastRatio } from './contrast.ts';
+import {
+  drawingFooterLine,
+  clearFilterLabel,
+  formatCodeExpiry,
+  formatDate,
+  formatSheetDay,
+  formatSignedWhen,
+  formatUkDate,
+  formatUkDateTime,
+  formatUkDayMonth,
+  formatWhen,
+} from './format.ts';
+import { theme } from './theme.ts';
 
 test('a code expiry names today, tomorrow, or a later London day, and a past time is Ended', () => {
   const now = '2026-10-22T12:00:00.000Z';
@@ -38,7 +51,7 @@ test('the BST to GMT change on 25 Oct 2026 01:00 UTC stays on the London day', (
 });
 
 test('a drawing footer is one London line without the year', () => {
-  assert.equal(formatSheetDay('2026-10-01'), '1 Oct');
+  assert.equal(formatSheetDay('2026-10-01'), '1\u00a0Oct');
   assert.equal(
     drawingFooterLine({ current: true, day: '1 Oct', level: 'Ground', seen: '0 of 2 seen' }),
     'Current · 1 Oct · Ground · 0 of 2 seen',
@@ -50,6 +63,19 @@ test('a drawing footer is one London line without the year', () => {
   assert.doesNotMatch(drawing, /Phone online/);
   assert.doesNotMatch(fs.readFileSync('components/phone-status.tsx', 'utf8'), /Phone online/);
   assert.doesNotMatch(fs.readFileSync('components/fixture-offline.tsx', 'utf8'), /Phone online/);
+});
+
+test('UK dates share one London formatter, and a date does not break across a line', () => {
+  assert.equal(formatUkDate('2026-10-21'), '21 Oct 2026');
+  assert.equal(formatUkDateTime('2026-10-22T13:56:00.000Z'), '22 Oct 2026, 2:56pm');
+  assert.equal(formatUkDayMonth('2026-09-17T18:02:00.000Z'), '17 Sept');
+  assert.equal(formatDate('2026-10-21'), '21\u00a0Oct\u00a02026');
+  assert.equal(formatWhen('2026-09-17T18:02:00.000Z'), 'Updated\u00a017\u00a0Sept');
+  assert.equal(formatWhen('2026-09-12T12:00:00.000Z').includes(' '), false);
+  assert.equal(formatSheetDay('2026-09-17'), '17\u00a0Sept');
+  const source = fs.readFileSync(new URL('./format.ts', import.meta.url), 'utf8');
+  assert.equal(source.includes('toLocaleDateString'), false);
+  assert.equal(fs.readFileSync(new URL('./offlinePack.ts', import.meta.url), 'utf8').includes('toLocaleDateString'), false);
 });
 
 test('a signature time is London wall time without the year', () => {
@@ -70,4 +96,51 @@ test('the share panel and the invite offer use the same expiry helper', () => {
   assert.match(offer, /label="Regenerate"/);
   assert.doesNotMatch(panel, /formatDate\(expiresAt\)/);
   assert.doesNotMatch(offer, /formatDate\(/);
+});
+
+test('clear filter is a secondary button that names how many rows are showing', () => {
+  assert.equal(clearFilterLabel(1, 3, 'sites'), 'Clear filter (showing 1 of 3 sites)');
+  assert.equal(clearFilterLabel(0, 4, 'snags'), 'Clear filter (showing 0 of 4 snags)');
+  assert.equal(clearFilterLabel(2, 2, 'variations'), 'Clear filter (showing 2 of 2 variations)');
+  const ui = fs.readFileSync(new URL('../components/ui.tsx', import.meta.url), 'utf8');
+  assert.match(ui, /<Button label=\{label\} variant="secondary" minHeight=\{48\} onPress=\{onClear\} \/>/);
+  assert.doesNotMatch(ui, /Filter on · Clear/);
+  const home = fs.readFileSync(new URL('../app/(app)/sites/index.tsx', import.meta.url), 'utf8');
+  assert.match(home, /shown=\{filtered\.length\}/);
+  assert.match(home, /total=\{working\.length\}/);
+  assert.match(home, /noun="sites"/);
+  const snags = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/snags/index.tsx', import.meta.url), 'utf8');
+  assert.match(snags, /shown=\{rows\.length\}/);
+  assert.match(snags, /total=\{list\?\.rows\.length \?\? 0\}/);
+  assert.match(snags, /noun="snags"/);
+});
+
+test('the old-revisions hint shows only after a level is picked in a folder with two or more current levels', () => {
+  const folder = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/folder/[folder].tsx', import.meta.url), 'utf8');
+  const labels = fs.readFileSync(new URL('../data/folders.ts', import.meta.url), 'utf8');
+  assert.match(folder, /const filters = levelFilterLabels\(current\)/);
+  assert.match(
+    folder,
+    /const activeLevel = filters && levelFilter && filters\.includes\(levelFilter\) \? levelFilter : null/,
+  );
+  assert.match(folder, /\{activeLevel \? <Text style=\{textStyle\.body\}>\{OLD_REVISIONS_HIDDEN\}<\/Text> : null\}/);
+  assert.match(labels, /if \(seen\.size <= 1\) return null/);
+  assert.doesNotMatch(folder, /superseded\.length > 0 && activeLevel/);
+});
+
+test('a superseded sheet says not to build from it, in readable ink', () => {
+  const ui = fs.readFileSync(new URL('../components/ui.tsx', import.meta.url), 'utf8');
+  const folder = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/folder/[folder].tsx', import.meta.url), 'utf8');
+  const viewer = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/drawing/[drawingId].tsx', import.meta.url), 'utf8');
+  assert.match(ui, /SUPERSEDED_DO_NOT_BUILD = 'SUPERSEDED, do not build from'/);
+  assert.match(ui, /backgroundColor: theme\.danger/);
+  assert.match(ui, /color: theme\.currentInk/);
+  assert.ok(contrastRatio(theme.currentInk, theme.danger) >= 4.5);
+  assert.match(folder, /<SupersededSafetyLabel \/>/);
+  assert.match(folder, /Old revisions hidden\. Tap All to see them\./);
+  assert.match(folder, /Show superseded \/ archive/);
+  assert.match(folder, /SeenCountSlot/);
+  assert.match(viewer, /<SupersededSafetyLabel \/>/);
+  assert.match(viewer, /numberOfLines=\{2\}/);
+  assert.match(viewer, /title=\{title\}/);
 });

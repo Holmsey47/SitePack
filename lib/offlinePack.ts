@@ -1,3 +1,5 @@
+import { formatUkDayMonth } from '@/lib/format';
+
 export type PackRevision = {
   drawingId: string;
   revision: string;
@@ -153,10 +155,7 @@ export function changedSheetCount(rows: readonly { changedLabel: string | null }
 
 /** "Phone copy is out of date. 1 sheet changed since 22 Oct." */
 export function phoneCopyOutOfDateLine(count: number, downloadedAt: string): string {
-  const date = new Date(downloadedAt);
-  const day = Number.isNaN(date.getTime())
-    ? ''
-    : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+  const day = formatUkDayMonth(downloadedAt).replace(' ', '\u00a0');
   const sheets = count === 1 ? '1 sheet changed' : `${count} sheets changed`;
   return day
     ? `Phone copy is out of date. ${sheets} since ${day}.`

@@ -122,7 +122,7 @@ test('a code this phone cannot show stays hidden, and a cached code is preferred
   assert.equal(viewActiveCode([], { 'older-code': 'K7QM-4XPR' }, NOW).kind, 'empty');
   assert.equal(
     activeCodeNotice('2026-10-22T17:30:00.000Z', '2026-10-22T12:00:00.000Z'),
-    'A code is active until today 6:30pm. Make a new one to share it from this phone.',
+    'A code is active on another device until today 6:30pm. Make a new one to share it from here.',
   );
   assert.deepEqual(parseJoinCodeCache('not-json'), {});
   assert.equal(Object.hasOwn(parseJoinCodeCache('{"__proto__":"K7QM-4XPR","ok-id":"K7QM-4XPR"}'), '__proto__'), false);

@@ -10,16 +10,20 @@ export function MenuSheet({
   items,
   onClose,
   onPress,
+  title,
 }: {
   open: boolean;
   items: readonly MenuSheetItem[];
   onClose: () => void;
   onPress: (item: MenuSheetItem) => void;
+  /** Full name, shown in the sheet so a clipped header can still be read. */
+  title?: string;
 }) {
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable testID="overflow-backdrop" onPress={onClose} style={styles.scrim}>
         <View style={styles.card}>
+          {title ? <Text style={textStyle.title}>{title}</Text> : null}
           {items.map((item) => (
             <Pressable
               key={item.label}

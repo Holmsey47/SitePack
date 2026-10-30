@@ -9,6 +9,7 @@ import {
   HOME_COUNT_CAP,
   countsForSite,
   formatHomeCount,
+  glueNewLine,
   homeCardLines,
   homeNewCountLine,
   mapHomeNewCounts,
@@ -44,6 +45,8 @@ test('the new line hides zero kinds, pluralises, and caps at 999+', () => {
   assert.equal(homeNewCountLine({ snags: 0, variations: 0, requests: 0 }), null);
   assert.equal(homeNewCountLine(null), null);
   assert.equal(homeNewCountLine({ snags: 1, variations: 1, requests: 1 }), 'New: 1 snag · 1 variation · 1 request');
+  assert.equal(glueNewLine('New: 1 snag · 1 variation · 1 request'), 'New:\u00a01\u00a0snag · 1\u00a0variation · 1\u00a0request');
+  assert.equal(glueNewLine('New: 999+ snags').includes(' '), false);
   assert.equal(
     homeNewCountLine({ snags: 2, variations: 2, requests: 2 }),
     'New: 2 snags · 2 variations · 2 requests',

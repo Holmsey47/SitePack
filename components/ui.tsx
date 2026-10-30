@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
 import { MenuSheet } from '@/components/menu-sheet';
+import { clearFilterLabel } from '@/lib/format';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { Text, TextInput } from '@/src/theme/text';
 import { ReactNode, useState, type Ref } from 'react';
@@ -73,6 +74,7 @@ export function Button({
   loading,
   minHeight,
   testID,
+  accessibilityLiveRegion,
 }: {
   label: string;
   onPress: () => void;
@@ -82,12 +84,14 @@ export function Button({
   /** Glove target. Defaults to the shared thumb height. */
   minHeight?: number;
   testID?: string;
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
   const quiet = Boolean(disabled) && !loading;
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
+      accessibilityLiveRegion={accessibilityLiveRegion}
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [
@@ -245,6 +249,37 @@ export function GlanceRow({ label, onPress }: { label: string; onPress: () => vo
   );
 }
 
+export const SUPERSEDED_DO_NOT_BUILD = 'SUPERSEDED, do not build from';
+
+/** Safety line. Ink on the danger fill so it stays readable on a superseded sheet. */
+export function SupersededSafetyLabel() {
+  return (
+    <View accessibilityRole="text" accessibilityLabel={SUPERSEDED_DO_NOT_BUILD} style={styles.supersededSafety}>
+      <Text style={styles.supersededSafetyText}>{SUPERSEDED_DO_NOT_BUILD}</Text>
+    </View>
+  );
+}
+
+/**
+ * The seen chip is 48px. Hold that height while the count is still loading
+ * so the row under a thumb does not jump when the chip arrives.
+ */
+export function SeenCountSlot({
+  pending,
+  seen,
+  total,
+  onPress,
+}: {
+  pending: boolean;
+  seen: number | null;
+  total: number;
+  onPress: () => void;
+}) {
+  if (pending) return <View accessibilityElementsHidden style={styles.seenReserve} />;
+  if (seen == null) return null;
+  return <SeenCountChip seen={seen} total={total} onPress={onPress} />;
+}
+
 /** Owner or contracts manager count. Tap opens who has and has not seen it. */
 export function SeenCountChip({
   seen,
@@ -307,12 +342,38 @@ export function ChoiceChip({
   );
 }
 
+/** Shown while a filter is narrowing the list. Same full-width secondary button as Invite by email. */
+export function FilterOnClear({
+  shown,
+  total,
+  noun,
+  onClear,
+}: {
+  shown: number;
+  total: number;
+  noun: string;
+  onClear: () => void;
+}) {
+  const label = clearFilterLabel(shown, total, noun);
+  return <Button label={label} variant="secondary" minHeight={48} onPress={onClear} />;
+}
+
 export function FilterBar({
   chips,
   level,
+  narrowed,
+  onClear,
+  shown,
+  total,
+  noun,
 }: {
   chips: { key: string; label: string; selected: boolean; onPress: () => void }[];
   level?: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
+  narrowed?: boolean;
+  onClear?: () => void;
+  shown?: number;
+  total?: number;
+  noun?: string;
 }) {
   return (
     <View style={{ gap: space.md }}>
@@ -322,6 +383,9 @@ export function FilterBar({
         ))}
       </View>
       {level ? <LevelMenu value={level.value} options={level.options} onChange={level.onChange} /> : null}
+      {narrowed && onClear && noun != null && shown != null && total != null ? (
+        <FilterOnClear shown={shown} total={total} noun={noun} onClear={onClear} />
+      ) : null}
     </View>
   );
 }
@@ -382,8 +446,11 @@ export function LevelMenu({
 export function OverflowMenu({
   items,
   label = 'More',
+  title,
 }: {
   label?: string;
+  /** Full name, shown in the sheet so a clipped header can still be read. */
+  title?: string;
   items: { label: string; danger?: boolean; onPress: () => void }[];
 }) {
   const [open, setOpen] = useState(false);
@@ -399,6 +466,7 @@ export function OverflowMenu({
       </Pressable>
       <MenuSheet
         open={open}
+        title={title}
         items={items}
         onClose={() => setOpen(false)}
         onPress={(item) => {
@@ -532,7 +600,7 @@ const styles = StyleSheet.create({
   chipText: { flexShrink: 1, fontSize: typeScale.body, fontFamily: fontFamily.bold },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.bg },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.md },
   levelBtn: {
     minHeight: hit.secondary,
     borderRadius: radius.control,
@@ -603,6 +671,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   glanceRowText: textStyle.bodyStrong,
+  seenReserve: { minHeight: hit.secondary, alignSelf: 'stretch' },
   seenChip: {
     minHeight: hit.secondary,
     minWidth: hit.secondary,
@@ -616,6 +685,20 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   seenChipText: { ...textStyle.bodyStrong, textAlign: 'center', ...textStyle.tabular },
+  supersededSafety: {
+    alignSelf: 'stretch',
+    backgroundColor: theme.danger,
+    borderRadius: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    justifyContent: 'center',
+  },
+  supersededSafetyText: {
+    color: theme.currentInk,
+    fontSize: typeScale.meta,
+    lineHeight: 20,
+    fontFamily: fontFamily.extraBold,
+  },
   iconHit: { width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' },
   modalScrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.scrim, padding: space.lg },
   modalCard: {

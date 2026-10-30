@@ -12,7 +12,7 @@ import {
 } from '@/data/inviteEntry';
 import { formatJoinCode } from '@/data/joinCodes';
 import { formatCodeExpiry } from '@/lib/format';
-import { textStyle, theme } from '@/lib/theme';
+import { textStyle } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
@@ -125,13 +125,14 @@ export function JoinSharePanel({ code, siteName, expiresAt, uses, maxUses }: Joi
         {showShare ? (
           <Button label="Share…" variant="secondary" minHeight={48} onPress={() => void onShare()} />
         ) : null}
-        <Button label="Copy link" variant="secondary" minHeight={48} onPress={() => void onCopy()} />
+        <Button
+          label={copied ? 'Copied' : 'Copy link'}
+          variant="secondary"
+          minHeight={48}
+          accessibilityLiveRegion={copied ? 'polite' : 'none'}
+          onPress={() => void onCopy()}
+        />
       </View>
-      {copied ? (
-        <Text accessibilityLiveRegion="polite" style={styles.copied}>
-          Copied
-        </Text>
-      ) : null}
       <ErrorText>{error}</ErrorText>
     </Card>
   );
@@ -154,5 +155,4 @@ const styles = StyleSheet.create({
   },
   whatsAppText: { color: '#06210F', fontSize: 17, fontWeight: '800' },
   pressed: { opacity: 0.85 },
-  copied: { ...textStyle.metaStrong, color: theme.sent },
 });

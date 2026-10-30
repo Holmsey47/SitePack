@@ -1,3 +1,4 @@
+import { theme } from '@/lib/theme';
 import { ScrollViewStyleReset } from 'expo-router/html';
 import { type PropsWithChildren } from 'react';
 
@@ -11,6 +12,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="referrer" content="no-referrer" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
         <ScrollViewStyleReset />
+        <style>{`html, body { background: ${theme.bg}; color: ${theme.text}; font-family: system-ui, sans-serif; }`}</style>
       </head>
       <body>{children}</body>
     </html>

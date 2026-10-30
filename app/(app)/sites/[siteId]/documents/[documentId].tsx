@@ -2,12 +2,15 @@ import { Button, Card, ErrorText, Muted, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
+  documentIsArchived,
   memberMustSign,
+  rememberArchivedDocument,
   signRoster,
   siteDocumentBytesError,
   siteDocumentKindLabel,
   siteDocumentPickError,
   siteDocumentSignLabel,
+  siteDocumentStatusLine,
   type SiteDocumentDetail,
 } from '@/data/siteDocuments';
 import { formatSignedWhen, formatUkDateTime } from '@/lib/format';
@@ -179,6 +182,7 @@ export default function SiteDocumentScreen() {
     setError('');
     try {
       await repo.archiveSiteDocument(detail.id);
+      rememberArchivedDocument(detail.id);
       router.back();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not archive the document.');
@@ -217,17 +221,25 @@ export default function SiteDocumentScreen() {
 
   const signedAt = detail.signatures.find((row) => row.person_id === person?.id)?.signed_at;
   const signedWhen = formatSignedWhen(signedAt);
+  const archived = documentIsArchived(detail);
 
   return (
     <Screen scrollRef={scrollRef}>
       <Text style={textStyle.bodyStrong}>{siteDocumentKindLabel(detail.kind)}</Text>
-      <Text style={textStyle.metaStrong}>Version {detail.version_no}</Text>
-      {detail.archived_at ? <Text style={{ ...textStyle.metaStrong, color: theme.muted }}>Archived</Text> : null}
+      <Text style={{ ...textStyle.metaStrong, color: archived ? theme.muted : theme.text }}>
+        {siteDocumentStatusLine({
+          id: detail.id,
+          archived_at: detail.archived_at,
+          version_no: detail.version_no,
+          owner,
+          signed: detail.signed_by_me,
+        })}
+      </Text>
       <Button label="Open PDF" variant="secondary" minHeight={48} onPress={openPdf} />
-      {mustSign && !detail.archived_at && !detail.signed_by_me ? (
+      {mustSign && !archived && !detail.signed_by_me ? (
         <Button label={siteDocumentSignLabel(detail.kind)} minHeight={56} loading={busy} onPress={() => void sign()} />
       ) : null}
-      {mustSign && !detail.archived_at && detail.signed_by_me ? (
+      {mustSign && !archived && detail.signed_by_me ? (
         <Text style={{ ...textStyle.bodyStrong, color: theme.sent }}>
           {signedWhen ? `Signed ${signedWhen}` : 'Signed'}
         </Text>
@@ -245,7 +257,7 @@ export default function SiteDocumentScreen() {
               </Text>
             </Card>
           ))}
-          {detail.archived_at ? null : (
+          {archived ? null : (
             <>
               <Button label={fileName || 'Choose a new PDF'} variant="secondary" minHeight={48} onPress={() => void pickPdf()} />
               {bytes ? (
