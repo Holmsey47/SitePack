@@ -1,4 +1,5 @@
 import { HardwareBackHandler } from '@/components/HardwareBackHandler';
+import { ShellBackButton } from '@/components/shell-back';
 import { OfflineQueueSync } from '@/components/offline-queue-sync';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { gateRedirect } from '@/lib/authGate';
@@ -109,6 +110,7 @@ function Gate() {
             headerTitleStyle: navigationTitleStyle(customFonts),
             headerShadowVisible: false,
             contentStyle: { backgroundColor: theme.bg },
+            headerLeft: ({ tintColor, canGoBack }) => <ShellBackButton tintColor={tintColor} canGoBack={canGoBack} />,
           }}>
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />

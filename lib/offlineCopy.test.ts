@@ -44,3 +44,16 @@ test('snags offline shows a cached list and does not offer an empty share', () =
   assert.match(offline, /sitepack\.offline\.snags\./);
   assert.match(offline, /function clearLocalMetadata\(\) \{[\s\S]*SNAG_LIST_PREFIX/);
 });
+
+test('the header back control is a bundled glyph, not a network image', () => {
+  const shell = fs.readFileSync('components/shell-back.tsx', 'utf8');
+  const app = fs.readFileSync('app/(app)/_layout.tsx', 'utf8');
+  const root = fs.readFileSync('app/_layout.tsx', 'utf8');
+  assert.match(shell, /arrow_back/);
+  assert.match(shell, /minHeight: hit\.min/);
+  assert.doesNotMatch(shell, /back-icon/);
+  assert.doesNotMatch(shell, /#[0-9A-Fa-f]{3,8}/);
+  assert.match(app, /ShellBackButton/);
+  assert.match(root, /ShellBackButton/);
+  assert.doesNotMatch(`${app}\n${root}`, /back-icon/);
+});
