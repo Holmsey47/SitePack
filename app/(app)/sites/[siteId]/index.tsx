@@ -28,7 +28,7 @@ import { Pressable, View } from 'react-native';
 
 export default function SitePackScreen() {
   const { siteId } = useLocalSearchParams<{ siteId: string }>();
-  const { person } = useAuth();
+  const { person, refresh } = useAuth();
   const router = useRouter();
   const navigation = useNavigation();
   const manage = person ? canManageSite(person.role) : false;
@@ -153,9 +153,10 @@ export default function SitePackScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      void refresh();
       load().catch(() => setError('Could not load the pack.'));
       void refreshCounts();
-    }, [load, refreshCounts])
+    }, [load, refresh, refreshCounts])
   );
 
   const folders = packFolders(drawings);

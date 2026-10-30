@@ -715,6 +715,15 @@ export const supabaseRepo: SitePackRepo = {
     if (error) throw new Error(rpcErrorCode(error.message));
   },
 
+  async setPersonRole(personId, role) {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('set_person_role', {
+      p_person_id: personId,
+      p_role: role,
+    });
+    if (error) throw new Error(rpcErrorCode(error));
+  },
+
   async uploadDrawingFile({ companyId, siteId, drawingId, bytes, contentType, fileName }) {
     const supabase = getSupabase();
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;

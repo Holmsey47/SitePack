@@ -22,8 +22,8 @@ import type { JoinWithCodeInput, Person, Role } from '@/data/types';
 import { AuthLinkConfirm } from '@/components/auth-link-confirm';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AppState, Platform } from 'react-native';
 
 type AuthState = {
   ready: boolean;
@@ -84,6 +84,23 @@ async function readStoredSessionUser(): Promise<{ userId: string; email: string 
 
 function isRole(value: unknown): value is Role {
   return value === 'operative' || value === 'cm' || value === 'owner';
+}
+
+function samePerson(current: Person | null, next: Person | null): boolean {
+  if (current === next) return true;
+  if (!current || !next) return false;
+  return (
+    current.id === next.id &&
+    current.auth_user_id === next.auth_user_id &&
+    current.company_id === next.company_id &&
+    current.role === next.role &&
+    current.trade === next.trade &&
+    current.display_name === next.display_name &&
+    current.email === next.email &&
+    current.phone === next.phone &&
+    (current.username ?? null) === (next.username ?? null) &&
+    (current.password_reset_at ?? null) === (next.password_reset_at ?? null)
+  );
 }
 
 function rememberedStorage(): Storage | null {
@@ -442,6 +459,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resolve?.(accepted);
   }
 
+  const refreshPerson = useCallback(async () => {
+    let me: Person | null;
+    try {
+      me = await repo.me();
+    } catch {
+      return;
+    }
+    if (me?.auth_user_id) {
+      writeRemembered(me);
+      await bindCache(me.auth_user_id);
+    }
+    setPerson((current) => (samePerson(current, me) ? current : me));
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void refreshPerson();
+    });
+    return () => sub.remove();
+  }, [refreshPerson]);
+
   const value = useMemo<AuthState>(
     () => ({
       ready,
@@ -510,16 +548,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setPerson(me);
       },
-      refresh: async () => {
-        const me = await repo.me();
-        if (me?.auth_user_id) {
-          writeRemembered(me);
-          await bindCache(me.auth_user_id);
-        }
-        setPerson(me);
-      },
+      refresh: refreshPerson,
     }),
-    [ready, person, needsPassword, linkError]
+    [ready, person, needsPassword, linkError, refreshPerson]
   );
 
   return (

@@ -35,6 +35,42 @@ export function removableSites<T extends { name: string }>(
   return callerSites.filter((site) => names.has(site.name));
 }
 
+export type SiteManagerChange = {
+  label: 'Make site manager' | 'Remove site manager';
+  next: 'cm' | 'operative';
+  confirm: (name: string) => string;
+};
+
+/** Owner-only menu copy. Operative becomes a site manager (cm). cm goes back to operative. */
+export function siteManagerChange(role: Role): SiteManagerChange | null {
+  if (role === 'operative') {
+    return {
+      label: 'Make site manager',
+      next: 'cm',
+      confirm: (name) => `${name} will be able to upload and replace drawings on their sites.`,
+    };
+  }
+  if (role === 'cm') {
+    return {
+      label: 'Remove site manager',
+      next: 'operative',
+      confirm: (name) => `${name} will no longer be able to upload or replace drawings on their sites.`,
+    };
+  }
+  return null;
+}
+
+/** Owners only, and never for themselves or another owner. */
+export function canOfferSiteManagerChange(
+  callerRole: Role,
+  callerId: string,
+  row: { id: string; role: Role }
+): boolean {
+  if (callerRole !== 'owner') return false;
+  if (!callerId || callerId === row.id) return false;
+  return siteManagerChange(row.role) !== null;
+}
+
 /** A failed People load. `unknown` is what an unmatched read throws. */
 export function peopleLoadFailureMessage(err: unknown): string {
   const message = err instanceof Error ? err.message.trim() : '';

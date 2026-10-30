@@ -4,11 +4,13 @@ import { useAuth } from '@/context/AuthContext';
 import {
   canAddNoLogin,
   canAttachLogin,
+  canOfferSiteManagerChange,
   pinnedOwnerFirst,
   occupationLine,
   peopleFailureMessage,
   peopleLoadFailureMessage,
   removableSites,
+  siteManagerChange,
 } from '@/data/companyPeople';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
@@ -30,6 +32,7 @@ export default function PeopleScreen() {
   const [siteIds, setSiteIds] = useState<string[]>([]);
   const [inviteFor, setInviteFor] = useState<string | null>(null);
   const [removeFor, setRemoveFor] = useState<{ personId: string; siteId: string } | null>(null);
+  const [roleFor, setRoleFor] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -110,6 +113,18 @@ export default function PeopleScreen() {
     await refreshAfterWrite();
   }
 
+  async function onSetRole(personId: string, role: 'cm' | 'operative') {
+    setError('');
+    try {
+      await repo.setPersonRole(personId, role);
+    } catch (err) {
+      setError(peopleFailureMessage(err instanceof Error ? err.message : 'Could not change that role'));
+      return;
+    }
+    setRoleFor(null);
+    await refreshAfterWrite();
+  }
+
   async function onInvite(personId: string) {
     setLoading(true);
     setError('');
@@ -142,6 +157,30 @@ export default function PeopleScreen() {
       {pinnedOwnerFirst(people).map((row) => {
         const mine = removableSites(row, sites);
         const invite = person ? canAttachLogin(person.role, row, sites) : false;
+        const change =
+          person && canOfferSiteManagerChange(person.role, person.id, row) ? siteManagerChange(row.role) : null;
+        const menuItems = [
+          ...(change
+            ? [
+                {
+                  label: change.label,
+                  onPress: () => {
+                    setRemoveFor(null);
+                    setRoleFor(row.id);
+                    setError('');
+                  },
+                },
+              ]
+            : []),
+          ...mine.map((site) => ({
+            label: `Remove from ${site.name}`,
+            danger: true,
+            onPress: () => {
+              setRoleFor(null);
+              setRemoveFor({ personId: row.id, siteId: site.site_id });
+            },
+          })),
+        ];
         return (
           <Card key={row.id}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
@@ -150,17 +189,22 @@ export default function PeopleScreen() {
                 <Muted>{occupationLine(row.role, row.trade)}</Muted>
                 <Text style={{ color: theme.text }}>{siteLabel(row.site_names)}</Text>
               </View>
-              {mine.length > 0 ? (
-                <OverflowMenu
-                  label={`More for ${personLabel(row)}`}
-                  items={mine.map((site) => ({
-                    label: `Remove from ${site.name}`,
-                    danger: true,
-                    onPress: () => setRemoveFor({ personId: row.id, siteId: site.site_id }),
-                  }))}
-                />
+              {menuItems.length > 0 ? (
+                <OverflowMenu label={`More for ${personLabel(row)}`} title={personLabel(row)} items={menuItems} />
               ) : null}
             </View>
+            {change && roleFor === row.id ? (
+              <View style={{ gap: space.sm }}>
+                <Text style={textStyle.body}>{change.confirm(personLabel(row))}</Text>
+                <Button
+                  label={change.label}
+                  variant={change.next === 'cm' ? 'primary' : 'danger'}
+                  minHeight={change.next === 'cm' ? 56 : 48}
+                  onPress={() => void onSetRole(row.id, change.next)}
+                />
+                <Button label="Cancel" variant="secondary" minHeight={48} onPress={() => setRoleFor(null)} />
+              </View>
+            ) : null}
             {removeFor?.personId === row.id ? (
               <View style={{ gap: space.sm }}>
                 <Text style={textStyle.body}>
