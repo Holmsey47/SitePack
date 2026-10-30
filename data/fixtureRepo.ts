@@ -101,6 +101,7 @@ import {
   type SignSiteDocumentInput,
   type SiteDocumentKind,
 } from '@/data/siteDocuments';
+import { unsignedSignDocuments, type SignNudgeRow } from '@/data/signNudge';
 
 type GroupRecord = {
   id: string;
@@ -2006,6 +2007,35 @@ export const fixtureRepo: SitePackRepo = {
       received_at: new Date().toISOString(),
     });
     return { seenAt: row.seen_at };
+  },
+
+  async listUnsignedSiteDocuments() {
+    const person = meOrThrow();
+    const rows: SignNudgeRow[] = [];
+    for (const document of store.siteDocuments) {
+      if (!canAccessSite(person, document.site_id)) continue;
+      if (document.archived_at && person.role !== 'owner') continue;
+      const version = store.siteDocumentVersions.find((item) => item.document_id === document.id && item.is_current);
+      if (!version) continue;
+      const site = store.sites.find((item) => item.id === document.site_id);
+      const signerIds = store.siteDocumentSignatures
+        .filter((row) => row.version_id === version.id)
+        .filter((row) => person.role === 'owner' || row.person_id === person.id)
+        .map((row) => row.person_id);
+      rows.push({
+        id: document.id,
+        siteId: document.site_id,
+        siteName: site?.name ?? '',
+        kind: document.kind,
+        title: document.title,
+        archivedAt: document.archived_at,
+        assigned: store.assignments.some((row) => row.site_id === document.site_id && row.person_id === person.id),
+        versionId: version.id,
+        current: version.is_current,
+        signerIds,
+      });
+    }
+    return unsignedSignDocuments(rows, person);
   },
 
   async listSiteDocuments(siteId) {

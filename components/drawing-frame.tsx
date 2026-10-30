@@ -1,5 +1,6 @@
 import { loadSheetHtml, SHEET_OPEN_ERROR } from '@/lib/sheetDocument';
 import { theme } from '@/lib/theme';
+import { allowsEmbeddedViewerUrl } from '@/lib/viewerNavigation';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -41,7 +42,8 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
   return (
     <WebView
       originWhitelist={['*']}
-      source={{ html }}
+      source={{ html, baseUrl: 'about:blank' }}
+      onShouldStartLoadWithRequest={(request) => allowsEmbeddedViewerUrl(request.url)}
       style={{ flex: 1, backgroundColor: theme.bg }}
       setSupportMultipleWindows={false}
       scalesPageToFit={false}

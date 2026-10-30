@@ -160,6 +160,23 @@ function ipv4Subject(value: string): string | null {
   return parts.join('.');
 }
 
+function namedKey(
+  raw: string | null | undefined,
+  prefix: 'sb_secret_' | 'sb_publishable_'
+): string | null {
+  if (!raw || !raw.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const value = (parsed as Record<string, unknown>).default;
+  if (typeof value !== 'string' || !value.startsWith(prefix)) return null;
+  return value;
+}
+
 /**
  * The sb_secret_ key Supabase injects as SUPABASE_SECRET_KEYS JSON.
  * There is no fallback. A missing or invalid value fails closed.
@@ -167,21 +184,50 @@ function ipv4Subject(value: string): string | null {
 export function loadSecretKey(
   raw: string | null | undefined
 ): { ok: true; key: string } | { ok: false; error: 'secret_key_missing' } {
-  if (!raw || !raw.trim()) return { ok: false, error: 'secret_key_missing' };
-  let parsed: unknown;
+  const key = namedKey(raw, 'sb_secret_');
+  if (!key) return { ok: false, error: 'secret_key_missing' };
+  return { ok: true, key };
+}
+
+/**
+ * The sb_publishable_ key Supabase injects as SUPABASE_PUBLISHABLE_KEYS JSON.
+ * There is no fallback. A missing or invalid value fails closed.
+ */
+export function loadPublishableKey(
+  raw: string | null | undefined
+): { ok: true; key: string } | { ok: false; error: 'publishable_key_missing' } {
+  const key = namedKey(raw, 'sb_publishable_');
+  if (!key) return { ok: false, error: 'publishable_key_missing' };
+  return { ok: true, key };
+}
+
+function jwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  if (!parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part) && part.length > 0)) return null;
   try {
-    parsed = JSON.parse(raw);
+    const body = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = body + '='.repeat((4 - (body.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    return payload as Record<string, unknown>;
   } catch {
-    return { ok: false, error: 'secret_key_missing' };
+    return null;
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, error: 'secret_key_missing' };
-  }
-  const value = (parsed as Record<string, unknown>).default;
-  if (typeof value !== 'string' || !value.startsWith('sb_secret_')) {
-    return { ok: false, error: 'secret_key_missing' };
-  }
-  return { ok: true, key: value };
+}
+
+/** A signed-in person's access token. Publishable and secret keys are not JWTs. */
+export function isAuthenticatedUserJwt(token: string | null | undefined): boolean {
+  if (typeof token !== 'string' || token.startsWith('sb_')) return false;
+  return jwtPayload(token)?.role === 'authenticated';
+}
+
+/** The bearer token when it is a user access token. Anything else, including an API key, is refused. */
+export function accessTokenFromAuthorization(header: string | null | undefined): string | null {
+  if (typeof header !== 'string') return null;
+  const match = /^Bearer\s+(\S+)$/i.exec(header.trim());
+  if (!match || !isAuthenticatedUserJwt(match[1])) return null;
+  return match[1];
 }
 
 /**

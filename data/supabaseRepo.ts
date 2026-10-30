@@ -53,6 +53,8 @@ import type {
 import { snagRpcError, snagStorageError, throwSnagRpc } from '@/data/snagFailure';
 import {
   isSiteDocumentKind,
+  memberMustSign,
+  SITE_DOCUMENT_URL_SECONDS,
   siteDocumentBytesError,
   siteDocumentPath,
   type CreateSiteDocumentInput,
@@ -63,6 +65,7 @@ import {
   type SiteDocumentSignature,
   type SiteDocumentSummary,
 } from '@/data/siteDocuments';
+import { rowsFromSignNudgeRead, unsignedSignDocuments } from '@/data/signNudge';
 import { getSupabase } from '@/lib/supabase';
 import { pathsToClear } from '@/data/drawingDelete';
 import { uploadBytes } from '@/lib/uploadBytes';
@@ -1233,6 +1236,27 @@ export const supabaseRepo: SitePackRepo = {
     return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
   },
 
+  async listUnsignedSiteDocuments() {
+    const person = await this.me();
+    if (!person) throw new Error('not_authorized');
+    if (!memberMustSign(person.role)) return [];
+    // One PostgREST read. RLS hides other sites and other people's signatures.
+    // The assignment join keeps it to sites this person is on.
+    const { data, error } = await getSupabase()
+      .from('site_documents')
+      .select(
+        `id, site_id, kind, title, archived_at,
+         sites!site_documents_site_id_fkey!inner(name, site_assignments!site_assignments_site_id_fkey!inner(person_id)),
+         site_document_versions!site_document_versions_document_id_fkey!inner(id, is_current, site_document_signatures!site_document_signatures_version_id_fkey(person_id))`,
+      )
+      .is('archived_at', null)
+      .in('kind', ['induction', 'rams'])
+      .eq('site_document_versions.is_current', true)
+      .eq('sites.site_assignments.person_id', person.id);
+    if (error) throw new Error('Could not read documents to sign.');
+    return unsignedSignDocuments(rowsFromSignNudgeRead(data, person.id), person);
+  },
+
   async listSiteDocuments(siteId) {
     const person = await this.me();
     if (!person) throw new Error('not_authorized');
@@ -1447,7 +1471,7 @@ export const supabaseRepo: SitePackRepo = {
 
   async siteDocumentUrl(storagePath) {
     const supabase = getSupabase();
-    const { data, error } = await supabase.storage.from('site-documents').createSignedUrl(storagePath, 3600);
+    const { data, error } = await supabase.storage.from('site-documents').createSignedUrl(storagePath, SITE_DOCUMENT_URL_SECONDS);
     if (error || !data?.signedUrl) throw new Error(error?.message ?? 'Could not open the PDF');
     return data.signedUrl;
   },

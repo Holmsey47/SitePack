@@ -5,12 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const key =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
+const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '';
 
-if (!url || !key) {
+if (!url || !key.trim()) {
   console.error(
-    'Production web build needs EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.'
+    'Production web build needs EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.'
   );
   process.exit(1);
 }

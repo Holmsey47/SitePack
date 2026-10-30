@@ -390,8 +390,13 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
-# Public join, username login, reset redeem, and owner start. verify_jwt is off because the caller has no session.
-# issue-join-code and issue-reset-code are logged-in. They hash with the edge secret
+# Public join, username login, reset redeem, and owner start.
+# verify_jwt stays off. The client sends the publishable key, which is not a JWT, and the caller has no session.
+# Each function checks its own credential in code. Rate limits stay in SQL.
+# issue-join-code, issue-reset-code, and invite-person are logged-in.
+# verify_jwt stays on because the caller sends a user access token, which is still a JWT.
+# Those handlers also reject a bearer that is not an authenticated user token.
+# issue-join-code and issue-reset-code hash with the edge secret
 # JOIN_CODE_PEPPER. SQL only receives the hash. Do not set a database pepper.
 # JOIN_IP_HEADER defaults to cf-connecting-ip. Confirm it at ship.
 # The functions send Sb-Forwarded-For. Auth honors it only after IP Address Forwarding
@@ -412,6 +417,9 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.issue-reset-code]
+verify_jwt = true
+
+[functions.invite-person]
 verify_jwt = true
 
 [functions.start-company]

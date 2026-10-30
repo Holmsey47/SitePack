@@ -1,6 +1,14 @@
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import { mapInviteFailure, type InviteFailureKind } from '../_shared/inviteFailure.ts';
 import { resolveInviteRedirect } from '../_shared/inviteRedirect.ts';
+import { accessTokenFromAuthorization } from '../_shared/joinCodes.ts';
+import { clientIp, serviceClient, userClient } from '../_shared/joinHttp.ts';
+
+/**
+ * Logged-in email invite. verify_jwt stays true: the caller sends a user access token.
+ * getUser checks that token. Admin calls use the shared secret-key loader.
+ * The publishable key is not a JWT and is only the user-scoped client key.
+ */
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,20 +38,18 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
+    const token = accessTokenFromAuthorization(req.headers.get('Authorization'));
+    if (!token) {
       return json({ error: 'not_authorized' }, 401);
     }
 
-    const caller = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const admin = createClient(supabaseUrl, serviceKey);
+    const caller = userClient(req);
+    const admin = serviceClient(clientIp(req));
+    if (!caller || !admin) {
+      return json({ error: 'invite_failed' }, 500);
+    }
 
-    const { data: userData, error: userError } = await caller.auth.getUser();
+    const { data: userData, error: userError } = await caller.auth.getUser(token);
     if (userError || !userData.user) {
       return json({ error: 'not_authorized' }, 401);
     }

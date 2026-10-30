@@ -16,7 +16,8 @@ import {
 } from '../_shared/startCompany.ts';
 
 /**
- * Anonymous owner start. verify_jwt is false.
+ * Anonymous owner start. verify_jwt stays false. The publishable key is not a JWT, and there is no user token yet.
+ * claim_start_company keeps the rate limit.
  * Signup in config stays off. This invites with the service key, then bootstrap_owner.
  * The key never leaves the function. A new email and an existing email both say to check email.
  * If the company row does not stick, the invited user is deleted.

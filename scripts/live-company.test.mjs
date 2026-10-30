@@ -100,32 +100,42 @@ test('stops when fixture rows are already present', () => {
   assert.throws(() => assertNoFixtures([{}]), /free of fixture rows/);
 });
 
-test('env file keeps the anon key and drops fixture mode', () => {
-  const rendered = renderEnvLocal('EXPO_PUBLIC_USE_FIXTURES=1\nOTHER=1\n', {
+test('env file writes the publishable key and drops the legacy anon line', () => {
+  const rendered = renderEnvLocal('EXPO_PUBLIC_USE_FIXTURES=1\nEXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ-anon\nOTHER=1\n', {
     url: `https://${liveRef}.supabase.co`,
-    anonKey: 'eyJ-anon',
+    publishableKey: 'sb_publishable_test',
   });
   assert.match(rendered, new RegExp(`EXPO_PUBLIC_SUPABASE_URL=https://${liveRef}\\.supabase\\.co`));
-  assert.match(rendered, /EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ-anon/);
+  assert.match(rendered, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_test/);
+  assert.doesNotMatch(rendered, /EXPO_PUBLIC_SUPABASE_ANON_KEY/);
   assert.match(rendered, /OTHER=1/);
   assert.doesNotMatch(rendered, /USE_FIXTURES|service_role|sb_secret_|password/i);
   assert.throws(
-    () => renderEnvLocal('', { url: `https://${otherRef}.supabase.co`, anonKey: 'eyJ-anon' }),
+    () => renderEnvLocal('', { url: `https://${otherRef}.supabase.co`, publishableKey: 'sb_publishable_test' }),
     /existing hosted project/,
   );
   assert.throws(
-    () => renderEnvLocal('', { url: `https://${liveRef}.supabase.co`, anonKey: 'sb_secret_live' }),
-    /secret key/,
+    () => renderEnvLocal('', { url: `https://${liveRef}.supabase.co`, publishableKey: 'sb_secret_live' }),
+    /not publishable/,
+  );
+  assert.throws(
+    () => renderEnvLocal('', { url: `https://${liveRef}.supabase.co`, publishableKey: 'eyJ-anon' }),
+    /not publishable/,
   );
 });
 
-test('client key is the anon key, not the service role', () => {
+test('client key is the publishable key, not the legacy anon or service role', () => {
   const keys = [
-    { name: 'service_role', api_key: 'service-secret' },
-    { name: 'anon', api_key: 'anon-public' },
+    { name: 'service_role', api_key: 'eyJ-service' },
+    { name: 'anon', api_key: 'eyJ-anon' },
+    { name: 'default', type: 'publishable', api_key: 'sb_publishable_test' },
+    { name: 'other', type: 'secret', api_key: 'sb_secret_other' },
+    { name: 'default', type: 'secret', api_key: 'sb_secret_test' },
   ];
-  assert.equal(pickClientKey(keys), 'anon-public');
-  assert.equal(pickServiceKey(keys), 'service-secret');
+  assert.equal(pickClientKey(keys), 'sb_publishable_test');
+  assert.equal(pickServiceKey(keys), 'sb_secret_test');
+  assert.throws(() => pickClientKey([{ name: 'anon', api_key: 'eyJ-anon' }]), /publishable/);
+  assert.throws(() => pickServiceKey([{ name: 'service_role', api_key: 'eyJ-service' }]), /secret/);
   assert.equal(pickOrgId([{ id: 'org-1' }], ''), 'org-1');
   assert.equal(pickOrgId([], 'org-explicit'), 'org-explicit');
 });

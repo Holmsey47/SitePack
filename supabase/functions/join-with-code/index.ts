@@ -14,7 +14,8 @@ import {
 const DUMMY_EMAIL = '00000000-0000-4000-8000-000000000000@users.sitepack.invalid';
 
 /**
- * Public join. verify_jwt is false. The code is the credential.
+ * Public join. verify_jwt stays false. The publishable key is not a JWT, and the caller has no session.
+ * The code is the credential. preview_join_code keeps the rate limit.
  * Name, trade, and password are checked before the code.
  * A username is looked up only after that code previews as valid.
  * The code is checked before an auth user is created.

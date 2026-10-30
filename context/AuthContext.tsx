@@ -11,6 +11,7 @@ import {
 import { captureIncomingLink } from '@/lib/appLinks';
 import { bindJoinCodeCacheOwner, clearJoinCodeCache } from '@/lib/joinCodeCache';
 import { joinCodeCachePort } from '@/lib/joinCodeCacheStorage';
+import { clearCachedPdfs } from '@/lib/pdfCacheFiles';
 import { adoptCacheOwner, cacheOwnerUserId, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
@@ -54,6 +55,7 @@ async function bindCache(userId: string | null) {
       writeRemembered(null);
       await deleteAllDrawingCaches();
       await clearJoinCodeCache(joinCodeCachePort());
+      await clearCachedPdfs();
     }
   } catch {
     // A failed wipe must not keep the previous owner's drawings readable.

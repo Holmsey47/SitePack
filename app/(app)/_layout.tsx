@@ -24,6 +24,8 @@ export default function AppLayout() {
       <Stack.Screen name="sites/[siteId]/documents/index" options={{ title: 'Induction & RAMS' }} />
       <Stack.Screen name="sites/[siteId]/documents/new" options={{ title: 'Upload document' }} />
       <Stack.Screen name="sites/[siteId]/documents/[documentId]" options={{ title: 'Document' }} />
+      <Stack.Screen name="to-sign" options={{ title: 'Documents to sign' }} />
+      <Stack.Screen name="pdf" options={{ title: 'PDF' }} />
       <Stack.Screen name="sites/[siteId]/requests" options={{ title: 'Requests' }} />
       <Stack.Screen name="sites/[siteId]/folder/[folder]" options={{ title: 'Folder' }} />
       <Stack.Screen name="sites/[siteId]/variations/index" options={{ title: 'Variations' }} />

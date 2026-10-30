@@ -19,7 +19,6 @@ import { readPickedBytes } from '@/lib/uploadBytes';
 import { Text } from '@/src/theme/text';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 
@@ -31,7 +30,6 @@ export default function SiteDocumentScreen() {
   const [detail, setDetail] = useState<SiteDocumentDetail | null>(null);
   const [roster, setRoster] = useState<{ person_id: string; name: string; signed_at: string | null }[]>([]);
   const [error, setError] = useState('');
-  const [opened, setOpened] = useState('');
   const [fileName, setFileName] = useState('');
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [busy, setBusy] = useState(false);
@@ -99,19 +97,9 @@ export default function SiteDocumentScreen() {
     }, [load]),
   );
 
-  async function openPdf() {
+  function openPdf() {
     if (!detail) return;
-    setError('');
-    try {
-      const url = await repo.siteDocumentUrl(detail.storage_path);
-      if (url.startsWith('fixture:')) {
-        setOpened('PDF ready on this phone.');
-        return;
-      }
-      await WebBrowser.openBrowserAsync(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not open the PDF.');
-    }
+    router.push(`/pdf?documentId=${detail.id}`);
   }
 
   async function sign() {
@@ -247,8 +235,7 @@ export default function SiteDocumentScreen() {
           signed: detail.signed_by_me,
         })}
       </Text>
-      <Button label="Open PDF" variant="secondary" minHeight={48} onPress={() => void openPdf()} />
-      {opened ? <Text style={{ ...textStyle.body }}>{opened}</Text> : null}
+      <Button label="Open PDF" variant="secondary" minHeight={48} onPress={openPdf} />
       {mustSign && !archived && !detail.signed_by_me ? (
         <Button label={siteDocumentSignLabel(detail.kind)} minHeight={56} loading={busy} onPress={() => void sign()} />
       ) : null}

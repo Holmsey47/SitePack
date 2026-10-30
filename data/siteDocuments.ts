@@ -71,6 +71,9 @@ export function memberMustSign(role: Role | undefined): boolean {
 
 export const SITE_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 
+/** Signed PDF links expire after five minutes. The viewer does not lengthen them. */
+export const SITE_DOCUMENT_URL_SECONDS = 300;
+
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
 
 export function siteDocumentPickError(file: {

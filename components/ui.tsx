@@ -1,4 +1,5 @@
 import { Icon } from '@/components/icon';
+import { MenuSheet } from '@/components/menu-sheet';
 import { clearFilterLabel } from '@/lib/format';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { Text, TextInput } from '@/src/theme/text';
@@ -72,6 +73,7 @@ export function Button({
   disabled,
   loading,
   minHeight,
+  testID,
   accessibilityLiveRegion,
 }: {
   label: string;
@@ -81,11 +83,13 @@ export function Button({
   loading?: boolean;
   /** Glove target. Defaults to the shared thumb height. */
   minHeight?: number;
+  testID?: string;
   accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
   const quiet = Boolean(disabled) && !loading;
   return (
     <Pressable
+      testID={testID}
       accessibilityRole="button"
       accessibilityLiveRegion={accessibilityLiveRegion}
       onPress={onPress}
@@ -460,26 +464,16 @@ export function OverflowMenu({
         style={styles.iconHit}>
         <Icon name="more_horiz" color={theme.text} />
       </Pressable>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.modalScrim} onPress={() => setOpen(false)}>
-          <View style={styles.modalCard}>
-            {title ? <Text style={styles.modalTitle}>{title}</Text> : null}
-            {items.map((item) => (
-              <Pressable
-                key={item.label}
-                accessibilityRole="button"
-                onPress={() => {
-                  setOpen(false);
-                  item.onPress();
-                }}
-                style={styles.modalRow}>
-                <Text style={[styles.modalRowText, item.danger && { color: theme.danger }]}>{item.label}</Text>
-              </Pressable>
-            ))}
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} />
-          </View>
-        </Pressable>
-      </Modal>
+      <MenuSheet
+        open={open}
+        title={title}
+        items={items}
+        onClose={() => setOpen(false)}
+        onPress={(item) => {
+          setOpen(false);
+          item.onPress();
+        }}
+      />
     </>
   );
 }
