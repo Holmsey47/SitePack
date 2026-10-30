@@ -2,7 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { contrastRatio } from './contrast.ts';
-import { drawingFooterLine, formatCodeExpiry, formatSheetDay, formatSignedWhen } from './format.ts';
+import {
+  drawingFooterLine,
+  formatCodeExpiry,
+  formatDate,
+  formatSheetDay,
+  formatSignedWhen,
+  formatUkDate,
+  formatUkDateTime,
+  formatUkDayMonth,
+  formatWhen,
+} from './format.ts';
 import { theme } from './theme.ts';
 
 test('a code expiry names today, tomorrow, or a later London day, and a past time is Ended', () => {
@@ -40,7 +50,7 @@ test('the BST to GMT change on 25 Oct 2026 01:00 UTC stays on the London day', (
 });
 
 test('a drawing footer is one London line without the year', () => {
-  assert.equal(formatSheetDay('2026-10-01'), '1 Oct');
+  assert.equal(formatSheetDay('2026-10-01'), '1\u00a0Oct');
   assert.equal(
     drawingFooterLine({ current: true, day: '1 Oct', level: 'Ground', seen: '0 of 2 seen' }),
     'Current · 1 Oct · Ground · 0 of 2 seen',
@@ -52,6 +62,19 @@ test('a drawing footer is one London line without the year', () => {
   assert.doesNotMatch(drawing, /Phone online/);
   assert.doesNotMatch(fs.readFileSync('components/phone-status.tsx', 'utf8'), /Phone online/);
   assert.doesNotMatch(fs.readFileSync('components/fixture-offline.tsx', 'utf8'), /Phone online/);
+});
+
+test('UK dates share one London formatter, and a date does not break across a line', () => {
+  assert.equal(formatUkDate('2026-10-21'), '21 Oct 2026');
+  assert.equal(formatUkDateTime('2026-10-22T13:56:00.000Z'), '22 Oct 2026, 2:56pm');
+  assert.equal(formatUkDayMonth('2026-09-17T18:02:00.000Z'), '17 Sept');
+  assert.equal(formatDate('2026-10-21'), '21\u00a0Oct\u00a02026');
+  assert.equal(formatWhen('2026-09-17T18:02:00.000Z'), 'Updated\u00a017\u00a0Sept');
+  assert.equal(formatWhen('2026-09-12T12:00:00.000Z').includes(' '), false);
+  assert.equal(formatSheetDay('2026-09-17'), '17\u00a0Sept');
+  const source = fs.readFileSync(new URL('./format.ts', import.meta.url), 'utf8');
+  assert.equal(source.includes('toLocaleDateString'), false);
+  assert.equal(fs.readFileSync(new URL('./offlinePack.ts', import.meta.url), 'utf8').includes('toLocaleDateString'), false);
 });
 
 test('a signature time is London wall time without the year', () => {
