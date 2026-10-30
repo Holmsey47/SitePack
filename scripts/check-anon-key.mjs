@@ -1,4 +1,4 @@
-// Fails the build when a client Supabase key is not publishable and not role=anon.
+// Fails the build unless EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY starts with sb_publishable_.
 import { clientKeyMessage } from './anonKey.mjs';
 
 const message = clientKeyMessage(process.env);

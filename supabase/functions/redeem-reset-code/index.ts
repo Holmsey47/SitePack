@@ -2,7 +2,8 @@ import { passwordHasLettersAndDigits } from '../_shared/joinCodes.ts';
 import { clientIp, hashCode, json, pepperOrNull, preflight, readResult, serviceClient } from '../_shared/joinHttp.ts';
 
 /**
- * The person sets the new password. verify_jwt is false.
+ * The person sets the new password. verify_jwt stays false. The publishable key is not a JWT, and the caller has no session.
+ * redeem_password_reset keeps the rate limit.
  * Sessions are cleared by redeem_password_reset. This function does not
  * return a session. The caller signs in with their username afterwards.
  */

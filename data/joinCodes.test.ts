@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { fixtureRepo, resetFixtureStore } from './fixtureRepo.ts';
 import { IDS, SEED_PASSWORD } from './ids.ts';
@@ -8,9 +9,12 @@ import {
   JOIN_ALPHABET,
   JOIN_WEB_ORIGIN,
   formatJoinCode,
+  accessTokenFromAuthorization,
   hmacSha256Hex,
+  isAuthenticatedUserJwt,
   isJoinCodeShape,
   joinFailureMessage,
+  loadPublishableKey,
   loadSecretKey,
   normalizeJoinCode,
   passwordHasLettersAndDigits,
@@ -93,10 +97,67 @@ test('the secret key loader fails closed and does not read another key', () => {
     ok: true,
     key: 'sb_secret_test_value',
   });
+  assert.deepEqual(loadPublishableKey(undefined), { ok: false, error: 'publishable_key_missing' });
+  assert.deepEqual(loadPublishableKey('{"default":"eyJ-legacy"}'), { ok: false, error: 'publishable_key_missing' });
+  assert.deepEqual(loadPublishableKey('{"default":"sb_secret_test_value"}'), {
+    ok: false,
+    error: 'publishable_key_missing',
+  });
+  assert.deepEqual(loadPublishableKey('{"default":"sb_publishable_test_value"}'), {
+    ok: true,
+    key: 'sb_publishable_test_value',
+  });
   const http = fs.readFileSync(new URL('../supabase/functions/_shared/joinHttp.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(http, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(http, /SUPABASE_ANON_KEY/);
   assert.match(http, /SUPABASE_SECRET_KEYS/);
+  assert.match(http, /SUPABASE_PUBLISHABLE_KEYS/);
   assert.match(http, /secret_key_missing/);
+  assert.match(http, /publishable_key_missing/);
+});
+
+test('a publishable key is not a user JWT', () => {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const sig = Buffer.from('fake-signature-not-a-secret').toString('base64url');
+  const userJwt = `${header}.${Buffer.from(JSON.stringify({ role: 'authenticated' })).toString('base64url')}.${sig}`;
+  const anonJwt = `${header}.${Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url')}.${sig}`;
+  assert.equal('sb_publishable_test_value'.split('.').length, 1);
+  assert.equal(isAuthenticatedUserJwt('sb_publishable_test_value'), false);
+  assert.equal(isAuthenticatedUserJwt('sb_secret_test_value'), false);
+  assert.equal(isAuthenticatedUserJwt(anonJwt), false);
+  assert.equal(isAuthenticatedUserJwt(userJwt), true);
+  assert.equal(accessTokenFromAuthorization('Bearer sb_publishable_test_value'), null);
+  assert.equal(accessTokenFromAuthorization(`Bearer ${anonJwt}`), null);
+  assert.equal(accessTokenFromAuthorization(`Bearer ${userJwt}`), userJwt);
+  assert.equal(accessTokenFromAuthorization(null), null);
+});
+
+test('app, lib, and edge functions do not read legacy key names', () => {
+  const legacy = /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ANON_KEY|SERVICE_ROLE/;
+  const hits: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.(ts|tsx|js|mjs)$/.test(entry.name)) continue;
+      if (legacy.test(fs.readFileSync(full, 'utf8'))) hits.push(full);
+    }
+  };
+  for (const root of ['app', 'lib', 'supabase/functions']) walk(root);
+  assert.deepEqual(hits, []);
+  const toml = fs.readFileSync(new URL('../supabase/config.toml', import.meta.url), 'utf8');
+  for (const name of ['join-with-code', 'login-with-username', 'redeem-reset-code', 'start-company']) {
+    assert.match(toml, new RegExp(`\\[functions\\.${name}\\]\\s*verify_jwt = false`));
+  }
+  for (const name of ['issue-join-code', 'issue-reset-code', 'invite-person']) {
+    assert.match(toml, new RegExp(`\\[functions\\.${name}\\]\\s*verify_jwt = true`));
+  }
+  const client = fs.readFileSync(new URL('../lib/supabase.ts', import.meta.url), 'utf8');
+  assert.match(client, /EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  assert.doesNotMatch(client, /ANON_KEY/);
 });
 
 test('web crypto hmac matches the probe vector', async () => {

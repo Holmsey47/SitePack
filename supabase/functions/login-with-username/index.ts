@@ -12,7 +12,8 @@ import {
 const DUMMY_EMAIL = '00000000-0000-4000-8000-000000000000@users.sitepack.invalid';
 
 /**
- * Username sign-in. verify_jwt is false.
+ * Username sign-in. verify_jwt stays false. The publishable key is not a JWT, and the caller has no session.
+ * lookup_username_login keeps the rate limit.
  * A miss does a dummy password check so it is not obviously faster than a hit.
  * The placeholder email is resolved here and is not returned.
  */

@@ -13,7 +13,7 @@ The release certificate SHA-256, already published in `assetlinks.json`, is:
 - `ANDROID_HOME` or `ANDROID_SDK_ROOT` pointing at that SDK
 - `apksigner` from the SDK build-tools (the script picks the newest one it finds)
 - The release keystore, outside this repo
-- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+- `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_`)
 
 ## Build
 
@@ -25,7 +25,7 @@ SITEPACK_KEYSTORE_PASSWORD='...' \
 SITEPACK_KEY_ALIAS='...' \
 SITEPACK_KEY_PASSWORD='...' \
 EXPO_PUBLIC_SUPABASE_URL='https://YOUR.supabase.co' \
-EXPO_PUBLIC_SUPABASE_ANON_KEY='...' \
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY='...' \
 ./scripts/build-apk.sh
 ```
 
@@ -37,7 +37,7 @@ Or put those same keys in a file that is not in the repo, one `KEY=value` per li
 
 Values may be wrapped in single or double quotes. Lines starting with `#` are ignored.
 
-The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1`, if a `SERVICE_ROLE` variable is set, or if `EXPO_PUBLIC_SUPABASE_ANON_KEY` is not an `sb_publishable_` key or a JWT whose role is `anon`. The refusal names the variable and does not print the key.
+The script stops if any required name is missing, if the keystore file is missing, or if that file is inside this repo. It also stops if `EXPO_PUBLIC_USE_FIXTURES=1`, if a `SERVICE_ROLE` variable is set, or if `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` does not start with `sb_publishable_`. A legacy `eyJ` JWT and an `sb_secret_` key are refused. The refusal names the variable and does not print the key.
 
 It runs a clean Android prebuild, then `gradlew assembleRelease`. Prebuild keeps `reactNativeArchitectures=arm64-v8a` via `plugins/withArm64Architectures.js`, so the release APK contains the arm64-v8a native libraries only. A 32-bit-only phone cannot install it. Gradle reads the four `SITEPACK_*` variables when it signs. The passwords are not written into the project. A release build fails if any of those four is missing. It does not fall back to the debug keystore. Debug builds are unchanged and do not need the keystore.
 
