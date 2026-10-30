@@ -1,4 +1,4 @@
-import { Button, Card, EmptyState, LevelMenu, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountChip, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
+import { Button, Card, EmptyState, LevelMenu, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountSlot, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
@@ -62,19 +62,25 @@ export default function FolderScreen() {
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [seenReady, setSeenReady] = useState(false);
 
   const load = useCallback(async () => {
     if (!siteId) return;
-    const rows = await repo.listDrawings(siteId);
-    setDrawings(rows);
-    const seen = await refreshDrawingSeen(manage, person?.auth_user_id).catch(() => null);
-    if (seen) {
-      setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
-      setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
-      setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
+    try {
+      const rows = await repo.listDrawings(siteId);
+      setDrawings(rows);
+      setLoaded(true);
+      setError('');
+      const seen = await refreshDrawingSeen(manage, person?.auth_user_id).catch(() => null);
+      if (seen) {
+        setUnseen(seen.unseen.filter((row) => row.site_id === siteId));
+        setQueuedSeen(seen.queued.filter((row) => row.siteId === siteId));
+        setSeenNotices(seen.notices.filter((row) => row.siteId === siteId));
+      }
+      setSeenSummary(manage ? await loadSiteSeenSummary(siteId) : null);
+    } finally {
+      setSeenReady(true);
     }
-    setSeenSummary(manage ? await loadSiteSeenSummary(siteId) : null);
-    setLoaded(true);
     navigation.setOptions({ title: folderName });
   }, [folderName, manage, navigation, person?.auth_user_id, siteId]);
 
@@ -90,6 +96,7 @@ export default function FolderScreen() {
   useEffect(() => {
     setLevelFilter(null);
     setShowOld(false);
+    setSeenReady(false);
   }, [folderName]);
 
   const { current, superseded } = drawingsInFolder(drawings, folderName);
@@ -178,9 +185,10 @@ export default function FolderScreen() {
                       <RevBadge revision={drawing.revision} current />
                     </View>
                   </Card>
-                  {manage && count ? (
-                    <SeenCountChip
-                      seen={count.seen_count}
+                  {manage ? (
+                    <SeenCountSlot
+                      pending={!seenReady}
+                      seen={count ? count.seen_count : null}
                       total={seenSummary?.assigned_count ?? 0}
                       onPress={() => router.push(`/sites/${siteId}/seen/${drawing.id}`)}
                     />

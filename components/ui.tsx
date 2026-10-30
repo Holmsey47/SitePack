@@ -252,6 +252,26 @@ export function SupersededSafetyLabel() {
   );
 }
 
+/**
+ * The seen chip is 48px. Hold that height while the count is still loading
+ * so the row under a thumb does not jump when the chip arrives.
+ */
+export function SeenCountSlot({
+  pending,
+  seen,
+  total,
+  onPress,
+}: {
+  pending: boolean;
+  seen: number | null;
+  total: number;
+  onPress: () => void;
+}) {
+  if (pending) return <View accessibilityElementsHidden style={styles.seenReserve} />;
+  if (seen == null) return null;
+  return <SeenCountChip seen={seen} total={total} onPress={onPress} />;
+}
+
 /** Owner or contracts manager count. Tap opens who has and has not seen it. */
 export function SeenCountChip({
   seen,
@@ -620,6 +640,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   glanceRowText: textStyle.bodyStrong,
+  seenReserve: { minHeight: hit.secondary, alignSelf: 'stretch' },
   seenChip: {
     minHeight: hit.secondary,
     minWidth: hit.secondary,
