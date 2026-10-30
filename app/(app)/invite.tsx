@@ -1,3 +1,4 @@
+import { Icon } from '@/components/icon';
 import { JoinCodeOffer } from '@/components/JoinCodeOffer';
 import { Button, EmptyState, ErrorText, Field, Muted, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -8,7 +9,7 @@ import { canManageSite } from '@/data/repo';
 import { sitesAfterReload } from '@/data/siteList';
 import type { PulseRow, Role } from '@/data/types';
 import { roleLabel } from '@/data/walk';
-import { textStyle, theme } from '@/lib/theme';
+import { hit, radius, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -137,16 +138,18 @@ export default function InviteScreen() {
                 accessibilityState={{ selected }}
                 onPress={() => setSelectedId(site.id)}
                 style={{
-                  minHeight: 56,
-                  justifyContent: 'center',
+                  minHeight: hit.secondary,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.md,
                   paddingHorizontal: 14,
-                  borderRadius: 12,
+                  borderRadius: radius.control,
                   borderWidth: 2,
                   borderColor: selected ? theme.text : theme.line,
                   backgroundColor: selected ? theme.surfaceAlt : theme.surface,
                 }}>
-                <Text style={{ ...textStyle.bodyStrong }}>{site.name}</Text>
-                {selected ? <Text style={textStyle.bodyStrong}>Selected</Text> : null}
+                <Text style={[textStyle.bodyStrong, { flex: 1 }]}>{site.name}</Text>
+                {selected ? <Icon name="check" color={theme.text} /> : null}
               </Pressable>
             );
           })}
