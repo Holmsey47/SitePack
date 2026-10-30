@@ -25,6 +25,7 @@ import type {
   PeopleGroup,
   Person,
   PulseRow,
+  Role,
   ReplaceDrawingInput,
   RequestStatus,
   SiteAssignment,
@@ -213,6 +214,7 @@ type Store = {
   siteDocuments: FixtureSiteDocument[];
   siteDocumentVersions: FixtureSiteDocumentVersion[];
   siteDocumentSignatures: FixtureSiteDocumentSignature[];
+  roleAudits: { actor_id: string; person_id: string; old_role: Role; new_role: 'cm' | 'operative'; created_at: string }[];
 };
 
 const now = () => new Date().toISOString();
@@ -652,6 +654,7 @@ function seed(): Store {
       },
     ],
     siteDocumentSignatures: [],
+    roleAudits: [],
   };
 }
 
@@ -747,6 +750,10 @@ function fixtureCompanyMark(): { name: string; logoUrl: string | null } {
 
 export function logoPathForTests(companyId: string): string | null {
   return store.logos[companyId]?.path ?? null;
+}
+
+export function roleAuditForTests() {
+  return store.roleAudits.map((row) => ({ ...row }));
 }
 
 function snagActor(person: Person) {
@@ -1292,6 +1299,25 @@ export const fixtureRepo: SitePackRepo = {
       });
     }
     return created.id;
+  },
+
+  async setPersonRole(personId, role) {
+    const caller = meOrThrow();
+    if (caller.role !== 'owner' || caller.id === personId) throw new Error('not_authorized');
+    const target = store.people.find((person) => person.id === personId && person.company_id === caller.company_id);
+    if (!target || target.role === 'owner') throw new Error('not_authorized');
+    const allowed =
+      (target.role === 'operative' && role === 'cm') || (target.role === 'cm' && role === 'operative');
+    if (!allowed) throw new Error('not_authorized');
+    const oldRole = target.role;
+    target.role = role;
+    store.roleAudits.push({
+      actor_id: caller.id,
+      person_id: target.id,
+      old_role: oldRole,
+      new_role: role,
+      created_at: now(),
+    });
   },
 
   async removeOperativeFromSite(personId, siteId) {

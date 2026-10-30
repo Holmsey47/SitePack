@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 
 export default function SitesScreen() {
-  const { person, acknowledgePasswordReset } = useAuth();
+  const { person, acknowledgePasswordReset, refresh } = useAuth();
   const router = useRouter();
   const manager = person != null && canManageSite(person.role);
   const [rows, setRows] = useState<PulseRow[]>([]);
@@ -49,6 +49,7 @@ export default function SitesScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      void refresh();
       if (!person) return;
       let active = true;
       if (person.role === 'operative') {
@@ -84,7 +85,7 @@ export default function SitesScreen() {
       return () => {
         active = false;
       };
-    }, [person])
+    }, [person, refresh])
   );
 
   useFocusEffect(

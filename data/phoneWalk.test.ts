@@ -26,9 +26,9 @@ test('phone walk copy and ids', () => {
   assert.equal(occupationLine('operative', null), 'Operative');
   assert.equal(occupationLine('operative', '  '), 'Operative');
   assert.equal(occupationLine('operative', 'site supervisor'), 'Operative · site supervisor');
-  assert.equal(occupationLine('cm', null), 'Contracts manager');
-  assert.equal(contractsManagerLine([]), 'Contracts manager: none');
-  assert.equal(contractsManagerLine(['John Smith', 'Priya Shah']), 'Contracts manager: John Smith, Priya Shah');
+  assert.equal(occupationLine('cm', null), 'Site manager');
+  assert.equal(contractsManagerLine([]), 'Site manager: none');
+  assert.equal(contractsManagerLine(['John Smith', 'Priya Shah']), 'Site manager: John Smith, Priya Shah');
   assert.equal(operativesLine(4), 'Operatives: 4 assigned.');
   assert.equal(requestSentLine([]), 'Request sent.');
   assert.equal(requestSentLine(['Priya Shah']), 'Request sent to Priya Shah.');

@@ -297,7 +297,7 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
       signature: signed
         ? {
             signerName: seq === 8 ? 'Dave Moran' : 'Priya Shah',
-            signerRole: seq === 8 ? 'Site manager' : 'Contracts manager',
+            signerRole: 'Site manager',
             signerCompany: seq === 8 ? 'Northbuild' : 'Ashfield Finishes',
             signedAt: when,
             signaturePng: seq === 8 ? signature : null,
@@ -322,7 +322,7 @@ test('a report of 10 snags keeps photos whole, signs with UK time, and numbers e
   const text = decodedPdfText(bytes);
   assert.match(text, /Dave Moran/);
   assert.match(text, /Priya Shah/);
-  assert.match(text, /Contracts manager/);
+  assert.match(text, /Site manager/);
   assert.match(text, /Northbuild/);
   assert.match(text, /Ashfield Finishes/);
   assert.match(text, /Signed 22 Oct 2026, 2:05pm/);
@@ -437,7 +437,7 @@ test('contractor and internal sign-off PDFs print the stored sentence, outstandi
     generatedAt: when,
     confirmationText: internal,
     signerName: 'Priya Shah',
-    signerRole: 'Contracts manager',
+    signerRole: 'Site manager',
     signerCompany: 'Ashfield Finishes',
     signedAt: when,
     signaturePng: null,

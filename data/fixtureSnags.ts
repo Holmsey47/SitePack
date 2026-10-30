@@ -359,7 +359,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
       name: 'Amy Keane',
       before: 'beforeWide' as const,
       after: 'afterWide' as const,
-      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
+      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Site manager', company: 'Ashfield Finishes', png: null },
     },
     {
       note: 'Stain on the ceiling',
@@ -381,7 +381,7 @@ export function seedFixtureSnags(input: { companyId: string; oakId: string; ware
       name: 'Ben Torres',
       before: 'bars' as const,
       after: 'afterWide' as const,
-      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Contracts manager', company: 'Ashfield Finishes', png: null },
+      signature: { kind: 'internal' as const, name: 'Priya Shah', role: 'Site manager', company: 'Ashfield Finishes', png: null },
     },
     { note: 'Tidy the offcuts by the stairs', level: 'Second', trade: 'labourer', status: 'Open' as const, who: input.benId, name: 'Ben Torres', before: 'bars' as const },
   ];

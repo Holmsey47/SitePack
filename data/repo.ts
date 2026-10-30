@@ -90,6 +90,8 @@ export type SitePackRepo = {
   companyPeople(): Promise<CompanyPerson[]>;
   addNoLoginOperative(input: AddNoLoginOperativeInput): Promise<string>;
   removeOperativeFromSite(personId: string, siteId: string): Promise<void>;
+  /** Owner only. operative to cm, or cm to operative. */
+  setPersonRole(personId: string, role: 'cm' | 'operative'): Promise<void>;
   uploadDrawingFile(params: {
     companyId: string;
     siteId: string;

@@ -146,7 +146,7 @@ test('a lad marks a snag fixed and a contracts manager signs off only the ones p
   assert.equal(signed?.signature?.kind, 'internal');
   assert.equal(signed?.signature?.confirmation_text, first.confirmation_text);
   assert.equal(signed?.signature?.signer_name, 'Priya Shah');
-  assert.equal(signed?.signature?.signer_role, 'Contracts manager');
+  assert.equal(signed?.signature?.signer_role, 'Site manager');
   assert.equal(signed?.signature?.signed_at, new Date(signedAt).toISOString());
   assert.throws(() => editSnagSignoffForTests(sameId), /closed/);
   const beforeSecond = snagSignoffCountForTests();
