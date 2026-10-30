@@ -241,6 +241,17 @@ export function GlanceRow({ label, onPress }: { label: string; onPress: () => vo
   );
 }
 
+export const SUPERSEDED_DO_NOT_BUILD = 'SUPERSEDED, do not build from';
+
+/** Safety line. Ink on the danger fill so it stays readable on a superseded sheet. */
+export function SupersededSafetyLabel() {
+  return (
+    <View accessibilityRole="text" accessibilityLabel={SUPERSEDED_DO_NOT_BUILD} style={styles.supersededSafety}>
+      <Text style={styles.supersededSafetyText}>{SUPERSEDED_DO_NOT_BUILD}</Text>
+    </View>
+  );
+}
+
 /** Owner or contracts manager count. Tap opens who has and has not seen it. */
 export function SeenCountChip({
   seen,
@@ -622,6 +633,20 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   seenChipText: { ...textStyle.bodyStrong, textAlign: 'center', ...textStyle.tabular },
+  supersededSafety: {
+    alignSelf: 'stretch',
+    backgroundColor: theme.danger,
+    borderRadius: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    justifyContent: 'center',
+  },
+  supersededSafetyText: {
+    color: theme.currentInk,
+    fontSize: typeScale.meta,
+    lineHeight: 20,
+    fontFamily: fontFamily.extraBold,
+  },
   iconHit: { width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' },
   modalScrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: theme.scrim, padding: space.lg },
   modalCard: {

@@ -1,7 +1,7 @@
 import { DrawingFrame } from '@/components/drawing-frame';
 import { FixtureOfflineSwitch, FixtureReplaceRev } from '@/components/fixture-offline';
 import { Icon } from '@/components/icon';
-import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice } from '@/components/ui';
+import { Button, NewRevBadge, OverflowMenu, RevBadge, Screen, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import {
   seenButtonLabel,
@@ -413,6 +413,7 @@ export default function DrawingViewerScreen() {
             ]}
           />
         </View>
+        {drawing && drawing.is_current === false ? <SupersededSafetyLabel /> : null}
       </View>
       <View style={{ flex: 1, minHeight: 0 }}>
         {uri ? <DrawingFrame uri={uri} onError={setError} /> : (

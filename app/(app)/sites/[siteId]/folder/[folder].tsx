@@ -1,4 +1,4 @@
-import { Card, EmptyState, FilterBar, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountChip, SeenRejectNotice } from '@/components/ui';
+import { Button, Card, EmptyState, LevelMenu, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountChip, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
@@ -13,6 +13,23 @@ import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
+
+const OLD_REVISIONS_HIDDEN = 'Old revisions hidden. Tap All to see them.';
+
+function SupersededCard({ drawing, onPress }: { drawing: Drawing; onPress: () => void }) {
+  return (
+    <Card onPress={onPress}>
+      <SupersededSafetyLabel />
+      <View style={{ gap: 4 }}>
+        <Text style={{ ...textStyle.bodyStrong, color: theme.archive }}>{drawing.title}</Text>
+        {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
+        <LevelLine level={drawing.level} />
+        <RevBadge revision={drawing.revision} current={false} />
+        <Muted>{formatDate(drawing.dated)}</Muted>
+      </View>
+    </Card>
+  );
+}
 
 function LevelLine({ level }: { level: string | null }) {
   const label = displayLevel(level);
@@ -72,6 +89,7 @@ export default function FolderScreen() {
 
   useEffect(() => {
     setLevelFilter(null);
+    setShowOld(false);
   }, [folderName]);
 
   const { current, superseded } = drawingsInFolder(drawings, folderName);
@@ -80,6 +98,9 @@ export default function FolderScreen() {
   const visibleCurrent = activeLevel
     ? current.filter((drawing) => displayLevel(drawing.level) === activeLevel)
     : current;
+  const visibleSuperseded = activeLevel
+    ? superseded.filter((drawing) => displayLevel(drawing.level) === activeLevel)
+    : superseded;
   const archiveOnly = current.length === 0 && superseded.length > 0;
 
   if (!loaded && !error) {
@@ -108,50 +129,36 @@ export default function FolderScreen() {
         />
       ))}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
-      <FilterBar
-        chips={[
-          { key: 'current', label: 'Current', selected: !showOld, onPress: () => setShowOld(false) },
-          {
-            key: 'old',
-            label: superseded.length > 0 ? `Superseded ${superseded.length}` : 'Superseded',
-            selected: showOld,
-            onPress: () => setShowOld(true),
-          },
-        ]}
-        level={
-          filters
-            ? {
-                value: activeLevel ?? '',
-                options: [
-                  { value: '', label: 'All levels' },
-                  ...filters.map((level) => ({ value: level, label: level })),
-                ],
-                onChange: (value) => setLevelFilter(value || null),
-              }
-            : undefined
-        }
-      />
+      {filters ? (
+        <LevelMenu
+          value={activeLevel ?? ''}
+          options={[
+            { value: '', label: 'All levels' },
+            ...filters.map((level) => ({ value: level, label: level })),
+          ]}
+          onChange={(value) => setLevelFilter(value || null)}
+        />
+      ) : null}
+      {activeLevel ? <Text style={textStyle.body}>{OLD_REVISIONS_HIDDEN}</Text> : null}
+      {superseded.length > 0 && !archiveOnly ? (
+        <Button
+          label={showOld ? 'Hide superseded' : 'Show superseded / archive'}
+          variant="secondary"
+          minHeight={48}
+          onPress={() => setShowOld((value) => !value)}
+        />
+      ) : null}
 
       {archiveOnly ? (
-        superseded.map((drawing) => (
-          <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ ...textStyle.bodyStrong, color: theme.archive }}>{drawing.title}</Text>
-                {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                <LevelLine level={drawing.level} />
-                <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
-              </View>
-              <RevBadge revision={drawing.revision} current={false} />
-            </View>
-          </Card>
+        visibleSuperseded.map((drawing) => (
+          <SupersededCard key={drawing.id} drawing={drawing} onPress={() => openDrawing(drawing.id)} />
         ))
       ) : (
         <>
           <SectionLabel>Current</SectionLabel>
-          {showOld ? null : visibleCurrent.length === 0 ? (
+          {visibleCurrent.length === 0 ? (
             <EmptyState icon="description" title="No drawings in this folder" />
-          ) : showOld ? null : (
+          ) : (
             visibleCurrent.map((drawing) => {
               const fresh = unseen.find((row) => row.drawing_id === drawing.id);
               const count = seenSummary?.drawings.find((row) => row.drawing_id === drawing.id);
@@ -184,16 +191,8 @@ export default function FolderScreen() {
           )}
 
           {showOld
-            ? superseded.map((drawing) => (
-                <Card key={drawing.id} onPress={() => openDrawing(drawing.id)}>
-                  <View style={{ opacity: 0.7, gap: 4 }}>
-                    <Text style={{ ...textStyle.metaStrong, color: theme.superseded }}>{drawing.title}</Text>
-                    {drawing.sheet_number ? <Muted>{drawing.sheet_number}</Muted> : null}
-                    <LevelLine level={drawing.level} />
-                    <RevBadge revision={drawing.revision} current={false} />
-                    <Muted>Superseded · {formatDate(drawing.dated)}</Muted>
-                  </View>
-                </Card>
+            ? visibleSuperseded.map((drawing) => (
+                <SupersededCard key={drawing.id} drawing={drawing} onPress={() => openDrawing(drawing.id)} />
               ))
             : null}
         </>

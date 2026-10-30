@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { contrastRatio } from './contrast.ts';
 import { drawingFooterLine, formatCodeExpiry, formatSheetDay, formatSignedWhen } from './format.ts';
+import { theme } from './theme.ts';
 
 test('a code expiry names today, tomorrow, or a later London day, and a past time is Ended', () => {
   const now = '2026-10-22T12:00:00.000Z';
@@ -70,4 +72,18 @@ test('the share panel and the invite offer use the same expiry helper', () => {
   assert.match(offer, /label="Regenerate"/);
   assert.doesNotMatch(panel, /formatDate\(expiresAt\)/);
   assert.doesNotMatch(offer, /formatDate\(/);
+});
+
+test('a superseded sheet says not to build from it, in readable ink', () => {
+  const ui = fs.readFileSync(new URL('../components/ui.tsx', import.meta.url), 'utf8');
+  const folder = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/folder/[folder].tsx', import.meta.url), 'utf8');
+  const viewer = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/drawing/[drawingId].tsx', import.meta.url), 'utf8');
+  assert.match(ui, /SUPERSEDED_DO_NOT_BUILD = 'SUPERSEDED, do not build from'/);
+  assert.match(ui, /backgroundColor: theme\.danger/);
+  assert.match(ui, /color: theme\.currentInk/);
+  assert.ok(contrastRatio(theme.currentInk, theme.danger) >= 4.5);
+  assert.match(folder, /<SupersededSafetyLabel \/>/);
+  assert.match(folder, /Old revisions hidden\. Tap All to see them\./);
+  assert.match(folder, /Show superseded \/ archive/);
+  assert.match(viewer, /<SupersededSafetyLabel \/>/);
 });
