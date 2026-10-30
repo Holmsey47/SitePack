@@ -1,6 +1,7 @@
 import { Icon } from '@/components/icon';
 import { MenuSheet } from '@/components/menu-sheet';
 import { clearFilterLabel } from '@/lib/format';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { Text, TextInput } from '@/src/theme/text';
 import { ReactNode, useState, type Ref } from 'react';
@@ -359,7 +360,9 @@ export function DocumentStatusBadge({ label, tone }: { label: string; tone: 'sig
 
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
-  return <Text style={styles.error}>{children}</Text>;
+  const shown = typeof children === 'string' ? friendlyNetworkMessage(children) : children;
+  if (!shown) return null;
+  return <Text style={styles.error}>{shown}</Text>;
 }
 
 /** Glove-sized choice. Selected is filled and ticked, so colour is not the only cue. */

@@ -17,11 +17,13 @@ import { setDownloadBackNote } from '@/lib/backRegistry';
 import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
 import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/siteListSeenSync';
 import { space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -158,6 +160,7 @@ export default function SitePackScreen() {
       void refreshCounts();
     }, [load, refresh, refreshCounts])
   );
+  useRefetchOnReconnect(load);
 
   const folders = packFolders(drawings);
   const meta = siteId ? readPackMeta(siteId) : null;
@@ -374,7 +377,7 @@ export default function SitePackScreen() {
         </Text>
       ) : null}
       {progress ? <Muted>{progress}</Muted> : null}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       <Button
         label={ready ? 'Re-download current pack' : 'Download for offline'}
         variant={outOfDate ? 'secondary' : 'primary'}

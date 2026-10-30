@@ -1,3 +1,4 @@
+import { ShellBackButton } from '@/components/shell-back';
 import { theme } from '@/lib/theme';
 import { navigationTitleStyle, useCustomFonts } from '@/src/theme/text';
 import { Stack } from 'expo-router';
@@ -12,6 +13,7 @@ export default function AppLayout() {
         headerTitleStyle: navigationTitleStyle(customFonts),
         headerShadowVisible: false,
         contentStyle: { backgroundColor: theme.bg },
+        headerLeft: ({ tintColor, canGoBack }) => <ShellBackButton tintColor={tintColor} canGoBack={canGoBack} />,
       }}>
       <Stack.Screen name="home" options={{ headerShown: false }} />
       <Stack.Screen name="create-site" options={{ title: 'Create site' }} />

@@ -129,5 +129,5 @@ test('set_person_role is born with an empty search_path and the app reloads the 
   assert.match(fs.readFileSync('app/(app)/sites/index.tsx', 'utf8'), /void refresh\(\)/);
   assert.match(fs.readFileSync('app/(app)/sites/[siteId]/index.tsx', 'utf8'), /void refresh\(\)/);
   assert.match(fs.readFileSync('data/supabaseRepo.ts', 'utf8'), /rpc\('set_person_role'/);
-  assert.equal(fs.readFileSync('package.json', 'utf8').includes('"version": "0.2.12"'), true);
+  assert.equal(fs.readFileSync('package.json', 'utf8').includes('"version": "0.2.13"'), true);
 });

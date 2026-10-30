@@ -67,6 +67,7 @@ import {
   type SiteDocumentSummary,
 } from '@/data/siteDocuments';
 import { rowsFromSignNudgeRead, unsignedSignDocuments } from '@/data/signNudge';
+import { personFromAuthReads, readMyPerson, type AuthErrorLike } from '@/lib/personRefresh';
 import { getSupabase } from '@/lib/supabase';
 import { pathsToClear } from '@/data/drawingDelete';
 import { uploadBytes } from '@/lib/uploadBytes';
@@ -387,11 +388,40 @@ export const supabaseRepo: SitePackRepo = {
 
   async me() {
     const supabase = getSupabase();
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return null;
-    const { data, error } = await supabase.rpc('my_person');
-    if (error) throw new Error(error.message);
-    return (data as Person | null) ?? null;
+    let userId: string | null = null;
+    let userError: AuthErrorLike | null = null;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      userId = data.user?.id ?? null;
+      userError = error
+        ? {
+            name: error.name,
+            status: typeof error.status === 'number' ? error.status : undefined,
+            code: typeof error.code === 'string' ? error.code : undefined,
+            message: error.message,
+          }
+        : null;
+    } catch (err) {
+      // A thrown fetch is a network failure. It must not look like a missing session.
+      if (err instanceof Error) throw err;
+      throw new Error('Failed to fetch');
+    }
+    return personFromAuthReads({
+      userId,
+      userError,
+      loadPerson: async () => {
+        const { data, error } = await supabase.rpc('my_person');
+        return readMyPerson(
+          (data as Person | null) ?? null,
+          error
+            ? {
+                message: error.message,
+                code: typeof error.code === 'string' ? error.code : undefined,
+              }
+            : null
+        );
+      },
+    });
   },
 
   async listAssignedSites() {

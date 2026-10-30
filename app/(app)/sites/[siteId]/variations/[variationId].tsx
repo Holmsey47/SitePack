@@ -23,6 +23,7 @@ import { saveSheet } from '@/lib/saveSheet';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { createElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -79,6 +80,10 @@ export default function VariationDetailScreen() {
       .catch(() => setError('Could not load the variation.'))
       .finally(() => setLoaded(true));
   }, [load]);
+  useRefetchOnReconnect(async () => {
+    await load();
+    setError('');
+  });
 
   const manager = person ? canSetVariationValue(person.role) : false;
   const seeValue = person ? canSeeVariationValue(person.role) : false;

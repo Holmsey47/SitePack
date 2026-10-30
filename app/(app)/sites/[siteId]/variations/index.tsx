@@ -2,6 +2,7 @@ import { Button, Card, EmptyState, ErrorText, FilterBar, Muted, Screen } from '@
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canSeeVariationValue, filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { isRawNetworkText, offlineStatusLine } from '@/lib/offlineCopy';
 import { variationListAmount } from '@/lib/variationWording';
 import { runExclusive } from '@/lib/offlineFlush';
 import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
@@ -9,8 +10,9 @@ import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 const FILTERS: VariationFilter[] = ['All', 'Draft', 'Signed', 'Sent'];
@@ -24,6 +26,7 @@ export default function VariationsScreen() {
   const [queued, setQueued] = useState<QueuedVariation[]>([]);
   const [filter, setFilter] = useState<VariationFilter>('All');
   const [error, setError] = useState('');
+  const noteOfflineRef = useRef<() => void>(() => {});
 
   const load = useCallback(async () => {
     const userId = person?.auth_user_id;
@@ -37,7 +40,11 @@ export default function VariationsScreen() {
       setError('');
       await seen;
     } catch (err) {
-      setError(variationError(err instanceof Error ? err.message : 'unknown'));
+      const message = err instanceof Error ? err.message : 'unknown';
+      if (isRawNetworkText(message)) {
+        noteOfflineRef.current();
+        setError(offlineStatusLine(pending.length > 0));
+      } else setError(variationError(message));
     }
   }, [person, siteId]);
 
@@ -46,6 +53,8 @@ export default function VariationsScreen() {
       load().catch(() => setError('Could not load variations.'));
     }, [load])
   );
+  const noteOffline = useRefetchOnReconnect(load);
+  noteOfflineRef.current = noteOffline;
 
   const rows = list ? filterVariations(list.rows, filter) : [];
 

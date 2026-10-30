@@ -6,6 +6,7 @@ import { repo } from '@/data/index';
 import type { PulseRow } from '@/data/types';
 import { archivedRows, RESTORE_SITE_CONFIRM } from '@/data/walk';
 import { appVersionLine } from '@/lib/appVersionLabel';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { countUnsentForUser, signOutConfirmCopy } from '@/lib/unsentQueue';
 import { hit, logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
@@ -210,7 +211,7 @@ function ArchivedSites() {
   return (
     <View style={{ gap: space.md }}>
       <SectionLabel>Archived sites</SectionLabel>
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {rows.length === 0 && !error ? (
         <EmptyArchived />
       ) : null}

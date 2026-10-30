@@ -3,9 +3,11 @@ import { newDrawingsLine, sheetLabel } from '@/data/drawingSeen';
 import type { UnseenDrawing } from '@/data/drawingSeen';
 import { confirmQueued } from '@/lib/drawingSeenQueue';
 import { refreshDrawingSeen } from '@/lib/drawingSeenSync';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { useAuth } from '@/context/AuthContext';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -38,6 +40,7 @@ export default function NewDrawingsScreen() {
       load().catch(() => setError('Could not load new drawings.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const heading = newDrawingsLine(rows.length) ?? 'New drawings';
   useLayoutEffect(() => {
@@ -46,7 +49,7 @@ export default function NewDrawingsScreen() {
 
   return (
     <Screen>
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {rows.length === 0 && !error ? <Muted>Nothing new to check.</Muted> : null}
       <View style={{ gap: 8 }}>
         {rows.map((row) => {

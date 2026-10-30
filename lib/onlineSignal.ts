@@ -1,3 +1,5 @@
+import { readWebOffline } from '@/lib/reconnectRefetch';
+
 export type OnlineHandlers = {
   onOnline: () => void;
   onOffline: () => void;
@@ -35,7 +37,8 @@ export function subscribeOnline(platform: 'web' | 'native', handlers: OnlineHand
     const onOffline = () => handlers.onOffline();
     target.addEventListener('online', onOnline);
     target.addEventListener('offline', onOffline);
-    if (target.navigator?.onLine !== false) handlers.onOnline();
+    // Current reading, not a later reconnect. The fixture switch counts, then navigator.onLine.
+    if (!readWebOffline(target.navigator)) handlers.onOnline();
     return () => {
       target.removeEventListener('online', onOnline);
       target.removeEventListener('offline', onOffline);

@@ -2,8 +2,10 @@ import { Muted, Screen, Title } from '@/components/ui';
 import { personLabel, sheetLabel } from '@/data/drawingSeen';
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -30,6 +32,7 @@ export default function NotSeenPersonScreen() {
       load().catch(() => setError('Could not load these sheets.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const name = personLabel(person?.display_name);
 
@@ -37,7 +40,7 @@ export default function NotSeenPersonScreen() {
     <Screen>
       <Title>{name}</Title>
       {person ? <Muted>{person.sheets.length === 1 ? '1 sheet' : `${person.sheets.length} sheets`}</Muted> : null}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {person && person.sheets.length === 0 ? <Muted>Nothing left to see.</Muted> : null}
       <View style={{ gap: 8 }}>
         {person?.sheets.map((sheet) => {

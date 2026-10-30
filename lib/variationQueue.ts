@@ -274,8 +274,17 @@ export function setVariationQueueForTests(store: VariationQueueStore | null) {
   active = store;
 }
 
+function publishFixtureSwitch(): void {
+  const target = globalThis.window as
+    | (Window & { sitepackFixtureOffline?: (offline: boolean) => void })
+    | undefined;
+  if (!target || typeof target.addEventListener !== 'function' || target.sitepackFixtureOffline) return;
+  target.sitepackFixtureOffline = setFixtureForceOffline;
+}
+
 export function fixtureForceOffline(): boolean {
   if (__DEV__ && process.env.EXPO_PUBLIC_USE_FIXTURES === '1') {
+    publishFixtureSwitch();
     try {
       return globalThis.localStorage?.getItem('sitepack.dev.forceOffline') === '1';
     } catch {
@@ -291,6 +300,11 @@ export function setFixtureForceOffline(offline: boolean): void {
     if (!storage) return;
     if (offline) storage.setItem('sitepack.dev.forceOffline', '1');
     else storage.removeItem('sitepack.dev.forceOffline');
+    // Web only. React Native's window has no DOM events.
+    const target = globalThis.window;
+    if (target && typeof target.addEventListener === 'function' && typeof target.dispatchEvent === 'function') {
+      target.dispatchEvent(new Event(offline ? 'offline' : 'online'));
+    }
   }
 }
 
