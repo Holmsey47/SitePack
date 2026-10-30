@@ -430,8 +430,11 @@ export function LevelMenu({
 export function OverflowMenu({
   items,
   label = 'More',
+  title,
 }: {
   label?: string;
+  /** Full name, shown in the sheet so a clipped header can still be read. */
+  title?: string;
   items: { label: string; danger?: boolean; onPress: () => void }[];
 }) {
   const [open, setOpen] = useState(false);
@@ -448,6 +451,7 @@ export function OverflowMenu({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.modalScrim} onPress={() => setOpen(false)}>
           <View style={styles.modalCard}>
+            {title ? <Text style={styles.modalTitle}>{title}</Text> : null}
             {items.map((item) => (
               <Pressable
                 key={item.label}

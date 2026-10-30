@@ -110,4 +110,6 @@ test('a superseded sheet says not to build from it, in readable ink', () => {
   assert.match(folder, /Show superseded \/ archive/);
   assert.match(folder, /SeenCountSlot/);
   assert.match(viewer, /<SupersededSafetyLabel \/>/);
+  assert.match(viewer, /numberOfLines=\{2\}/);
+  assert.match(viewer, /title=\{title\}/);
 });
