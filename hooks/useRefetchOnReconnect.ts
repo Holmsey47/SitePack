@@ -1,17 +1,11 @@
 import { subscribeDeviceOnline } from '@/lib/deviceOnline';
-import { createReconnectRefetch } from '@/lib/reconnectRefetch';
+import { createReconnectRefetch, readWebOffline } from '@/lib/reconnectRefetch';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 
 async function readOfflineNow(): Promise<boolean> {
-  if (Platform.OS === 'web') {
-    try {
-      return typeof navigator !== 'undefined' && navigator.onLine === false;
-    } catch {
-      return false;
-    }
-  }
+  if (Platform.OS === 'web') return readWebOffline();
   try {
     const network = await import('expo-network');
     const state = await network.getNetworkStateAsync();

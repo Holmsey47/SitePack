@@ -1,7 +1,20 @@
+import { fixtureForceOffline } from '@/lib/variationQueue';
+
 type OnlineHandlers = {
   onOnline: () => void;
   onOffline: () => void;
 };
+
+/** Web offline: the fixture switch counts, then the browser. Fixtures off ignores the switch. */
+export function readWebOffline(): boolean {
+  try {
+    if (fixtureForceOffline()) return true;
+    const nav = globalThis.window?.navigator ?? globalThis.navigator;
+    return typeof nav?.onLine === 'boolean' && nav.onLine === false;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Refetch when the device moves from offline to online.
