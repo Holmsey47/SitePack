@@ -252,6 +252,99 @@ test('a contracts manager still gets names when the owner and unassigned staff a
   assert.doesNotMatch(assignmentsScreen, /display_name \?\?/);
 });
 
+test('p1 refuses a signed-out contracts lookup and hides archived-site co-workers', async () => {
+  const migration = fs
+    .readdirSync('supabase/migrations')
+    .find((name) => name.endsWith('_p1_security_before_logins.sql'));
+  assert.ok(migration);
+  const sql = fs.readFileSync(`supabase/migrations/${migration}`, 'utf8');
+  const names = sql.slice(
+    sql.indexOf('function public.site_contracts_manager_names'),
+    sql.indexOf('comment on function public.site_contracts_manager_names'),
+  );
+  assert.match(names, /security definer/);
+  assert.match(names, /set search_path = ''/);
+  assert.match(names, /\(select auth\.uid\(\)\) is null/);
+  assert.match(names, /not_authorized/);
+  assert.match(names, /private\.can_access_site\(p_site_id\)/);
+  assert.match(sql, /revoke all on function public\.site_contracts_manager_names\(uuid\) from public, anon/);
+  assert.match(sql, /grant execute on function public\.site_contracts_manager_names\(uuid\) to authenticated/);
+  assert.equal(sql.includes('grant execute on function public.site_contracts_manager_names(uuid) to anon'), false);
+  assert.equal(sql.includes('grant execute on function public.site_contracts_manager_names(uuid) to public'), false);
+
+  const shared = sql.slice(
+    sql.indexOf('function private.shares_assigned_site'),
+    sql.indexOf('comment on function private.shares_assigned_site'),
+  );
+  assert.match(shared, /security definer/);
+  assert.match(shared, /set search_path = ''/);
+  assert.match(shared, /join public\.sites s on s\.id = mine\.site_id/);
+  assert.match(shared, /s\.archived_at is null/);
+
+  for (const name of [
+    'try_uuid(p_text text)',
+    'touch_updated_at()',
+    'storage_site_id(p_name text)',
+    'storage_company_id(p_name text)',
+    'guard_site_archive()',
+  ]) {
+    const body = sql.slice(sql.indexOf(`function private.${name}`));
+    const next = body.indexOf('create or replace function', 1);
+    const fn = next === -1 ? body : body.slice(0, next);
+    assert.match(fn, /set search_path = ''/);
+  }
+  assert.match(sql, /pg_catalog\.length\(pg_catalog\.btrim\(p_text\)\)/);
+  assert.match(sql, /pg_catalog\.btrim\(p_text\)::pg_catalog\.uuid/);
+  assert.match(sql, /pg_catalog\.now\(\)/);
+  assert.match(sql, /storage\.foldername\(p_name\)/);
+  assert.match(sql, /private\.my_role\(\)/);
+
+  const probe = fs.readFileSync('scripts/p1-security-rls.sql', 'utf8');
+  assert.match(probe, /a signed-out RPC call is refused/);
+  assert.match(probe, /a lad on an archived site sees 0 co-workers/);
+  assert.match(probe, /a lad on an active site still sees those co-workers/);
+  assert.match(probe, /the owner still sees people on the archived site/);
+  assert.match(probe, /0 mutable search_path warnings/);
+
+  resetFixtureStore();
+  await fixtureRepo.signIn('ben@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(
+    (await fixtureRepo.listCompanyPeople()).map((person) => person.id).sort(),
+    [IDS.amy, IDS.ben, IDS.cm].sort(),
+  );
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.archiveSite(IDS.riverside, true);
+  const ownerWhileOakIsActive = await fixtureRepo.listCompanyPeople();
+  assert.equal(ownerWhileOakIsActive.some((person) => person.id === IDS.ben), true);
+  assert.equal(ownerWhileOakIsActive.some((person) => person.id === IDS.amy), true);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('ben@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(
+    (await fixtureRepo.listCompanyPeople()).map((person) => person.id).sort(),
+    [IDS.amy, IDS.ben, IDS.cm].sort(),
+  );
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
+  await fixtureRepo.archiveSite(IDS.oak, true);
+  const ownerAfter = await fixtureRepo.listCompanyPeople();
+  assert.equal(ownerAfter.some((person) => person.id === IDS.ben), true);
+  assert.equal(ownerAfter.some((person) => person.id === IDS.amy), true);
+  assert.equal(ownerAfter.some((person) => person.id === IDS.cm), true);
+  assert.equal((await fixtureRepo.companyPeople()).some((person) => person.id === IDS.ben), true);
+
+  await fixtureRepo.signOut();
+  await fixtureRepo.signIn('ben@sitepack.test', SEED_PASSWORD);
+  assert.deepEqual(
+    (await fixtureRepo.listCompanyPeople()).map((person) => person.id),
+    [IDS.ben],
+  );
+  await assert.rejects(() => fixtureRepo.contractsManagerNames(IDS.oak), /not_authorized/);
+});
+
 test('only the owner can read other peoples contact details', async () => {
   resetFixtureStore();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);

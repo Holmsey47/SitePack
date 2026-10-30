@@ -706,10 +706,15 @@ function assertSiteWritable(siteId: string) {
 }
 
 function sharesAssignedSite(caller: Person, target: Person): boolean {
+  const activeSiteIds = new Set(store.sites.filter((site) => site.archived_at == null).map((site) => site.id));
   const mine = new Set(
-    store.assignments.filter((assignment) => assignment.person_id === caller.id).map((assignment) => assignment.site_id)
+    store.assignments
+      .filter((assignment) => assignment.person_id === caller.id && activeSiteIds.has(assignment.site_id))
+      .map((assignment) => assignment.site_id),
   );
-  return store.assignments.some((assignment) => assignment.person_id === target.id && mine.has(assignment.site_id));
+  return store.assignments.some(
+    (assignment) => assignment.person_id === target.id && mine.has(assignment.site_id),
+  );
 }
 
 function canSeePerson(caller: Person, target: Person): boolean {
