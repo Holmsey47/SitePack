@@ -24,6 +24,8 @@ export const theme = {
   danger: '#E07070',
   /** Solid scrim behind a confirm. Not a blur or a glass panel. */
   scrim: '#070B10',
+  /** About 45% black behind a menu sheet, so the page stays visible. */
+  menuScrim: 'rgba(0, 0, 0, 0.45)',
   thumb: 48,
   /** Online status dot. Done colour, not amber. */
   online: '#6FAE8F',

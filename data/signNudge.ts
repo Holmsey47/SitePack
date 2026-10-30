@@ -62,6 +62,19 @@ export function unsignedSignDocuments(
   return next;
 }
 
+/**
+ * One row on Documents to sign. The title is the document name.
+ * The subtitle is the kind and the site, so "Induction" is not repeated.
+ */
+export function signListRow(
+  doc: Pick<UnsignedSignDocument, 'kind' | 'title' | 'siteName'>,
+): { title: string; subtitle: string } {
+  return {
+    title: doc.title.trim(),
+    subtitle: `${siteDocumentKindLabel(doc.kind)} · ${doc.siteName.trim()}`,
+  };
+}
+
 /** Title line, then the site or the list hint. None is no card. */
 export type SignNudgeCopy = { title: string; detail: string };
 

@@ -7,6 +7,7 @@ import { SITE_DOCUMENT_URL_SECONDS } from './siteDocuments.ts';
 import {
   loadSignNudge,
   rowsFromSignNudgeRead,
+  signListRow,
   signNudgeCopy,
   signNudgeTarget,
   signNudgeVisible,
@@ -36,6 +37,18 @@ function row(overrides: Partial<SignNudgeRow> = {}): SignNudgeRow {
 const amy = { id: 'amy', role: 'operative' as const };
 const priya = { id: 'cm', role: 'cm' as const };
 const jordan = { id: 'owner', role: 'owner' as const };
+
+test('a documents-to-sign row names the document, then the kind and the site', () => {
+  assert.deepEqual(signListRow({ kind: 'induction', title: 'Site induction', siteName: oak }), {
+    title: 'Site induction',
+    subtitle: `Induction · ${oak}`,
+  });
+  assert.deepEqual(signListRow({ kind: 'rams', title: 'Roof RAMS', siteName: oak }), {
+    title: 'Roof RAMS',
+    subtitle: `RAMS · ${oak}`,
+  });
+  assert.equal(signListRow({ kind: 'induction', title: 'Site induction', siteName: oak }).title.includes('Induction:'), false);
+});
 
 test('unsigned RAMS and inductions are the nudge, and a signature on the current version removes it', () => {
   const induction = row({ id: 'ind', kind: 'induction', title: 'Site induction' });

@@ -13,6 +13,8 @@ import {
   StyleSheet,
   View,
   type PressableProps,
+  type StyleProp,
+  type TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -307,6 +309,50 @@ export function OutOfDateBadge() {
   return (
     <View pointerEvents="none" style={styles.outOfDate} accessibilityRole="text" accessibilityLabel="Out of date">
       <Text style={styles.outOfDateText}>Out of date</Text>
+    </View>
+  );
+}
+
+/**
+ * A heading that wraps on spaces, so a word is not cut in the middle.
+ * Pass lines only when the bar must stay short.
+ */
+export function WrappedTitle({
+  children,
+  lines,
+  style,
+}: {
+  children: string;
+  /** Caps the heading. Left unset so a long title stays whole. */
+  lines?: number;
+  style?: StyleProp<TextStyle>;
+}) {
+  return (
+    <Text
+      accessibilityRole="header"
+      numberOfLines={lines}
+      ellipsizeMode="tail"
+      textBreakStrategy="simple"
+      style={[
+        style,
+        Platform.OS === 'web'
+          ? ({ overflowWrap: 'break-word', wordBreak: 'normal', hyphens: 'none' } as object)
+          : null,
+      ]}>
+      {children}
+    </Text>
+  );
+}
+
+/** Same badge for "To sign" and "Archived". A label, not a control. */
+export function DocumentStatusBadge({ label, tone }: { label: string; tone: 'sign' | 'archived' }) {
+  const sign = tone === 'sign';
+  return (
+    <View
+      accessibilityRole="text"
+      accessibilityLabel={label}
+      style={[styles.statusBadge, sign ? styles.statusBadgeSign : styles.statusBadgeArchived]}>
+      <Text style={[textStyle.bodyStrong, { color: sign ? theme.danger : theme.text }]}>{label}</Text>
     </View>
   );
 }
@@ -712,6 +758,17 @@ const styles = StyleSheet.create({
   modalTitle: textStyle.title,
   modalRow: { minHeight: hit.secondary, flexDirection: 'row', alignItems: 'center', gap: space.md },
   modalRowText: textStyle.bodyStrong,
+  statusBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: radius.control,
+    borderWidth: 1,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  statusBadgeSign: { borderColor: theme.danger, backgroundColor: theme.surface },
+  statusBadgeArchived: { borderColor: theme.line, backgroundColor: theme.surfaceAlt },
   wordmark: {
     color: theme.text,
     fontFamily: fontFamily.extraBold,

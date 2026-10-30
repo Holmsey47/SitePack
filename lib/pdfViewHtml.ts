@@ -33,7 +33,8 @@ export function pdfViewHtml(pdfBase64: string, librarySource: string, workerSour
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes" />
 <style>
-  html, body { margin: 0; background: ${theme.bg}; color: ${theme.text}; }
+  html, body { margin: 0; background: ${theme.bg}; color: ${theme.text}; scrollbar-width: none; -ms-overflow-style: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
   #pages { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 12px 48px; }
   canvas { display: block; background: white; }
 </style>

@@ -90,6 +90,14 @@ export function glueNewLine(line: string): string {
   return line.replace(/(\d+\+?) /g, '$1\u00a0').replace(/^New: /, 'New:\u00a0');
 }
 
+/** Pieces of the New line. Each piece keeps its number with its word. */
+export function freshLineParts(line: string): string[] {
+  return glueNewLine(line)
+    .split(' · ')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 /** Open requests, worded so they are not a second bare "N request" next to New. */
 function openRequestsLine(requests: number, unseen: number): string | null {
   const parts: string[] = [];

@@ -40,6 +40,7 @@ export function PdfFrame({
       height: '100%',
       border: 0,
       background: theme.bg,
+      scrollbarWidth: 'none',
     },
   });
 }

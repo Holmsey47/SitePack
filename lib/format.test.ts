@@ -137,8 +137,10 @@ test('a superseded sheet says not to build from it, in readable ink', () => {
   assert.match(ui, /color: theme\.currentInk/);
   assert.ok(contrastRatio(theme.currentInk, theme.danger) >= 4.5);
   assert.match(folder, /<SupersededSafetyLabel \/>/);
-  assert.match(folder, /Old revisions hidden\. Tap All to see them\./);
-  assert.match(folder, /Show superseded \/ archive/);
+  assert.match(folder, /Old revisions hidden\. Clear the filter to see them\./);
+  assert.match(folder, /Show old revisions/);
+  assert.doesNotMatch(folder, /Show superseded \/ archive/);
+  assert.doesNotMatch(folder, /Tap All to see them/);
   assert.match(folder, /SeenCountSlot/);
   assert.match(viewer, /<SupersededSafetyLabel \/>/);
   assert.match(viewer, /numberOfLines=\{2\}/);

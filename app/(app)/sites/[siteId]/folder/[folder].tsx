@@ -14,7 +14,7 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from '
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-const OLD_REVISIONS_HIDDEN = 'Old revisions hidden. Tap All to see them.';
+const OLD_REVISIONS_HIDDEN = 'Old revisions hidden. Clear the filter to see them.';
 
 function SupersededCard({ drawing, onPress }: { drawing: Drawing; onPress: () => void }) {
   return (
@@ -161,7 +161,7 @@ export default function FolderScreen() {
       ) : null}
       {superseded.length > 0 && !archiveOnly ? (
         <Button
-          label={showOld ? 'Hide superseded' : 'Show superseded / archive'}
+          label={showOld ? 'Hide superseded' : 'Show old revisions'}
           variant="secondary"
           minHeight={48}
           onPress={() => setShowOld((value) => !value)}
