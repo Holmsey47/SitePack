@@ -6,6 +6,7 @@ import { formatUkDateTime } from '@/lib/format';
 import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
@@ -30,6 +31,7 @@ export default function DrawingSeenScreen() {
       load().catch(() => setError('Could not load who has seen this.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const unseenHeading = roster ? notSeenYetHeading(roster.unseen.length) : '';
 

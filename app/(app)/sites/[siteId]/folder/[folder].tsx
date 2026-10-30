@@ -11,6 +11,7 @@ import { formatDate } from '@/lib/format';
 import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -93,6 +94,7 @@ export default function FolderScreen() {
       });
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   useEffect(() => {
     setLevelFilter(null);

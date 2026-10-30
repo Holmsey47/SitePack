@@ -5,6 +5,7 @@ import { repo } from '@/data/index';
 import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -31,6 +32,7 @@ export default function SiteNotSeenScreen() {
       load().catch(() => setError('Could not load who has not seen the sheets.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const heading = notSeenYetHeading(people.length);
   useLayoutEffect(() => {

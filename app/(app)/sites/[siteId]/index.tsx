@@ -23,6 +23,7 @@ import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/sit
 import { space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { usePreventRemove, type NavigationAction } from '@react-navigation/native';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -159,6 +160,7 @@ export default function SitePackScreen() {
       void refreshCounts();
     }, [load, refresh, refreshCounts])
   );
+  useRefetchOnReconnect(load);
 
   const folders = packFolders(drawings);
   const meta = siteId ? readPackMeta(siteId) : null;

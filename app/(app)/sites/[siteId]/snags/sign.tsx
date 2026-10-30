@@ -14,6 +14,7 @@ import { contractorPadEnabled, outstandingHeading, outstandingLine, putRightLine
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useState } from 'react';
@@ -102,6 +103,10 @@ export default function SnagSignScreen() {
       .catch(() => setError('Could not load snags.'))
       .finally(() => setLoaded(true));
   }, [load]);
+  useRefetchOnReconnect(async () => {
+    await load();
+    setError('');
+  });
 
   useFocusEffect(
     useCallback(() => {

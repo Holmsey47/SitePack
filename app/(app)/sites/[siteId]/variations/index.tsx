@@ -10,6 +10,7 @@ import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
@@ -49,6 +50,7 @@ export default function VariationsScreen() {
       load().catch(() => setError('Could not load variations.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const rows = list ? filterVariations(list.rows, filter) : [];
 

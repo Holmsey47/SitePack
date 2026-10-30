@@ -5,6 +5,7 @@ import { repo } from '@/data/index';
 import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -31,6 +32,7 @@ export default function NotSeenPersonScreen() {
       load().catch(() => setError('Could not load these sheets.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const name = personLabel(person?.display_name);
 

@@ -26,6 +26,7 @@ import { markSiteListSeen } from '@/lib/siteListSeenSync';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { File as PhoneFile, Paths } from 'expo-file-system';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useState } from 'react';
@@ -105,6 +106,7 @@ export default function SnagsScreen() {
       load().catch(() => setError('Could not load snags.'));
     }, [load])
   );
+  useRefetchOnReconnect(load);
 
   const rows = list ? filterSnags(list.rows, status, level) : [];
   const levels = list ? snagLevels(list.rows) : [];

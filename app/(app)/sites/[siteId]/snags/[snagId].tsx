@@ -10,6 +10,7 @@ import { deviceIsOnline, getSnagQueue, persistThenSendSnag, SAVED_ON_PHONE, sign
 import { showSignOffOnSnag, SIGN_OFF_QUEUED, snagDisplayText } from '@/lib/snagWording';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Image, View } from 'react-native';
@@ -39,6 +40,10 @@ export default function SnagDetailScreen() {
       .catch(() => setError('Could not load the snag.'))
       .finally(() => setLoaded(true));
   }, [load]);
+  useRefetchOnReconnect(async () => {
+    await load();
+    setError('');
+  });
 
   useFocusEffect(
     useCallback(() => {

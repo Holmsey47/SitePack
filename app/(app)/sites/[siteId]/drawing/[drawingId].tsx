@@ -16,6 +16,7 @@ import { DELETE_DRAWING_CONFIRM } from '@/data/walk';
 import type { Drawing } from '@/data/types';
 import type { OfflinePackMeta } from '@/lib/offline';
 import { friendlyNetworkMessage } from '@/lib/offlineCopy';
+import { useRefetchOnReconnect } from '@/hooks/useRefetchOnReconnect';
 import {
   confirmQueued,
   getDrawingSeenQueue,
@@ -109,6 +110,7 @@ export default function DrawingViewerScreen() {
       cancelled = true;
     };
   }, [siteId, drawingId, retrying]);
+  useRefetchOnReconnect(() => setRetrying((value) => !value));
 
   useEffect(() => {
     if (!drawingId) return;
