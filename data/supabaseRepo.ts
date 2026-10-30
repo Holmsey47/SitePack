@@ -7,6 +7,7 @@ import { inviteFailureMessage } from '@/data/inviteError';
 import { groupCount } from '@/data/peopleGroups';
 import type { SitePackRepo, SignInResult } from '@/data/repo';
 import { rpcErrorCode } from '@/data/repo';
+import { loginFailureCode, readLoginFunctionFailure } from '@/lib/loginError';
 import { removeStoredAuthSession } from '@/lib/signOut';
 import type {
   CreateVariationInput,
@@ -324,17 +325,29 @@ async function signCompanyMark(name: string, logoPath: string | null): Promise<{
 export const supabaseRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     const supabase = getSupabase();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (error || !data.user) {
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+    let data: { user: { id: string } | null };
+    let error: unknown;
+    try {
+      const signed = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      data = signed.data;
+      error = signed.error;
+    } catch (err) {
+      throw new Error(loginFailureCode(err));
     }
-    const person = await this.me();
+    if (error || !data.user) throw new Error(loginFailureCode(error));
+    let person: Person | null;
+    try {
+      person = await this.me();
+    } catch (err) {
+      if (loginFailureCode(err) === 'offline') throw new Error('offline');
+      throw new Error('sign_in_failed');
+    }
     if (!person) {
       await this.signOut();
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+      throw new Error('account_not_set_up');
     }
     return { person, needsPassword: false };
   },
@@ -730,6 +743,14 @@ export const supabaseRepo: SitePackRepo = {
     return { storagePath, fileSizeBytes: bytes.byteLength };
   },
 
+  async removeUncommittedDrawing(storagePath) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.storage.from('drawings').remove([storagePath]);
+    if (error) throw new Error(error.message);
+    const gone = (data ?? []).some((row) => row.name === storagePath);
+    if (!gone) throw new Error('storage_orphan');
+  },
+
   async replaceDrawing(input: ReplaceDrawingInput) {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('replace_drawing', {
@@ -828,20 +849,38 @@ export const supabaseRepo: SitePackRepo = {
   },
 
   async signInWithUsername(username, password) {
-    const data = (await invokePublicFunction('login-with-username', { username, password })) as {
-      access_token?: string;
-      refresh_token?: string;
-    };
-    if (!data.access_token || !data.refresh_token) throw new Error('sign_in_failed');
-    const { error } = await getSupabase().auth.setSession({
+    const supabase = getSupabase();
+    let data: { access_token?: string; refresh_token?: string; error?: unknown } | null = null;
+    let error: { message?: string; name?: string; context?: unknown } | null = null;
+    try {
+      const invoked = await supabase.functions.invoke('login-with-username', {
+        body: { username, password },
+      });
+      data = invoked.data as { access_token?: string; refresh_token?: string; error?: unknown } | null;
+      error = invoked.error;
+    } catch (err) {
+      throw new Error(loginFailureCode(err));
+    }
+    if (error) throw new Error(await readLoginFunctionFailure(error));
+    if (data && typeof data === 'object' && data.error) {
+      throw new Error(data.error === 'rate_limited' ? 'rate_limited' : 'sign_in_failed');
+    }
+    if (!data?.access_token || !data.refresh_token) throw new Error('sign_in_failed');
+    const { error: sessionError } = await supabase.auth.setSession({
       access_token: data.access_token,
       refresh_token: data.refresh_token,
     });
-    if (error) throw new Error('sign_in_failed');
-    const person = await this.me();
+    if (sessionError) throw new Error(loginFailureCode(sessionError));
+    let person: Person | null;
+    try {
+      person = await this.me();
+    } catch (err) {
+      if (loginFailureCode(err) === 'offline') throw new Error('offline');
+      throw new Error('sign_in_failed');
+    }
     if (!person) {
       await this.signOut();
-      throw new Error('sign_in_failed');
+      throw new Error('account_not_set_up');
     }
     return { person, needsPassword: false };
   },

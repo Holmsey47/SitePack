@@ -16,6 +16,7 @@ import {
   type QueuedSeen,
   type SeenNotice,
 } from '@/lib/drawingSeenQueue';
+import { runExclusive } from '@/lib/offlineFlush';
 import { deviceIsOnline } from '@/lib/variationQueue';
 
 export async function currentRevisionAfter(item: { drawingId: string; siteId: string }): Promise<string | null> {
@@ -71,7 +72,7 @@ export async function clearNoticesAfterOpen(ownerId: string, openedDrawingId: st
 }
 
 export async function flushQueuedDrawingSeen(ownerId: string): Promise<SeenNotice[]> {
-  return flushDrawingSeenQueue(getDrawingSeenQueue(), drawingSeenIo(), ownerId);
+  return runExclusive(() => flushDrawingSeenQueue(getDrawingSeenQueue(), drawingSeenIo(), ownerId));
 }
 
 export async function refreshDrawingSeen(

@@ -344,7 +344,7 @@ test('sign-out clears the join-code cache, and a lad cannot issue or revoke', as
   const auth = fs.readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
   const bind = auth.slice(auth.indexOf('async function bindCache'), auth.indexOf('function authTokenKey'));
   assert.match(bind, /else \{[\s\S]*clearJoinCodeCache\(joinCodeCachePort\(\)\)/);
-  assert.match(auth, /signOut: async \(\) => \{[\s\S]*clearAppCache: \(\) => bindCache\(null\)/);
+  assert.match(auth, /signOut: async \(\) => \{[\s\S]*clearAppCache:[\s\S]*bindCache\(null\)/);
 
   resetFixtureStore();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);

@@ -6,6 +6,7 @@ import { repo } from '@/data/index';
 import type { PulseRow } from '@/data/types';
 import { archivedRows, RESTORE_SITE_CONFIRM } from '@/data/walk';
 import { appVersionLine } from '@/lib/appVersionLabel';
+import { countUnsentForUser, signOutConfirmCopy } from '@/lib/unsentQueue';
 import { hit, logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
@@ -18,12 +19,19 @@ export default function CompanyScreen() {
   const router = useRouter();
   if (!person) return <Redirect href="/login" />;
   if (person.role !== 'owner') {
-    return <MemberCompany showMembers={person.role === 'cm'} onSignOut={() => void signOut()} onMembers={() => router.push('/people')} />;
+    return (
+      <MemberCompany
+        ownerId={person.auth_user_id}
+        showMembers={person.role === 'cm'}
+        onSignOut={() => void signOut()}
+        onMembers={() => router.push('/people')}
+      />
+    );
   }
 
   return (
     <Screen>
-      <OwnerList onMembers={() => router.push('/people')} onSignOut={() => void signOut()} />
+      <OwnerList ownerId={person.auth_user_id} onMembers={() => router.push('/people')} onSignOut={() => void signOut()} />
       <ArchivedSites />
       <AppVersion />
     </Screen>
@@ -31,10 +39,12 @@ export default function CompanyScreen() {
 }
 
 function MemberCompany({
+  ownerId,
   showMembers,
   onMembers,
   onSignOut,
 }: {
+  ownerId: string | null;
   showMembers: boolean;
   onMembers: () => void;
   onSignOut: () => void;
@@ -66,13 +76,21 @@ function MemberCompany({
           <Icon name="chevron_right" color={theme.muted} />
         </Pressable>
       ) : null}
-      <SignOutRow confirm={confirm} setConfirm={setConfirm} onSignOut={onSignOut} />
+      <SignOutRow ownerId={ownerId} confirm={confirm} setConfirm={setConfirm} onSignOut={onSignOut} />
       <AppVersion />
     </Screen>
   );
 }
 
-function OwnerList({ onMembers, onSignOut }: { onMembers: () => void; onSignOut: () => void }) {
+function OwnerList({
+  ownerId,
+  onMembers,
+  onSignOut,
+}: {
+  ownerId: string | null;
+  onMembers: () => void;
+  onSignOut: () => void;
+}) {
   const [confirm, setConfirm] = useState(false);
   return (
     <View style={{ gap: space.md }}>
@@ -81,30 +99,49 @@ function OwnerList({ onMembers, onSignOut }: { onMembers: () => void; onSignOut:
         <Text style={[textStyle.bodyStrong, { flex: 1 }]}>Members</Text>
         <Icon name="chevron_right" color={theme.muted} />
       </Pressable>
-      <SignOutRow confirm={confirm} setConfirm={setConfirm} onSignOut={onSignOut} />
+      <SignOutRow ownerId={ownerId} confirm={confirm} setConfirm={setConfirm} onSignOut={onSignOut} />
     </View>
   );
 }
 
 function SignOutRow({
+  ownerId,
   confirm,
   setConfirm,
   onSignOut,
 }: {
+  ownerId: string | null;
   confirm: boolean;
   setConfirm: (value: boolean) => void;
   onSignOut: () => void;
 }) {
+  const [unsent, setUnsent] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const copy = signOutConfirmCopy(unsent);
+
+  async function ask() {
+    setChecking(true);
+    try {
+      setUnsent((await countUnsentForUser(ownerId)) > 0);
+    } catch {
+      setUnsent(true);
+    } finally {
+      setChecking(false);
+      setConfirm(true);
+    }
+  }
+
   if (!confirm) {
     return (
       <View style={{ marginTop: space.xl }}>
-        <Button label="Sign out" variant="ghost" onPress={() => setConfirm(true)} />
+        <Button label="Sign out" variant="ghost" onPress={() => void ask()} loading={checking} />
       </View>
     );
   }
   return (
     <View style={{ gap: space.md, marginTop: space.xl }}>
-      <Text style={textStyle.bodyStrong}>Sign out of SitePack?</Text>
+      <Text style={textStyle.bodyStrong}>{copy.title}</Text>
+      <Text style={textStyle.body}>{copy.body}</Text>
       <Button label="Sign out" variant="danger" onPress={onSignOut} />
       <Button label="Cancel" variant="secondary" onPress={() => setConfirm(false)} />
     </View>

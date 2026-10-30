@@ -1,5 +1,6 @@
 import { Button, ChoiceChip, ErrorText, Field, LogoSlot, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { LOGIN_RECOVERY, presentLoginFailure } from '@/lib/loginError';
 import { logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
@@ -20,21 +21,20 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState(seeds?.SEED_PASSWORD ?? '');
   const [error, setError] = useState('');
+  const [showRecovery, setShowRecovery] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit() {
     setError('');
+    setShowRecovery(false);
     setLoading(true);
     try {
       if (mode === 'username') await signInWithUsername(username, password);
       else await signIn(email, password);
     } catch (err) {
-      const message = err instanceof Error ? err.message : '';
-      setError(
-        mode === 'username' || message === 'sign_in_failed'
-          ? 'Couldn’t sign in. Check username and password and try again.'
-          : message || 'Couldn’t sign in. Check email and password and try again.'
-      );
+      const presented = presentLoginFailure(err instanceof Error ? err.message : '');
+      setError(presented.message);
+      setShowRecovery(presented.showRecovery);
     } finally {
       setLoading(false);
     }
@@ -57,6 +57,13 @@ export default function LoginScreen() {
       )}
       <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Your password" />
       <ErrorText>{error}</ErrorText>
+      {showRecovery ? (
+        <View style={{ gap: space.sm }}>
+          <Text style={textStyle.bodyStrong}>{LOGIN_RECOVERY}</Text>
+          <Button label="Use a reset code" variant="secondary" onPress={() => router.push('/reset')} />
+          <Button label="Use your join link" variant="secondary" onPress={() => router.push('/join')} />
+        </View>
+      ) : null}
       <Button
         label="Sign in"
         onPress={onSubmit}

@@ -99,6 +99,8 @@ export type SitePackRepo = {
     fileName: string;
   }): Promise<{ storagePath: string; fileSizeBytes: number }>;
   replaceDrawing(input: ReplaceDrawingInput): Promise<Drawing>;
+  /** Delete a drawing file that was uploaded but whose row was refused. */
+  removeUncommittedDrawing(storagePath: string): Promise<void>;
   invitePerson(input: InviteInput): Promise<void>;
   attachLogin(personId: string, email: string): Promise<void>;
   listPeopleGroups(): Promise<PeopleGroup[]>;
