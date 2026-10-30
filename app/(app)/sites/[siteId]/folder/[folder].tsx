@@ -1,4 +1,4 @@
-import { Button, Card, EmptyState, LevelMenu, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountSlot, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
+import { Button, Card, EmptyState, FilterOnClear, LevelMenu, Muted, NewRevBadge, RevBadge, Screen, SectionLabel, SeenCountSlot, SeenRejectNotice, SupersededSafetyLabel } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { sheetLabel, type SiteSeenSummary, type UnseenDrawing } from '@/data/drawingSeen';
 import { displayFolder, displayLevel, drawingsInFolder, levelFilterLabels } from '@/data/folders';
@@ -147,6 +147,7 @@ export default function FolderScreen() {
         />
       ) : null}
       {activeLevel ? <Text style={textStyle.body}>{OLD_REVISIONS_HIDDEN}</Text> : null}
+      {activeLevel ? <FilterOnClear onClear={() => setLevelFilter(null)} /> : null}
       {superseded.length > 0 && !archiveOnly ? (
         <Button
           label={showOld ? 'Hide superseded' : 'Show superseded / archive'}

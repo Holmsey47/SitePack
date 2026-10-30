@@ -334,12 +334,29 @@ export function ChoiceChip({
   );
 }
 
+/** Shown while a filter is narrowing the list. The whole row clears it. */
+export function FilterOnClear({ onClear }: { onClear: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Filter on. Clear"
+      onPress={onClear}
+      style={({ pressed }) => [styles.filterClear, pressed && styles.btnPressed]}>
+      <Text style={textStyle.bodyStrong}>Filter on · Clear</Text>
+    </Pressable>
+  );
+}
+
 export function FilterBar({
   chips,
   level,
+  narrowed,
+  onClear,
 }: {
   chips: { key: string; label: string; selected: boolean; onPress: () => void }[];
   level?: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
+  narrowed?: boolean;
+  onClear?: () => void;
 }) {
   return (
     <View style={{ gap: space.md }}>
@@ -349,6 +366,7 @@ export function FilterBar({
         ))}
       </View>
       {level ? <LevelMenu value={level.value} options={level.options} onChange={level.onChange} /> : null}
+      {narrowed && onClear ? <FilterOnClear onClear={onClear} /> : null}
     </View>
   );
 }
@@ -569,7 +587,12 @@ const styles = StyleSheet.create({
   chipText: { flexShrink: 1, fontSize: typeScale.body, fontFamily: fontFamily.bold },
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.bg },
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.md },
+  filterClear: {
+    minHeight: hit.secondary,
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
   levelBtn: {
     minHeight: hit.secondary,
     borderRadius: radius.control,

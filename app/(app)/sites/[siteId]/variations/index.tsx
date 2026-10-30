@@ -61,6 +61,8 @@ export default function VariationsScreen() {
           selected: filter === item,
           onPress: () => setFilter(item),
         }))}
+        narrowed={filter !== 'All'}
+        onClear={() => setFilter('All')}
       />
       {queued.length > 0 ? (
         <View style={{ gap: 8 }}>

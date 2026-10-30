@@ -227,6 +227,11 @@ export default function SnagsScreen() {
           options: [{ value: 'All', label: 'All levels' }, ...levels.map((item) => ({ value: item, label: item }))],
           onChange: (value) => setLevel(value as SnagLevelFilter),
         }}
+        narrowed={status !== 'All' || level !== 'All'}
+        onClear={() => {
+          setStatus('All');
+          setLevel('All');
+        }}
       />
       {notices.map((notice) => (
         <Card key={notice.id}>

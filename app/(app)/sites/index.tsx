@@ -2,7 +2,7 @@ import { AppTabs } from '@/components/app-tabs';
 import { CompanyLogo } from '@/components/CompanyLogo';
 import { Icon } from '@/components/icon';
 import { PhoneStatus } from '@/components/phone-status';
-import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
+import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, FilterOnClear, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
 import { countsForSite, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
@@ -212,9 +212,19 @@ export default function SitesScreen() {
       <PhoneStatus />
       {showCreate ? <Button label="Create site" onPress={() => router.push('/create-site')} /> : null}
       <Field label="Search sites" value={query} onChangeText={setQuery} placeholder="Oak, Riverside…" autoCapitalize="words" />
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm }}>
-        <ChoiceChip label="Has open requests" selected={openOnly} onPress={() => setOpenOnly((value) => !value)} />
-        <ChoiceChip label="Not updated in 7 days" selected={staleOnly} onPress={() => setStaleOnly((value) => !value)} />
+      <View style={{ gap: space.md }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.md }}>
+          <ChoiceChip label="Has open requests" selected={openOnly} onPress={() => setOpenOnly((value) => !value)} />
+          <ChoiceChip label="Not updated in 7 days" selected={staleOnly} onPress={() => setStaleOnly((value) => !value)} />
+        </View>
+        {openOnly || staleOnly ? (
+          <FilterOnClear
+            onClear={() => {
+              setOpenOnly(false);
+              setStaleOnly(false);
+            }}
+          />
+        ) : null}
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
       {loaded && !error && filtered.length === 0 ? (
