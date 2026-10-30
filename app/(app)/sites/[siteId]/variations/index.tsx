@@ -2,6 +2,7 @@ import { Button, Card, EmptyState, ErrorText, FilterBar, Muted, Screen } from '@
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canSeeVariationValue, filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
+import { isRawNetworkText, offlineStatusLine } from '@/lib/offlineCopy';
 import { variationListAmount } from '@/lib/variationWording';
 import { runExclusive } from '@/lib/offlineFlush';
 import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
@@ -37,7 +38,9 @@ export default function VariationsScreen() {
       setError('');
       await seen;
     } catch (err) {
-      setError(variationError(err instanceof Error ? err.message : 'unknown'));
+      const message = err instanceof Error ? err.message : 'unknown';
+      if (isRawNetworkText(message)) setError(offlineStatusLine(pending.length > 0));
+      else setError(variationError(message));
     }
   }, [person, siteId]);
 

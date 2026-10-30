@@ -17,6 +17,8 @@ import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
 import { runExclusive } from '@/lib/offlineFlush';
 import { flushSnagQueue, getSnagQueue, noticesForOwner, ownedSnagQueue, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
 import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayText } from '@/lib/snagWording';
+import { OFFLINE_SNAGS_LATER, isRawNetworkText, offlineStatusLine } from '@/lib/offlineCopy';
+import { cacheSnagList, readCachedSnagList } from '@/lib/offline';
 import { SAVED_ON_PHONE, deviceIsOnline, fixtureForceOffline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
@@ -72,14 +74,28 @@ export default function SnagsScreen() {
     const pending = ownedSnagQueue(await queue.list(), ownerId).filter((item) => item.siteId === siteId);
     setQueued(pending);
     setNotices(noticesForOwner(await queue.listNotices(), ownerId).filter((notice) => notice.siteId === siteId));
+    const cached = readCachedSnagList(siteId);
+    if (cached) setList(cached);
     try {
       // Fixtures have no network. The offline switch stands in for Chrome's failed fetch.
       if (fixtureForceOffline()) throw new TypeError('Failed to fetch');
-      setList(await repo.listSnags(siteId));
+      const next = await repo.listSnags(siteId);
+      cacheSnagList(siteId, next);
+      setList(next);
       if (!signInRequired) setError('');
       await seen;
     } catch (err) {
-      if (!signInRequired) setError(snagError(err instanceof Error ? err.message : 'unknown'));
+      if (!signInRequired) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        if (isRawNetworkText(message)) {
+          const shown = cached ?? readCachedSnagList(siteId);
+          if (shown) setList(shown);
+          const saved = (shown?.rows.length ?? 0) > 0 || pending.length > 0;
+          setError(offlineStatusLine(saved, OFFLINE_SNAGS_LATER));
+        } else {
+          setError(snagError(message));
+        }
+      }
     }
     if (signInRequired) setError('Sign in again to send what is saved on this phone.');
   }, [ownerId, siteId]);
@@ -302,7 +318,9 @@ export default function SnagsScreen() {
       ) : list && list.fixed_count > 0 ? (
         <Button label="Sign off snags put right" minHeight={56} onPress={() => router.push(`/sites/${siteId}/snags/sign`)} />
       ) : null}
-      <Button label="Share report" variant="secondary" minHeight={48} loading={busy} onPress={() => void onShare()} />
+      {rows.length > 0 ? (
+        <Button label="Share report" variant="secondary" minHeight={48} loading={busy} onPress={() => void onShare()} />
+      ) : null}
       {list && list.rows.length === 0 ? null : (
         <Button
           label="Raise a snag"

@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { removeDrawingSeenKeys } from '@/lib/drawingSeenQueue';
 import { deleteSnagIndexedDb, removeSnagQueueKeys } from '@/lib/snagQueue';
 
+import type { SnagList } from '@/data/snags';
 import type { HomeSite, ManifestItem } from '@/data/types';
 import { drawingIdsToDelete, siteIdsFromPackKeys } from '@/lib/offlinePack';
 import { clearVariationQueue } from '@/lib/variationQueue';
@@ -23,6 +24,8 @@ import {
 const SITES_KEY = 'sitepack.offline.sites';
 const OWNER_KEY = 'sitepack.offline.owner';
 const PACK_KEY = (siteId: string) => `sitepack.offline.pack.${siteId}`;
+const SNAG_LIST_PREFIX = 'sitepack.offline.snags.';
+const snagListKey = (siteId: string) => `${SNAG_LIST_PREFIX}${siteId}`;
 const OWNER_FILE = 'owner.json';
 
 export type OfflinePackMeta = {
@@ -101,7 +104,15 @@ function clearLocalMetadata() {
       for (let index = 0; index < store.length; index += 1) {
         const key = store.key(index);
         if (!key) continue;
-        if (key === SITES_KEY || key === OWNER_KEY || key.startsWith('sitepack.offline.pack.') || key.startsWith('sitepack.variation.')) keys.push(key);
+        if (
+          key === SITES_KEY ||
+          key === OWNER_KEY ||
+          key.startsWith('sitepack.offline.pack.') ||
+          key.startsWith(SNAG_LIST_PREFIX) ||
+          key.startsWith('sitepack.variation.')
+        ) {
+          keys.push(key);
+        }
       }
       for (const key of keys) store.removeItem(key);
       removeDrawingSeenKeys(store);
@@ -187,6 +198,19 @@ export async function adoptCacheOwner(userId: string): Promise<void> {
 export function cacheAssignedSites(sites: HomeSite[]) {
   if (!canReadCache()) return;
   writeJson(SITES_KEY, sites);
+}
+
+/** Last snag list this phone loaded for the site. Cleared with the rest of the offline cache. */
+export function cacheSnagList(siteId: string, list: SnagList) {
+  if (!siteId || !canReadCache()) return;
+  writeJson(snagListKey(siteId), list);
+}
+
+export function readCachedSnagList(siteId: string): SnagList | null {
+  if (!siteId || (wipeRunning && !cacheReadable(session))) return null;
+  const read = readOwned(session, () => readJson<SnagList>(snagListKey(siteId)), null);
+  if (read.wipe) void wipeStoredBytes(session.generation);
+  return read.value;
 }
 
 export function readCachedSites(): HomeSite[] {

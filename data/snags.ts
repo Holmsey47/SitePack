@@ -1,5 +1,5 @@
 import type { Role } from '@/data/types';
-import { isRawNetworkText, OFFLINE_SHOWING_SAVED } from '@/lib/offlineCopy';
+import { isRawNetworkText, OFFLINE_COME_BACK } from '@/lib/offlineCopy';
 
 export const SNAG_STATUSES = ['Open', 'Fixed', 'Signed off'] as const;
 export type SnagStatus = (typeof SNAG_STATUSES)[number];
@@ -209,7 +209,7 @@ export function snagError(code: string): string {
     case 'invalid_input':
       return 'Check the snag and try again.';
     default:
-      if (isRawNetworkText(code)) return OFFLINE_SHOWING_SAVED;
+      if (isRawNetworkText(code)) return OFFLINE_COME_BACK;
       return code === 'unknown' ? 'Could not save the snag.' : code;
   }
 }
