@@ -71,6 +71,7 @@ export function Button({
   disabled,
   loading,
   minHeight,
+  accessibilityLiveRegion,
 }: {
   label: string;
   onPress: () => void;
@@ -79,11 +80,13 @@ export function Button({
   loading?: boolean;
   /** Glove target. Defaults to the shared thumb height. */
   minHeight?: number;
+  accessibilityLiveRegion?: 'none' | 'polite' | 'assertive';
 }) {
   const quiet = Boolean(disabled) && !loading;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLiveRegion={accessibilityLiveRegion}
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [

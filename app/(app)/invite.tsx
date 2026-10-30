@@ -160,14 +160,12 @@ export default function InviteScreen() {
         </View>
       ) : null}
       <ErrorText>{error}</ErrorText>
-      <Pressable
-        accessibilityRole="button"
+      <Button
+        label={emailOpen ? 'Hide email invite' : 'Invite by email instead'}
+        variant="secondary"
+        minHeight={48}
         onPress={() => setEmailOpen((current) => !current)}
-        style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={{ ...textStyle.bodyStrong }}>
-          {emailOpen ? 'Hide email invite' : 'Invite by email instead'}
-        </Text>
-      </Pressable>
+      />
       {emailOpen ? (
         emailDone ? (
           <Title>
