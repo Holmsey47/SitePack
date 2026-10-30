@@ -52,6 +52,6 @@ test('company settings reads the version at runtime and the release script does 
   const app = JSON.parse(fs.readFileSync(new URL('../app.json', import.meta.url), 'utf8')) as {
     expo: { version: string; android: { versionCode: number } };
   };
-  assert.equal(app.expo.version, '0.2.12');
-  assert.equal(app.expo.android.versionCode, 15);
+  assert.equal(app.expo.version, '0.2.13');
+  assert.equal(app.expo.android.versionCode, 16);
 });
