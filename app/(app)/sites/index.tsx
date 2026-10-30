@@ -5,7 +5,7 @@ import { PhoneStatus } from '@/components/phone-status';
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, FilterOnClear, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
-import { countsForSite, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
+import { countsForSite, glueNewLine, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
 import { canManageSite } from '@/data/repo';
 import { badgeReadIsCurrent } from '@/data/siteListSeen';
@@ -313,15 +313,15 @@ function SiteCard({
               {lines.status}
             </Text>
           ) : null}
-          {lines.fresh ? (
-            <Text style={[textStyle.bodyStrong, textStyle.tabular]} numberOfLines={2}>
-              {lines.fresh}
-            </Text>
-          ) : null}
         </View>
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
+      {lines.fresh ? (
+        <Text style={[textStyle.bodyStrong, textStyle.tabular]} numberOfLines={2}>
+          {glueNewLine(lines.fresh)}
+        </Text>
+      ) : null}
     </Card>
   );
 }

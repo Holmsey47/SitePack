@@ -82,6 +82,14 @@ export function homeNewCountLine(counts: HomeKindCounts | null): string | null {
   return `New: ${parts.join(' · ')}`;
 }
 
+/**
+ * The count phrase stays in one piece, and "New:" stays with the first count,
+ * so a narrow card wraps on the dot and not in the middle of "1 snag".
+ */
+export function glueNewLine(line: string): string {
+  return line.replace(/(\d+\+?) /g, '$1\u00a0').replace(/^New: /, 'New:\u00a0');
+}
+
 /** Open requests, worded so they are not a second bare "N request" next to New. */
 function openRequestsLine(requests: number, unseen: number): string | null {
   const parts: string[] = [];

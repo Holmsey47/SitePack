@@ -145,7 +145,7 @@ export function staleCacheIds(rows: JoinCodeRow[], cached: JoinCodePlaintext, no
 export function activeCodeNotice(expiresAt: string, now: Date | string | number = new Date()): string {
   const formatted = formatCodeExpiry(expiresAt, now);
   const when = formatted.startsWith('Ends ') ? formatted.slice('Ends '.length) : formatted;
-  return `A code is active until ${when}. Make a new one to share it from this phone.`;
+  return `A code is active on another device until ${when}. Make a new one to share it from here.`;
 }
 
 /** List only. Opening invite must not issue a code. */

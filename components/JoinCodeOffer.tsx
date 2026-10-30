@@ -160,7 +160,7 @@ export function JoinCodeOffer({ siteId, siteName }: { siteId: string; siteName: 
   }
 
   return (
-    <View style={{ gap: space.sm }}>
+    <View style={{ gap: space.md }}>
       {replacing ? <Muted>Replacing the code…</Muted> : null}
       {!replacing && held?.kind === 'elsewhere' ? (
         <Text style={textStyle.body}>{activeCodeNotice(held.row.expires_at)}</Text>
@@ -182,7 +182,9 @@ export function JoinCodeOffer({ siteId, siteName }: { siteId: string; siteName: 
         />
       ) : null}
       {!replacing && !confirming && held && held.kind !== 'empty' ? (
-        <Button label="Regenerate" variant="secondary" minHeight={48} onPress={() => setConfirming(true)} />
+        <View style={{ marginTop: space.lg }}>
+          <Button label="Regenerate" variant="secondary" minHeight={48} onPress={() => setConfirming(true)} />
+        </View>
       ) : null}
       {!replacing && held?.kind === 'empty' ? (
         <Button label="Make a join code" minHeight={56} loading={making} onPress={() => void onMake()} />
