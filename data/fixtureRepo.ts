@@ -266,6 +266,10 @@ function linkGroup(assignmentId: string, groupId: string) {
   if (!exists) store.assignmentGroups.push({ site_assignment_id: assignmentId, group_id: groupId });
 }
 
+/** Long enough to wrap a phone header. Archived, so it stays off the sign list. */
+export const LONG_RAMS_TITLE =
+  'North elevation scaffold loading bay, hoist and temporary roof edge protection RAMS';
+
 function seed(): Store {
   const people: Person[] = [
     {
@@ -558,6 +562,26 @@ function seed(): Store {
         created_at: '2026-09-01T09:00:00.000Z',
         archived_at: '2026-10-01T09:00:00.000Z',
       },
+      {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0005',
+        site_id: IDS.oak,
+        company_id: IDS.company,
+        kind: 'rams',
+        title: LONG_RAMS_TITLE,
+        created_by: IDS.owner,
+        created_at: '2026-09-02T09:00:00.000Z',
+        archived_at: '2026-10-02T09:00:00.000Z',
+      },
+      {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0007',
+        site_id: IDS.riverside,
+        company_id: IDS.company,
+        kind: 'rams',
+        title: 'Block B RAMS',
+        created_by: IDS.owner,
+        created_at: '2026-10-18T09:00:00.000Z',
+        archived_at: null,
+      },
     ],
     siteDocumentVersions: [
       {
@@ -593,6 +617,40 @@ function seed(): Store {
         is_current: true,
         created_by: IDS.owner,
         created_at: '2026-09-01T09:00:00.000Z',
+      },
+      {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0006',
+        document_id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0005',
+        site_id: IDS.oak,
+        company_id: IDS.company,
+        version_no: 1,
+        storage_path: siteDocumentPath(
+          IDS.company,
+          IDS.oak,
+          'dddddddd-dddd-4ddd-8ddd-dddddddd0005',
+          'dddddddd-dddd-4ddd-8ddd-dddddddd0006',
+        ),
+        file_name: 'north-elevation-rams.pdf',
+        is_current: true,
+        created_by: IDS.owner,
+        created_at: '2026-09-02T09:00:00.000Z',
+      },
+      {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0008',
+        document_id: 'dddddddd-dddd-4ddd-8ddd-dddddddd0007',
+        site_id: IDS.riverside,
+        company_id: IDS.company,
+        version_no: 1,
+        storage_path: siteDocumentPath(
+          IDS.company,
+          IDS.riverside,
+          'dddddddd-dddd-4ddd-8ddd-dddddddd0007',
+          'dddddddd-dddd-4ddd-8ddd-dddddddd0008',
+        ),
+        file_name: 'block-b-rams.pdf',
+        is_current: true,
+        created_by: IDS.owner,
+        created_at: '2026-10-18T09:00:00.000Z',
       },
     ],
     siteDocumentSignatures: [],
@@ -641,6 +699,14 @@ function seenAssignments(): SeenAssignment[] {
     if (!person) return [];
     return [{ site_id: row.site_id, person_id: row.person_id, role: person.role }];
   });
+}
+
+/** Fixture home cards can show the New line. The hosted app still reads the RPC. */
+export function fixtureHomeNewCounts(): Record<string, { snags: number; variations: number; requests: number }> {
+  return {
+    [IDS.oak]: { snags: 1, variations: 1, requests: 1 },
+    [IDS.riverside]: { snags: 2, variations: 0, requests: 0 },
+  };
 }
 
 /** Fixture-only. Marks the current sheet superseded and adds the next revision. */
@@ -713,10 +779,15 @@ function assertSiteWritable(siteId: string) {
 }
 
 function sharesAssignedSite(caller: Person, target: Person): boolean {
+  const activeSiteIds = new Set(store.sites.filter((site) => site.archived_at == null).map((site) => site.id));
   const mine = new Set(
-    store.assignments.filter((assignment) => assignment.person_id === caller.id).map((assignment) => assignment.site_id)
+    store.assignments
+      .filter((assignment) => assignment.person_id === caller.id && activeSiteIds.has(assignment.site_id))
+      .map((assignment) => assignment.site_id),
   );
-  return store.assignments.some((assignment) => assignment.person_id === target.id && mine.has(assignment.site_id));
+  return store.assignments.some(
+    (assignment) => assignment.person_id === target.id && mine.has(assignment.site_id),
+  );
 }
 
 function canSeePerson(caller: Person, target: Person): boolean {
@@ -804,11 +875,11 @@ export const fixtureRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     const person = store.people.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
     if (!person || store.banned.includes(person.auth_user_id ?? person.id)) {
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+      throw new Error('sign_in_failed');
     }
     const expected = store.passwords[person.id] ?? SEED_PASSWORD;
     if (password !== expected) {
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+      throw new Error('sign_in_failed');
     }
     store.sessionPersonId = person.id;
     saveSessionId(person.id);
@@ -1277,6 +1348,10 @@ export const fixtureRepo: SitePackRepo = {
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;
     pdfObjectUrl(drawingId, 'Uploaded sheet', 'X', new Date().toISOString().slice(0, 10));
     return { storagePath, fileSizeBytes: bytes.byteLength || 1, contentType };
+  },
+
+  async removeUncommittedDrawing() {
+    return;
   },
 
   async replaceDrawing(input: ReplaceDrawingInput) {

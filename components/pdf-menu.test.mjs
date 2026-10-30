@@ -60,6 +60,13 @@ test('open, then Cancel, closes the menu, and the backdrop does too', async () =
   assert.match(sheetSource, /minHeight: hit\.secondary/);
   assert.match(sheetSource, /testID="overflow-cancel"/);
   assert.match(sheetSource, /testID="overflow-backdrop"/);
+  assert.match(sheetSource, /backgroundColor: theme\.menuScrim/);
+  assert.equal(sheetSource.includes('backgroundColor: theme.scrim'), false);
+  const tokens = fs.readFileSync('src/theme/tokens.ts', 'utf8');
+  assert.match(tokens, /menuScrim: 'rgba\(0, 0, 0, 0\.45\)'/);
+  assert.match(tokens, /scrim: '#070B10'/);
+  const ui = fs.readFileSync('components/ui.tsx', 'utf8');
+  assert.match(ui, /modalScrim: \{[^}]*backgroundColor: theme\.scrim/);
   const nudge = fs.readFileSync('components/sign-nudge.tsx', 'utf8');
   assert.match(nudge, /theme\.current/);
   assert.match(nudge, /chevron_right/);

@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
   scrim: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: theme.scrim,
+    backgroundColor: theme.menuScrim,
     padding: space.lg,
   },
   card: {

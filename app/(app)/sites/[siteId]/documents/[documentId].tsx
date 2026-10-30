@@ -1,4 +1,4 @@
-import { Button, Card, ErrorText, Muted, Screen } from '@/components/ui';
+import { Button, Card, DocumentStatusBadge, ErrorText, Muted, Screen, WrappedTitle } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import {
@@ -88,8 +88,8 @@ export default function SiteDocumentScreen() {
   }, [documentId, person?.role, siteId]);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: detail?.title || 'Document' });
-  }, [detail?.title, navigation]);
+    navigation.setOptions({ title: '', headerTitle: () => null });
+  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -222,19 +222,25 @@ export default function SiteDocumentScreen() {
   const signedAt = detail.signatures.find((row) => row.person_id === person?.id)?.signed_at;
   const signedWhen = formatSignedWhen(signedAt);
   const archived = documentIsArchived(detail);
+  const status = siteDocumentStatusLine({
+    id: detail.id,
+    archived_at: detail.archived_at,
+    version_no: detail.version_no,
+    owner,
+    signed: detail.signed_by_me,
+  });
 
   return (
     <Screen scrollRef={scrollRef}>
+      <WrappedTitle style={textStyle.title}>{detail.title}</WrappedTitle>
       <Text style={textStyle.bodyStrong}>{siteDocumentKindLabel(detail.kind)}</Text>
-      <Text style={{ ...textStyle.metaStrong, color: archived ? theme.muted : theme.text }}>
-        {siteDocumentStatusLine({
-          id: detail.id,
-          archived_at: detail.archived_at,
-          version_no: detail.version_no,
-          owner,
-          signed: detail.signed_by_me,
-        })}
-      </Text>
+      {status === 'Archived' ? (
+        <DocumentStatusBadge label="Archived" tone="archived" />
+      ) : status === 'To sign' ? (
+        <DocumentStatusBadge label="To sign" tone="sign" />
+      ) : (
+        <Text style={textStyle.metaStrong}>{status}</Text>
+      )}
       <Button label="Open PDF" variant="secondary" minHeight={48} onPress={openPdf} />
       {mustSign && !archived && !detail.signed_by_me ? (
         <Button label={siteDocumentSignLabel(detail.kind)} minHeight={56} loading={busy} onPress={() => void sign()} />

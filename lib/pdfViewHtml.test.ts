@@ -11,6 +11,9 @@ test('the viewer page reports a page and never a remote address', () => {
   assert.equal(html.includes('https://'), false);
   assert.match(html, /postMessage/);
   assert.match(html, /sitepack-pdf/);
+  assert.match(html, /scrollbar-width:\s*none/);
+  assert.match(html, /addEventListener\('scroll'/);
+  assert.equal(html.includes('overflow: hidden'), false);
   const parsed = parsePdfMessage(JSON.stringify({ source: 'sitepack-pdf', page: 2, total: 5 }));
   assert.equal(parsed && 'page' in parsed ? parsed.page : 0, 2);
   assert.equal(parsed && 'total' in parsed ? parsed.total : 0, 5);

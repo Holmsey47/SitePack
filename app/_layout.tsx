@@ -1,4 +1,5 @@
 import { HardwareBackHandler } from '@/components/HardwareBackHandler';
+import { OfflineQueueSync } from '@/components/offline-queue-sync';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { gateRedirect } from '@/lib/authGate';
 import { textStyle, theme } from '@/lib/theme';
@@ -81,6 +82,7 @@ function Gate() {
 
   return (
     <CustomFontsProvider enabled={customFonts}>
+      <OfflineQueueSync />
       <View
         style={[
           { flex: 1, backgroundColor: theme.bg },

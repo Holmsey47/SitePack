@@ -1,10 +1,13 @@
 import { Button, ChoiceChip, ErrorText, Field, LogoSlot, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { presentLoginFailure } from '@/lib/loginError';
 import { logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
+
+const PASSWORD_HELP = 'Forgot your password? Ask your manager for a reset code.';
 
 export default function LoginScreen() {
   const { signIn, signInWithUsername } = useAuth();
@@ -29,12 +32,8 @@ export default function LoginScreen() {
       if (mode === 'username') await signInWithUsername(username, password);
       else await signIn(email, password);
     } catch (err) {
-      const message = err instanceof Error ? err.message : '';
-      setError(
-        mode === 'username' || message === 'sign_in_failed'
-          ? 'Couldn’t sign in. Check username and password and try again.'
-          : message || 'Couldn’t sign in. Check email and password and try again.'
-      );
+      const presented = presentLoginFailure(err instanceof Error ? err.message : '');
+      setError(presented.message);
     } finally {
       setLoading(false);
     }
@@ -63,13 +62,9 @@ export default function LoginScreen() {
         loading={loading}
         disabled={mode === 'username' ? !username.trim() || !password : !email || !password}
       />
+      <Text style={textStyle.body}>{PASSWORD_HELP}</Text>
+      <Button label="Use a reset code" variant="secondary" onPress={() => router.push('/reset')} />
       <Button label="Join with a code" variant="secondary" onPress={() => router.push('/join')} />
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push('/reset')}
-        style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={textStyle.bodyStrong}>Got a reset code?</Text>
-      </Pressable>
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
           {seeds?.SEED_LOGINS.map((login) => (

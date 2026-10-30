@@ -6,7 +6,7 @@ import { PhoneStatus } from '@/components/phone-status';
 import { Button, Card, ChoiceChip, EmptyState, ErrorText, Field, FilterOnClear, GlanceRow, Muted, Screen, OutOfDateBadge, SeenRejectNotice } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { newDrawingsLine, type SiteSeenGap, type UnseenDrawing } from '@/data/drawingSeen';
-import { countsForSite, glueNewLine, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
+import { countsForSite, freshLineParts, homeCardLines, type HomeCardLines, type HomeKindCounts } from '@/data/homeNewCounts';
 import { repo } from '@/data/index';
 import { loadSignNudge, signNudgeCopy, signNudgeTarget, signNudgeVisible, type UnsignedSignDocument } from '@/data/signNudge';
 import { memberMustSign } from '@/data/siteDocuments';
@@ -26,7 +26,7 @@ import { hit, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 
 export default function SitesScreen() {
   const { person, acknowledgePasswordReset, refresh } = useAuth();
@@ -227,7 +227,8 @@ export default function SitesScreen() {
             <View key={site.id} style={{ gap: space.md }}>
               <SiteCard
                 name={site.name}
-                meta={siteMeta(site.address_line, site.updated_at)}
+                address={site.address_line}
+                updated={formatWhen(site.updated_at)}
                 stale={packIsStale(readPackMeta(site.id), { updatedAt: site.updated_at })}
                 lines={homeCardLines(site.my_open_request_count ?? 0, 0, countsForSite(newCounts, site.id))}
                 onPress={() => router.push(`/sites/${site.id}`)}
@@ -287,7 +288,8 @@ export default function SitesScreen() {
           <View key={row.site_id} style={{ gap: space.md }}>
             <SiteCard
               name={row.name}
-              meta={siteMeta(row.address_line, row.last_pack_update)}
+              address={row.address_line}
+              updated={formatWhen(row.last_pack_update)}
               stale={packIsStale(readPackMeta(row.site_id), { updatedAt: row.last_pack_update })}
               lines={homeCardLines(
                 row.open_request_count,
@@ -309,8 +311,30 @@ export default function SitesScreen() {
   );
 }
 
-function siteMeta(address: string | null | undefined, updatedAt: string | null | undefined): string {
-  return [address, formatWhen(updatedAt)].filter(Boolean).join(' · ');
+function FreshLine({ line }: { line: string }) {
+  const parts = freshLineParts(line);
+  const pieces: { key: string; text: string; hold: boolean }[] = [];
+  parts.forEach((part, index) => {
+    if (index > 0) pieces.push({ key: `dot-${index}`, text: ' · ', hold: false });
+    pieces.push({ key: `part-${index}`, text: part, hold: true });
+  });
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+      {pieces.map((piece) => (
+        <Text
+          key={piece.key}
+          textBreakStrategy="simple"
+          style={[
+            textStyle.bodyStrong,
+            textStyle.tabular,
+            piece.hold ? { flexShrink: 0 } : null,
+            piece.hold && Platform.OS === 'web' ? ({ whiteSpace: 'nowrap' } as object) : null,
+          ]}>
+          {piece.text}
+        </Text>
+      ))}
+    </View>
+  );
 }
 
 function SitesHeader({ memberSettings, onSettings }: { memberSettings?: boolean; onSettings?: () => void }) {
@@ -336,23 +360,31 @@ function PressableSettings({ onPress }: { onPress: () => void }) {
 
 function SiteCard({
   name,
-  meta,
+  address,
+  updated,
   stale,
   lines,
   onPress,
 }: {
   name: string;
-  meta: string;
+  address: string | null | undefined;
+  updated: string;
   stale: boolean;
   lines: HomeCardLines;
   onPress: () => void;
 }) {
+  const place = address?.trim() ?? '';
   return (
     <Card onPress={onPress}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: hit.min }}>
         <View style={{ flex: 1, minWidth: 0, gap: space.xs }}>
           <Text style={textStyle.bodyStrong}>{name}</Text>
-          {meta ? <Text style={textStyle.meta}>{meta}</Text> : null}
+          {place ? <Text style={textStyle.meta}>{place}</Text> : null}
+          {updated ? (
+            <Text testID="site-updated" textBreakStrategy="simple" style={textStyle.meta}>
+              {updated}
+            </Text>
+          ) : null}
           {lines.status ? (
             <Text style={textStyle.metaStrong} numberOfLines={2}>
               {lines.status}
@@ -362,11 +394,7 @@ function SiteCard({
         {stale ? <OutOfDateBadge /> : null}
         <Icon name="chevron_right" color={theme.muted} />
       </View>
-      {lines.fresh ? (
-        <Text style={[textStyle.bodyStrong, textStyle.tabular]} numberOfLines={2}>
-          {glueNewLine(lines.fresh)}
-        </Text>
-      ) : null}
+      {lines.fresh ? <FreshLine line={lines.fresh} /> : null}
     </Card>
   );
 }

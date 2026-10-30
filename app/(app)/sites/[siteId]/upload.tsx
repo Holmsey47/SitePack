@@ -15,6 +15,7 @@ import { newId } from '@/data/newId';
 import { canManageSite } from '@/data/repo';
 import { revisionCurrentLine } from '@/data/walk';
 import { setUploadBackGuard } from '@/lib/backRegistry';
+import { commitDrawingFile } from '@/lib/drawingUpload';
 import { textStyle, theme } from '@/lib/theme';
 import { readPickedBytes } from '@/lib/uploadBytes';
 import { Text } from '@/src/theme/text';
@@ -118,27 +119,32 @@ export default function UploadScreen() {
     setError('');
     const drawingId = newId();
     try {
-      const uploaded = await repo.uploadDrawingFile({
-        companyId: person.company_id,
-        siteId,
-        drawingId,
-        bytes,
-        contentType: 'application/pdf',
-        fileName: fileName || `${title}.pdf`,
-      });
-      await repo.replaceDrawing({
-        id: drawingId,
-        siteId,
-        title: title.trim(),
-        sheetNumber: sheetNumber.trim() || null,
-        revision: revision.trim(),
-        dated: dated || null,
-        storagePath: uploaded.storagePath,
-        fileSizeBytes: uploaded.fileSizeBytes,
-        contentType: 'application/pdf',
-        replaceDrawingId: replaceId,
-        folder: folderName,
-        level: levelName,
+      await commitDrawingFile({
+        upload: () =>
+          repo.uploadDrawingFile({
+            companyId: person.company_id,
+            siteId,
+            drawingId,
+            bytes,
+            contentType: 'application/pdf',
+            fileName: fileName || `${title}.pdf`,
+          }),
+        insert: (uploaded) =>
+          repo.replaceDrawing({
+            id: drawingId,
+            siteId,
+            title: title.trim(),
+            sheetNumber: sheetNumber.trim() || null,
+            revision: revision.trim(),
+            dated: dated || null,
+            storagePath: uploaded.storagePath,
+            fileSizeBytes: uploaded.fileSizeBytes,
+            contentType: 'application/pdf',
+            replaceDrawingId: replaceId,
+            folder: folderName,
+            level: levelName,
+          }),
+        remove: (storagePath) => repo.removeUncommittedDrawing(storagePath),
       });
       setDoneRev(revision.trim());
     } catch (err) {

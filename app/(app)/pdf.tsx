@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { PdfFrame } from '@/components/pdf-frame';
-import { Button, ErrorText, OverflowMenu, Screen } from '@/components/ui';
+import { Button, ErrorText, OverflowMenu, Screen, WrappedTitle } from '@/components/ui';
 import { repo } from '@/data/index';
 import { PDF_OPEN_ERROR, loadPdfHtml, readPdfBytes } from '@/lib/pdfDocument';
 import { writeCachedDocument } from '@/lib/pdfCacheFiles';
@@ -20,6 +20,7 @@ export default function PdfScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('PDF');
+  const [siteName, setSiteName] = useState('');
   const [html, setHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -60,6 +61,9 @@ export default function PdfScreen() {
         const detail = await repo.getSiteDocument(documentId);
         if (!detail) throw new Error(PDF_OPEN_ERROR);
         if (!cancelled) setTitle(detail.title);
+        void repo.getSite(detail.site_id).then((site) => {
+          if (!cancelled) setSiteName(site?.name?.trim() ?? '');
+        }).catch(() => undefined);
         const url = await repo.siteDocumentUrl(detail.storage_path);
         const bytes = await readPdfBytes(url, detail.title);
         if (cancelled) return;
@@ -120,9 +124,16 @@ export default function PdfScreen() {
           style={{ width: hit.secondary, height: hit.secondary, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="arrow_back" color={theme.text} />
         </Pressable>
-        <Text style={[textStyle.bodyStrong, { flex: 1 }]} numberOfLines={1}>
-          {title}
-        </Text>
+        <View style={{ flex: 1, justifyContent: 'center', gap: 2, minHeight: hit.secondary }}>
+          <WrappedTitle lines={3} style={textStyle.bodyStrong}>
+            {title}
+          </WrappedTitle>
+          {siteName ? (
+            <Text style={textStyle.meta} numberOfLines={1}>
+              {siteName}
+            </Text>
+          ) : null}
+        </View>
         <OverflowMenu label="More" items={[{ label: 'Share / Save', onPress: () => void share() }]} />
       </View>
       <View style={{ flex: 1 }}>

@@ -9,8 +9,10 @@ import {
   type SettleAuthLinkDeps,
 } from '@/lib/authLink';
 import { captureIncomingLink } from '@/lib/appLinks';
+import { clearArchivedDocuments } from '@/data/siteDocuments';
 import { bindJoinCodeCacheOwner, clearJoinCodeCache } from '@/lib/joinCodeCache';
 import { joinCodeCachePort } from '@/lib/joinCodeCacheStorage';
+import { clearOwnedQueues } from '@/lib/unsentQueue';
 import { clearCachedPdfs } from '@/lib/pdfCacheFiles';
 import { adoptCacheOwner, cacheOwnerUserId, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
@@ -52,6 +54,7 @@ async function bindCache(userId: string | null) {
       await bindJoinCodeCacheOwner(cacheOwnerUserId(), userId, joinCodeCachePort());
       await adoptCacheOwner(userId);
     } else {
+      clearArchivedDocuments();
       writeRemembered(null);
       await deleteAllDrawingCaches();
       await clearJoinCodeCache(joinCodeCachePort());
@@ -525,11 +528,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setPerson(me);
       },
       signOut: async () => {
+        const ownerId = person?.auth_user_id ?? null;
         sessionEpoch.current += 1;
         const href = await performSignOut({
           signOutLocal: () => repo.signOut(),
           clearStoredSession: () => removeStoredAuthSession(),
-          clearAppCache: () => bindCache(null),
+          clearAppCache: async () => {
+            await clearOwnedQueues(ownerId);
+            await bindCache(null);
+          },
         });
         writePending(false);
         setLinkError(null);

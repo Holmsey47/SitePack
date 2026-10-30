@@ -7,6 +7,7 @@ import { SITE_DOCUMENT_URL_SECONDS } from './siteDocuments.ts';
 import {
   loadSignNudge,
   rowsFromSignNudgeRead,
+  signListRow,
   signNudgeCopy,
   signNudgeTarget,
   signNudgeVisible,
@@ -36,6 +37,18 @@ function row(overrides: Partial<SignNudgeRow> = {}): SignNudgeRow {
 const amy = { id: 'amy', role: 'operative' as const };
 const priya = { id: 'cm', role: 'cm' as const };
 const jordan = { id: 'owner', role: 'owner' as const };
+
+test('a documents-to-sign row names the document, then the kind and the site', () => {
+  assert.deepEqual(signListRow({ kind: 'induction', title: 'Site induction', siteName: oak }), {
+    title: 'Site induction',
+    subtitle: `Induction · ${oak}`,
+  });
+  assert.deepEqual(signListRow({ kind: 'rams', title: 'Roof RAMS', siteName: oak }), {
+    title: 'Roof RAMS',
+    subtitle: `RAMS · ${oak}`,
+  });
+  assert.equal(signListRow({ kind: 'induction', title: 'Site induction', siteName: oak }).title.includes('Induction:'), false);
+});
 
 test('unsigned RAMS and inductions are the nudge, and a signature on the current version removes it', () => {
   const induction = row({ id: 'ind', kind: 'induction', title: 'Site induction' });
@@ -178,9 +191,11 @@ test('fixture nudge follows unsigned, signed, archived, and unassigned', async (
   resetFixtureStore();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   const open = await fixtureRepo.listUnsignedSiteDocuments();
-  assert.equal(open.length, 1);
+  assert.equal(open.length, 2);
   assert.equal(open[0].kind, 'induction');
-  assert.deepEqual(signNudgeCopy(open), { title: 'Sign Induction: Site induction', detail: oak });
+  assert.equal(open[0].siteName, oak);
+  assert.equal(open.some((doc) => doc.siteName === 'Plot 4 – Riverside' && doc.kind === 'rams'), true);
+  assert.deepEqual(signNudgeCopy(open), { title: '2 documents to sign', detail: 'Tap to see them' });
   assert.equal(open.some((doc) => doc.title === 'A toolbox talk'), false);
 
   await fixtureRepo.signSiteDocument({
@@ -190,7 +205,10 @@ test('fixture nudge follows unsigned, signed, archived, and unassigned', async (
     personId: IDS.amy,
     signerName: 'Amy Keane',
   });
-  assert.deepEqual(await fixtureRepo.listUnsignedSiteDocuments(), []);
+  const afterSign = await fixtureRepo.listUnsignedSiteDocuments();
+  assert.equal(afterSign.some((doc) => doc.id === open[0].id), false);
+  assert.equal(afterSign.length, 1);
+  assert.equal(afterSign[0].siteName, 'Plot 4 – Riverside');
 
   await fixtureRepo.signOut();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);
@@ -213,8 +231,8 @@ test('fixture nudge follows unsigned, signed, archived, and unassigned', async (
   await fixtureRepo.signOut();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   const again = await fixtureRepo.listUnsignedSiteDocuments();
-  assert.equal(again.length, 1);
-  assert.equal(again[0].id, open[0].id);
+  assert.equal(again.length, 2);
+  assert.equal(again.some((doc) => doc.id === open[0].id), true);
   assert.equal(again.some((doc) => doc.id === created.id), false);
 
   await fixtureRepo.signOut();
@@ -252,8 +270,8 @@ test('fixture nudge follows unsigned, signed, archived, and unassigned', async (
   await fixtureRepo.signOut();
   await fixtureRepo.signIn('amy@sitepack.test', SEED_PASSWORD);
   const several = await fixtureRepo.listUnsignedSiteDocuments();
-  assert.equal(several.length, 2);
-  assert.deepEqual(signNudgeCopy(several), { title: '2 documents to sign', detail: 'Tap to see them' });
+  assert.equal(several.length, 3);
+  assert.deepEqual(signNudgeCopy(several), { title: '3 documents to sign', detail: 'Tap to see them' });
   assert.equal(signNudgeTarget(several)?.kind, 'list');
   await fixtureRepo.signOut();
   await fixtureRepo.signIn('owner@sitepack.test', SEED_PASSWORD);

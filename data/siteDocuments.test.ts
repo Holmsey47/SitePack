@@ -10,6 +10,7 @@ import {
   signRoster,
   siteDocumentBytesError,
   orderedSiteDocuments,
+  clearArchivedDocuments,
   rememberArchivedDocument,
   siteDocumentKindLabel,
   siteDocumentSignLabel,
@@ -40,6 +41,11 @@ test('an archived document says Archived on the first paint, before the list ref
       { id: 'doc-live', title: 'Bravo', archived_at: null },
     ]).map((row) => row.title),
     ['Bravo', 'Alpha'],
+  );
+  clearArchivedDocuments();
+  assert.equal(
+    siteDocumentStatusLine({ ...live, id: 'doc-just-archived', archived_at: null }),
+    'Version 2',
   );
 });
 
@@ -173,6 +179,7 @@ test('oak lists a live document above an archived one', async () => {
     [
       ['Site induction', false],
       ['A toolbox talk', true],
+      ['North elevation scaffold loading bay, hoist and temporary roof edge protection RAMS', true],
     ],
   );
   await fixtureRepo.signOut();
@@ -212,6 +219,23 @@ test('the site page opens Induction and RAMS, and the migration keeps writes wit
   assert.match(wording, /To sign/);
   assert.match(wording, /return 'Archived'/);
   assert.match(detail, /siteDocumentStatusLine/);
+  assert.match(detail, /<WrappedTitle style=\{textStyle\.title\}>\{detail\.title\}<\/WrappedTitle>/);
+  assert.match(detail, /headerTitle: \(\) => null/);
+  assert.match(detail, /<DocumentStatusBadge label="Archived" tone="archived" \/>/);
+  assert.match(detail, /<DocumentStatusBadge label="To sign" tone="sign" \/>/);
+  assert.doesNotMatch(detail, /archived \? theme\.muted/);
+  const toSign = fs.readFileSync('app/(app)/to-sign.tsx', 'utf8');
+  assert.match(toSign, /signListRow/);
+  assert.match(toSign, /chevron_right/);
+  assert.doesNotMatch(toSign, /Induction: /);
+  const invite = fs.readFileSync('app/(app)/invite.tsx', 'utf8');
+  assert.match(invite, /name="check"/);
+  assert.match(invite, /minHeight: hit\.secondary/);
+  assert.match(invite, /alignItems: 'center'/);
+  assert.doesNotMatch(invite, />Selected</);
+  const pdf = fs.readFileSync('app/(app)/pdf.tsx', 'utf8');
+  assert.match(pdf, /site\?\.name\?\.trim/);
+  assert.match(pdf, /WrappedTitle/);
   assert.match(detail, /rememberArchivedDocument/);
   assert.match(upload, /person\.role !== 'owner'/);
   assert.match(upload, /Choose PDF/);
