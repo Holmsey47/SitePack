@@ -8,6 +8,7 @@ import type { Drawing } from '@/data/types';
 import { confirmQueued, type QueuedSeen, type SeenNotice } from '@/lib/drawingSeenQueue';
 import { loadSiteSeenSummary, openReplacedNotice, refreshDrawingSeen } from '@/lib/drawingSeenSync';
 import { formatDate } from '@/lib/format';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -135,7 +136,7 @@ export default function FolderScreen() {
           }}
         />
       ))}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {filters ? (
         <LevelMenu
           value={activeLevel ?? ''}

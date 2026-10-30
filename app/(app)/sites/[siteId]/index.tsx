@@ -17,6 +17,7 @@ import { setDownloadBackNote } from '@/lib/backRegistry';
 import { DOWNLOAD_CARRIES_ON } from '@/lib/hardwareBack';
 import { showBackToast } from '@/lib/backToast';
 import { downloadCurrentPack, isPackReady, readCachedSites, readPackMeta } from '@/lib/offline';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { changedSheetCount, packIsStale, phoneCopyOutOfDateLine, phoneSheetRows } from '@/lib/offlinePack';
 import { markSiteListSeen, pendingSiteListSaves, siteBarCounts } from '@/lib/siteListSeenSync';
 import { space, textStyle, theme } from '@/lib/theme';
@@ -374,7 +375,7 @@ export default function SitePackScreen() {
         </Text>
       ) : null}
       {progress ? <Muted>{progress}</Muted> : null}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       <Button
         label={ready ? 'Re-download current pack' : 'Download for offline'}
         variant={outOfDate ? 'secondary' : 'primary'}

@@ -1,4 +1,5 @@
 import type { Role } from '@/data/types';
+import { isRawNetworkText, OFFLINE_SHOWING_SAVED } from '@/lib/offlineCopy';
 
 export const PHOTO_URL_SECONDS = 300;
 export const VARIATION_STATUSES = ['Draft', 'Signed', 'Sent'] as const;
@@ -169,6 +170,7 @@ export function variationError(code: string): string {
     case 'invalid_input':
       return 'Check the variation and try again.';
     default:
+      if (isRawNetworkText(code)) return OFFLINE_SHOWING_SAVED;
       return code === 'unknown' ? 'Could not save the variation.' : code;
   }
 }

@@ -17,7 +17,7 @@ import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
 import { runExclusive } from '@/lib/offlineFlush';
 import { flushSnagQueue, getSnagQueue, noticesForOwner, ownedSnagQueue, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
 import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayText } from '@/lib/snagWording';
-import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
+import { SAVED_ON_PHONE, deviceIsOnline, fixtureForceOffline } from '@/lib/variationQueue';
 import { sendQueuedSnag } from '@/lib/sendQueuedSnag';
 import { saveSheet } from '@/lib/saveSheet';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
@@ -73,6 +73,8 @@ export default function SnagsScreen() {
     setQueued(pending);
     setNotices(noticesForOwner(await queue.listNotices(), ownerId).filter((notice) => notice.siteId === siteId));
     try {
+      // Fixtures have no network. The offline switch stands in for Chrome's failed fetch.
+      if (fixtureForceOffline()) throw new TypeError('Failed to fetch');
       setList(await repo.listSnags(siteId));
       if (!signInRequired) setError('');
       await seen;

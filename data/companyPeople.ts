@@ -1,4 +1,5 @@
 import type { CompanyPerson, Role } from '@/data/types';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 
 export { occupationLine, roleLabel, siteLabel } from '@/data/walk';
 
@@ -93,6 +94,6 @@ export function peopleFailureMessage(message: string): string {
     case 'site_not_found':
       return 'That site is not in the company.';
     default:
-      return message;
+      return friendlyNetworkMessage(message);
   }
 }

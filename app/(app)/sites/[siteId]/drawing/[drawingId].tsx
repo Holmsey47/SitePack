@@ -15,6 +15,7 @@ import { canManageSite } from '@/data/repo';
 import { DELETE_DRAWING_CONFIRM } from '@/data/walk';
 import type { Drawing } from '@/data/types';
 import type { OfflinePackMeta } from '@/lib/offline';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import {
   confirmQueued,
   getDrawingSeenQueue,
@@ -496,7 +497,7 @@ export default function DrawingViewerScreen() {
             <Button label="Cancel" variant="ghost" minHeight={48} onPress={() => setConfirmDelete(false)} />
           </View>
         ) : null}
-        {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+        {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
         {error ? <Button label="Retry" variant="secondary" onPress={() => setRetrying((value) => !value)} /> : null}
         {saveError ? <Text style={{ color: theme.danger }}>{saveError}</Text> : null}
         {statusLine && openSeen ? (

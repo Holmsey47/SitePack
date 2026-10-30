@@ -2,6 +2,7 @@ import { Muted, Screen } from '@/components/ui';
 import { notSeenPersonLine, notSeenYetHeading, personLabel } from '@/data/drawingSeen';
 import type { NotSeenPerson } from '@/data/drawingSeen';
 import { repo } from '@/data/index';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -38,7 +39,7 @@ export default function SiteNotSeenScreen() {
 
   return (
     <Screen>
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {people.length === 0 && !error ? <Muted>Every operative has seen the current sheets.</Muted> : null}
       <View style={{ gap: 8 }}>
         {people.map((person) => {

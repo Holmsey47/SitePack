@@ -3,6 +3,7 @@ import { notSeenYetHeading, personLabel, seenCountLabel, sheetLabel } from '@/da
 import { repo } from '@/data/index';
 import type { DrawingRoster } from '@/data/drawingSeen';
 import { formatUkDateTime } from '@/lib/format';
+import { friendlyNetworkMessage } from '@/lib/offlineCopy';
 import { textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -44,7 +45,7 @@ export default function DrawingSeenScreen() {
           {seenCountLabel(roster.seen_count, roster.assigned_count)}
         </Text>
       ) : null}
-      {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
+      {error ? <Text style={{ color: theme.danger }}>{friendlyNetworkMessage(error)}</Text> : null}
       {roster ? (
         <View style={{ gap: 8 }}>
           <Text style={{ ...textStyle.title }} accessibilityRole="header">
