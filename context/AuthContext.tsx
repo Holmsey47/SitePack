@@ -393,12 +393,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 current: personRef.current,
                 restored,
               });
-              if (!next) {
+              if (!storedNow || !next || next.auth_user_id !== storedNow.userId) {
                 await bindCache(null);
                 if (still()) setPerson(null);
                 return;
               }
-              if (still()) setPerson((current) => current ?? next);
+              if (cacheOwnerUserId() !== next.auth_user_id) {
+                await bindCache(storedNow.userId);
+              }
+              if (!still()) return;
+              setPerson((current) => (current && current.auth_user_id === storedNow.userId ? current : next));
               return;
             }
             const online = session?.user?.id ? await classifyOnlineUser() : 'offline';
@@ -496,6 +500,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const startedId = personRef.current?.auth_user_id ?? null;
     const loaded = await loadPersonKeepingCurrent(() => repo.me());
     if (sessionEpoch.current !== epoch) return;
+    if (loaded.kind === 'person' && !loaded.person) {
+      if (startedId && personRef.current?.auth_user_id === startedId) {
+        await clearOwnedQueues(startedId);
+        if (sessionEpoch.current !== epoch) return;
+        await bindCache(null);
+        if (sessionEpoch.current !== epoch) return;
+        setPerson(null);
+      }
+      return;
+    }
     if (loaded.kind === 'person' && loaded.person?.auth_user_id) {
       writeRemembered(loaded.person);
       await bindCache(loaded.person.auth_user_id);
@@ -503,9 +517,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (sessionEpoch.current !== epoch) return;
     setPerson((current) => {
       if (sessionEpoch.current !== epoch) return current;
-      if (loaded.kind === 'person' && loaded.person == null) {
-        if (!startedId || current?.auth_user_id !== startedId) return current;
-      }
       const next = personAfterRefresh(current, loaded);
       return samePerson(current, next) ? current : next;
     });

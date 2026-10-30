@@ -104,7 +104,7 @@ test('a real signed-out answer still clears the person', async () => {
   );
 });
 
-test('a signed-out event during a network failure keeps the person', () => {
+test('a signed-out event during a network failure keeps the same person only', () => {
   const kept = personOnAuthEvent({
     event: 'SIGNED_OUT',
     sessionUserId: null,
@@ -114,6 +114,30 @@ test('a signed-out event during a network failure keeps the person', () => {
     restored: null,
   });
   assert.equal(kept, member);
+  const other: Person = { ...member, id: 'person-b', auth_user_id: 'user-b', display_name: 'Bea' };
+  const restoredB: Person = { ...other, display_name: 'Bea restored' };
+  assert.equal(
+    personOnAuthEvent({
+      event: 'SIGNED_OUT',
+      sessionUserId: null,
+      storedUserId: 'user-b',
+      online: 'offline',
+      current: member,
+      restored: restoredB,
+    }),
+    restoredB
+  );
+  assert.equal(
+    personOnAuthEvent({
+      event: 'SIGNED_OUT',
+      sessionUserId: null,
+      storedUserId: 'user-b',
+      online: 'offline',
+      current: member,
+      restored: null,
+    }),
+    null
+  );
   assert.equal(
     personOnAuthEvent({
       event: 'TOKEN_REFRESHED',
@@ -160,6 +184,9 @@ test('refresh, boot, and reconnect all go through the keep-on-network path', () 
   assert.match(auth, /loadPersonKeepingCurrent\(\(\) => repo\.me\(\)\)/);
   assert.match(auth, /personAfterRefresh/);
   assert.match(auth, /personOnAuthEvent/);
+  assert.match(auth, /current\.auth_user_id === storedNow\.userId \? current : next/);
+  assert.match(auth, /bindCache\(storedNow\.userId\)/);
+  assert.doesNotMatch(auth, /current \?\? next/);
   assert.match(auth, /AppState\.addEventListener\('change'/);
   assert.match(auth, /next === 'active'/);
   assert.match(auth, /subscribeDeviceOnline/);

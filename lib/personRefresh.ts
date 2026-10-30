@@ -89,7 +89,11 @@ export function personOnAuthEvent<T extends { auth_user_id?: string | null }>(in
   restored: T | null;
 }): T | null {
   if (input.event === 'SIGNED_OUT') {
-    if (input.storedUserId && input.online === 'offline') return input.current ?? input.restored;
+    if (input.storedUserId && input.online === 'offline') {
+      // A late sign-out must not leave another user's person on this session.
+      if (input.current?.auth_user_id === input.storedUserId) return input.current;
+      return input.restored;
+    }
     return null;
   }
   const userId = userIdAfterAuthEvent(input.event, input.sessionUserId, input.storedUserId);
