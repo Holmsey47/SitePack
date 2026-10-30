@@ -4,6 +4,7 @@ import test from 'node:test';
 import { contrastRatio } from './contrast.ts';
 import {
   drawingFooterLine,
+  clearFilterLabel,
   formatCodeExpiry,
   formatDate,
   formatSheetDay,
@@ -95,6 +96,36 @@ test('the share panel and the invite offer use the same expiry helper', () => {
   assert.match(offer, /label="Regenerate"/);
   assert.doesNotMatch(panel, /formatDate\(expiresAt\)/);
   assert.doesNotMatch(offer, /formatDate\(/);
+});
+
+test('clear filter is a secondary button that names how many rows are showing', () => {
+  assert.equal(clearFilterLabel(1, 3, 'sites'), 'Clear filter (showing 1 of 3 sites)');
+  assert.equal(clearFilterLabel(0, 4, 'snags'), 'Clear filter (showing 0 of 4 snags)');
+  assert.equal(clearFilterLabel(2, 2, 'variations'), 'Clear filter (showing 2 of 2 variations)');
+  const ui = fs.readFileSync(new URL('../components/ui.tsx', import.meta.url), 'utf8');
+  assert.match(ui, /<Button label=\{label\} variant="secondary" minHeight=\{48\} onPress=\{onClear\} \/>/);
+  assert.doesNotMatch(ui, /Filter on · Clear/);
+  const home = fs.readFileSync(new URL('../app/(app)/sites/index.tsx', import.meta.url), 'utf8');
+  assert.match(home, /shown=\{filtered\.length\}/);
+  assert.match(home, /total=\{working\.length\}/);
+  assert.match(home, /noun="sites"/);
+  const snags = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/snags/index.tsx', import.meta.url), 'utf8');
+  assert.match(snags, /shown=\{rows\.length\}/);
+  assert.match(snags, /total=\{list\?\.rows\.length \?\? 0\}/);
+  assert.match(snags, /noun="snags"/);
+});
+
+test('the old-revisions hint shows only after a level is picked in a folder with two or more current levels', () => {
+  const folder = fs.readFileSync(new URL('../app/(app)/sites/[siteId]/folder/[folder].tsx', import.meta.url), 'utf8');
+  const labels = fs.readFileSync(new URL('../data/folders.ts', import.meta.url), 'utf8');
+  assert.match(folder, /const filters = levelFilterLabels\(current\)/);
+  assert.match(
+    folder,
+    /const activeLevel = filters && levelFilter && filters\.includes\(levelFilter\) \? levelFilter : null/,
+  );
+  assert.match(folder, /\{activeLevel \? <Text style=\{textStyle\.body\}>\{OLD_REVISIONS_HIDDEN\}<\/Text> : null\}/);
+  assert.match(labels, /if \(seen\.size <= 1\) return null/);
+  assert.doesNotMatch(folder, /superseded\.length > 0 && activeLevel/);
 });
 
 test('a superseded sheet says not to build from it, in readable ink', () => {

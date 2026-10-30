@@ -228,6 +228,9 @@ export default function SnagsScreen() {
           onChange: (value) => setLevel(value as SnagLevelFilter),
         }}
         narrowed={status !== 'All' || level !== 'All'}
+        shown={rows.length}
+        total={list?.rows.length ?? 0}
+        noun="snags"
         onClear={() => {
           setStatus('All');
           setLevel('All');

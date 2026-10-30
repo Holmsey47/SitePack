@@ -219,6 +219,9 @@ export default function SitesScreen() {
         </View>
         {openOnly || staleOnly ? (
           <FilterOnClear
+            shown={filtered.length}
+            total={working.length}
+            noun="sites"
             onClear={() => {
               setOpenOnly(false);
               setStaleOnly(false);

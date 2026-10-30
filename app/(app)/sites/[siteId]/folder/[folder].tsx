@@ -147,7 +147,18 @@ export default function FolderScreen() {
         />
       ) : null}
       {activeLevel ? <Text style={textStyle.body}>{OLD_REVISIONS_HIDDEN}</Text> : null}
-      {activeLevel ? <FilterOnClear onClear={() => setLevelFilter(null)} /> : null}
+      {activeLevel ? (
+        <FilterOnClear
+          shown={
+            archiveOnly
+              ? visibleSuperseded.length
+              : visibleCurrent.length + (showOld ? visibleSuperseded.length : 0)
+          }
+          total={archiveOnly ? superseded.length : current.length + (showOld ? superseded.length : 0)}
+          noun="drawings"
+          onClear={() => setLevelFilter(null)}
+        />
+      ) : null}
       {superseded.length > 0 && !archiveOnly ? (
         <Button
           label={showOld ? 'Hide superseded' : 'Show superseded / archive'}

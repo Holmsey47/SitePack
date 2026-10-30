@@ -177,3 +177,8 @@ export function tradeLabel(trade: string | null | undefined): string {
   if (!trade) return '';
   return trade;
 }
+
+/** Action on the clear-filter button. Counts are the rows on screen and the full list. */
+export function clearFilterLabel(shown: number, total: number, noun: string): string {
+  return `Clear filter (showing ${shown} of ${total} ${noun})`;
+}

@@ -1,4 +1,5 @@
 import { Icon } from '@/components/icon';
+import { clearFilterLabel } from '@/lib/format';
 import { fontFamily, hit, iconSize, logo, radius, space, textStyle, theme, typeScale } from '@/lib/theme';
 import { Text, TextInput } from '@/src/theme/text';
 import { ReactNode, useState, type Ref } from 'react';
@@ -337,17 +338,20 @@ export function ChoiceChip({
   );
 }
 
-/** Shown while a filter is narrowing the list. The whole row clears it. */
-export function FilterOnClear({ onClear }: { onClear: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Filter on. Clear"
-      onPress={onClear}
-      style={({ pressed }) => [styles.filterClear, pressed && styles.btnPressed]}>
-      <Text style={textStyle.bodyStrong}>Filter on · Clear</Text>
-    </Pressable>
-  );
+/** Shown while a filter is narrowing the list. Same full-width secondary button as Invite by email. */
+export function FilterOnClear({
+  shown,
+  total,
+  noun,
+  onClear,
+}: {
+  shown: number;
+  total: number;
+  noun: string;
+  onClear: () => void;
+}) {
+  const label = clearFilterLabel(shown, total, noun);
+  return <Button label={label} variant="secondary" minHeight={48} onPress={onClear} />;
 }
 
 export function FilterBar({
@@ -355,11 +359,17 @@ export function FilterBar({
   level,
   narrowed,
   onClear,
+  shown,
+  total,
+  noun,
 }: {
   chips: { key: string; label: string; selected: boolean; onPress: () => void }[];
   level?: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
   narrowed?: boolean;
   onClear?: () => void;
+  shown?: number;
+  total?: number;
+  noun?: string;
 }) {
   return (
     <View style={{ gap: space.md }}>
@@ -369,7 +379,9 @@ export function FilterBar({
         ))}
       </View>
       {level ? <LevelMenu value={level.value} options={level.options} onChange={level.onChange} /> : null}
-      {narrowed && onClear ? <FilterOnClear onClear={onClear} /> : null}
+      {narrowed && onClear && noun != null && shown != null && total != null ? (
+        <FilterOnClear shown={shown} total={total} noun={noun} onClear={onClear} />
+      ) : null}
     </View>
   );
 }
@@ -595,11 +607,6 @@ const styles = StyleSheet.create({
   chipTextIdle: { color: theme.text },
   chipTextSelected: { color: theme.bg },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.md },
-  filterClear: {
-    minHeight: hit.secondary,
-    justifyContent: 'center',
-    alignSelf: 'stretch',
-  },
   levelBtn: {
     minHeight: hit.secondary,
     borderRadius: radius.control,

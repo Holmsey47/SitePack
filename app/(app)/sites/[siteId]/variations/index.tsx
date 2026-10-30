@@ -62,6 +62,9 @@ export default function VariationsScreen() {
           onPress: () => setFilter(item),
         }))}
         narrowed={filter !== 'All'}
+        shown={rows.length}
+        total={list?.rows.length ?? 0}
+        noun="variations"
         onClear={() => setFilter('All')}
       />
       {queued.length > 0 ? (
