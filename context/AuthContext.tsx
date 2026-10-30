@@ -16,6 +16,12 @@ import { clearOwnedQueues } from '@/lib/unsentQueue';
 import { clearCachedPdfs } from '@/lib/pdfCacheFiles';
 import { adoptCacheOwner, cacheOwnerUserId, deleteAllDrawingCaches } from '@/lib/offline';
 import { authStorage } from '@/lib/secureSession';
+import { subscribeDeviceOnline } from '@/lib/deviceOnline';
+import {
+  loadPersonKeepingCurrent,
+  personAfterRefresh,
+  personOnAuthEvent,
+} from '@/lib/personRefresh';
 import { coldStartCache, userCheckOutcome, userIdFromStoredSession, type UserCheck } from '@/lib/sessionBoot';
 import { authTokenStorageKey, performSignOut, removeStoredAuthSession, userIdAfterAuthEvent } from '@/lib/signOut';
 import { repo, useFixtures } from '@/data/index';
@@ -238,6 +244,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [confirmAccounts, setConfirmAccounts] = useState<ConfirmAccounts | null>(null);
   const confirmResolve = useRef<((accepted: boolean) => void) | null>(null);
   const sessionEpoch = useRef(0);
+  const personRef = useRef<Person | null>(null);
+  personRef.current = person;
 
   useLayoutEffect(() => {
     ensureWebAuthUrlStripped();
@@ -328,15 +336,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         writePending(true);
         setLinkError(null);
         setNeedsPassword(true);
-        try {
-          const me = await repo.me();
-          if (me?.auth_user_id) {
-            writeRemembered(me);
-            await bindCache(me.auth_user_id);
-          }
-          if (!cancelled) setPerson(me);
-        } catch {
-          if (!cancelled) setPerson(null);
+        const loaded = await loadPersonKeepingCurrent(() => repo.me());
+        if (loaded.kind === 'person' && loaded.person?.auth_user_id) {
+          writeRemembered(loaded.person);
+          await bindCache(loaded.person.auth_user_id);
+        }
+        if (!cancelled) {
+          setPerson((current) => {
+            const next = personAfterRefresh(current, loaded);
+            return samePerson(current, next) ? current : next;
+          });
         }
       } else if (outcome.status === 'rejected') {
         if (outcome.signedOut) {
@@ -368,8 +377,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const userId = userIdAfterAuthEvent(event, session?.user?.id ?? null, stored?.userId ?? null);
             const live = userId ? { userId, email: session?.user?.email ?? stored?.email ?? null } : null;
             if (!live) {
-              await bindCache(null);
-              if (still()) setPerson(null);
+              const storedNow = await readStoredSessionUser();
+              const online: UserCheck = storedNow ? await classifyOnlineUser() : 'rejected';
+              if (!still()) return;
+              const restored =
+                storedNow && online === 'offline'
+                  ? await personForStoredUser(storedNow.userId, storedNow.email, 'offline')
+                  : null;
+              if (!still()) return;
+              const next = personOnAuthEvent({
+                event,
+                sessionUserId: session?.user?.id ?? null,
+                storedUserId: storedNow?.userId ?? null,
+                online,
+                current: personRef.current,
+                restored,
+              });
+              if (!next) {
+                await bindCache(null);
+                if (still()) setPerson(null);
+                return;
+              }
+              if (still()) setPerson((current) => current ?? next);
               return;
             }
             const online = session?.user?.id ? await classifyOnlineUser() : 'offline';
@@ -463,17 +492,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const refreshPerson = useCallback(async () => {
-    let me: Person | null;
-    try {
-      me = await repo.me();
-    } catch {
-      return;
+    const epoch = sessionEpoch.current;
+    const startedId = personRef.current?.auth_user_id ?? null;
+    const loaded = await loadPersonKeepingCurrent(() => repo.me());
+    if (sessionEpoch.current !== epoch) return;
+    if (loaded.kind === 'person' && loaded.person?.auth_user_id) {
+      writeRemembered(loaded.person);
+      await bindCache(loaded.person.auth_user_id);
     }
-    if (me?.auth_user_id) {
-      writeRemembered(me);
-      await bindCache(me.auth_user_id);
-    }
-    setPerson((current) => (samePerson(current, me) ? current : me));
+    if (sessionEpoch.current !== epoch) return;
+    setPerson((current) => {
+      if (sessionEpoch.current !== epoch) return current;
+      if (loaded.kind === 'person' && loaded.person == null) {
+        if (!startedId || current?.auth_user_id !== startedId) return current;
+      }
+      const next = personAfterRefresh(current, loaded);
+      return samePerson(current, next) ? current : next;
+    });
   }, []);
 
   useEffect(() => {
@@ -482,6 +517,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, [refreshPerson]);
+
+  useEffect(() => {
+    if (!person?.auth_user_id) return;
+    return subscribeDeviceOnline({
+      onOnline: () => {
+        void refreshPerson();
+      },
+      onOffline: () => undefined,
+    });
+  }, [person?.auth_user_id, refreshPerson]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -520,12 +565,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       acknowledgePasswordReset: async () => {
         await repo.acknowledgePasswordReset();
-        const me = await repo.me();
-        if (me?.auth_user_id) {
-          writeRemembered(me);
-          await bindCache(me.auth_user_id);
+        const loaded = await loadPersonKeepingCurrent(() => repo.me());
+        if (loaded.kind === 'person' && loaded.person?.auth_user_id) {
+          writeRemembered(loaded.person);
+          await bindCache(loaded.person.auth_user_id);
         }
-        setPerson(me);
+        setPerson((current) => {
+          const next = personAfterRefresh(current, loaded);
+          return samePerson(current, next) ? current : next;
+        });
       },
       signOut: async () => {
         const ownerId = person?.auth_user_id ?? null;
@@ -548,12 +596,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await repo.setPassword(password);
         writePending(false);
         setNeedsPassword(false);
-        const me = await repo.me();
-        if (me?.auth_user_id) {
-          writeRemembered(me);
-          await bindCache(me.auth_user_id);
+        const loaded = await loadPersonKeepingCurrent(() => repo.me());
+        if (loaded.kind === 'person' && loaded.person?.auth_user_id) {
+          writeRemembered(loaded.person);
+          await bindCache(loaded.person.auth_user_id);
         }
-        setPerson(me);
+        setPerson((current) => {
+          const next = personAfterRefresh(current, loaded);
+          return samePerson(current, next) ? current : next;
+        });
       },
       refresh: refreshPerson,
     }),
