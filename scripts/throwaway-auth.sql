@@ -97,6 +97,10 @@ create table if not exists storage.objects (
   metadata jsonb
 );
 
+-- Hosted storage.objects already has created_at. The stand-in needs it so a
+-- recent-upload delete policy can be created. A migration must not alter this table.
+alter table storage.objects add column if not exists created_at timestamptz not null default now();
+
 -- Hosted storage.foldername returns the folders only.
 -- public/subfolder/avatar.png -> {public,subfolder}
 create or replace function storage.foldername(name text)

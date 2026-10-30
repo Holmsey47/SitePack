@@ -868,11 +868,11 @@ export const fixtureRepo: SitePackRepo = {
   async signIn(email, password): Promise<SignInResult> {
     const person = store.people.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
     if (!person || store.banned.includes(person.auth_user_id ?? person.id)) {
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+      throw new Error('sign_in_failed');
     }
     const expected = store.passwords[person.id] ?? SEED_PASSWORD;
     if (password !== expected) {
-      throw new Error('Couldn’t sign in. Check email and password and try again.');
+      throw new Error('sign_in_failed');
     }
     store.sessionPersonId = person.id;
     saveSessionId(person.id);
@@ -1322,6 +1322,10 @@ export const fixtureRepo: SitePackRepo = {
     const storagePath = `${companyId}/${siteId}/${drawingId}.pdf`;
     pdfObjectUrl(drawingId, 'Uploaded sheet', 'X', new Date().toISOString().slice(0, 10));
     return { storagePath, fileSizeBytes: bytes.byteLength || 1, contentType };
+  },
+
+  async removeUncommittedDrawing() {
+    return;
   },
 
   async replaceDrawing(input: ReplaceDrawingInput) {

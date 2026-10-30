@@ -31,6 +31,11 @@ export function rememberArchivedDocument(id: string): void {
   archivedNow.add(id);
 }
 
+/** Sign-out drops the in-memory archive marks. The next person starts from the server. */
+export function clearArchivedDocuments(): void {
+  archivedNow.clear();
+}
+
 export function documentIsArchived(row: { id: string; archived_at: string | null }): boolean {
   return row.archived_at != null || archivedNow.has(row.id);
 }

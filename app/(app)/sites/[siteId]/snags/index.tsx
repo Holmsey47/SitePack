@@ -14,6 +14,7 @@ import {
 import { formatUkDateTime } from '@/lib/format';
 import { dataUrlBytes } from '@/lib/signaturePng';
 import { buildSnagPdf, snagPdfFilename, snagReportId } from '@/lib/snagPdf';
+import { runExclusive } from '@/lib/offlineFlush';
 import { flushSnagQueue, getSnagQueue, noticesForOwner, ownedSnagQueue, type QueuedSnag, type SnagNotice } from '@/lib/snagQueue';
 import { rememberSignAgain, SIGN_OFF_QUEUED, signOffWaitingLabel, snagDisplayText } from '@/lib/snagWording';
 import { SAVED_ON_PHONE, deviceIsOnline } from '@/lib/variationQueue';
@@ -63,7 +64,9 @@ export default function SnagsScreen() {
     const queue = getSnagQueue();
     let signInRequired = false;
     if (ownerId && (await deviceIsOnline())) {
-      const flushed = await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
+      const flushed = await runExclusive(() =>
+        flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId)
+      );
       signInRequired = flushed.signInRequired;
     }
     const pending = ownedSnagQueue(await queue.list(), ownerId).filter((item) => item.siteId === siteId);
@@ -100,7 +103,7 @@ export default function SnagsScreen() {
     await queue.put({ ...notice.retryItem, attempts: 0, retryAt: undefined });
     await queue.removeNotice(notice.id);
     if (await deviceIsOnline()) {
-      await flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId);
+      await runExclusive(() => flushSnagQueue(queue, (item) => sendQueuedSnag(item, undefined, queue), ownerId));
     }
     await load();
   }

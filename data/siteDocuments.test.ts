@@ -10,6 +10,7 @@ import {
   signRoster,
   siteDocumentBytesError,
   orderedSiteDocuments,
+  clearArchivedDocuments,
   rememberArchivedDocument,
   siteDocumentKindLabel,
   siteDocumentSignLabel,
@@ -40,6 +41,11 @@ test('an archived document says Archived on the first paint, before the list ref
       { id: 'doc-live', title: 'Bravo', archived_at: null },
     ]).map((row) => row.title),
     ['Bravo', 'Alpha'],
+  );
+  clearArchivedDocuments();
+  assert.equal(
+    siteDocumentStatusLine({ ...live, id: 'doc-just-archived', archived_at: null }),
+    'Version 2',
   );
 });
 

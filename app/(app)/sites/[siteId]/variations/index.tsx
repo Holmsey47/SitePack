@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { repo } from '@/data/index';
 import { canSeeVariationValue, filterVariations, variationError, variationNumber, type VariationFilter, type VariationList } from '@/data/variations';
 import { variationListAmount } from '@/lib/variationWording';
+import { runExclusive } from '@/lib/offlineFlush';
 import { deviceIsOnline, flushVariationQueue, SAVED_ON_PHONE, type QueuedVariation } from '@/lib/variationQueue';
 import { sendQueuedVariation } from '@/lib/sendQueuedVariation';
 import { markSiteListSeen } from '@/lib/siteListSeenSync';
@@ -28,7 +29,8 @@ export default function VariationsScreen() {
     const userId = person?.auth_user_id;
     if (!siteId || !userId) return;
     const seen = markSiteListSeen(siteId, 'variations');
-    const pending = await flushVariationQueue(userId, siteId, await deviceIsOnline(), sendQueuedVariation);
+    const online = await deviceIsOnline();
+    const pending = await runExclusive(() => flushVariationQueue(userId, siteId, online, sendQueuedVariation));
     setQueued(pending);
     try {
       setList(await repo.listVariations(siteId));
