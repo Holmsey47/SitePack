@@ -10,7 +10,7 @@ export function ensurePackDirectory(folder: { create: (options: typeof PACK_DIRE
 }
 
 export function roleLabel(role: Role): string {
-  if (role === 'cm') return 'Contracts manager';
+  if (role === 'cm') return 'Site manager';
   if (role === 'owner') return 'Owner';
   return 'Operative';
 }
@@ -103,8 +103,8 @@ export function siteLabel(names: string[]): string {
 
 export function contractsManagerLine(names: string[]): string {
   const clean = names.map((name) => name.trim()).filter(Boolean);
-  if (clean.length === 0) return 'Contracts manager: none';
-  return `Contracts manager: ${clean.join(', ')}`;
+  if (clean.length === 0) return 'Site manager: none';
+  return `Site manager: ${clean.join(', ')}`;
 }
 
 export function operativesLine(count: number): string {

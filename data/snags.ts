@@ -141,7 +141,7 @@ export function canSignOffSnag(role: Role): boolean {
 
 export function snagRoleLabel(role: Role): string {
   if (role === 'owner') return 'Owner';
-  if (role === 'cm') return 'Contracts manager';
+  if (role === 'cm') return 'Site manager';
   return 'Operative';
 }
 

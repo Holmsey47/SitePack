@@ -17,7 +17,7 @@ import { IDS, SEED_PASSWORD } from './ids.ts';
 const migrationPath = 'supabase/migrations/20260923160000_company_people.sql';
 
 test('people list rules', () => {
-  assert.equal(roleLabel('cm'), 'Contracts manager');
+  assert.equal(roleLabel('cm'), 'Site manager');
   assert.equal(roleLabel('operative'), 'Operative');
   assert.equal(siteLabel([]), 'Unassigned');
   assert.equal(siteLabel(['Oak', 'Yard']), 'Oak, Yard');

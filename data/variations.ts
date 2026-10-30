@@ -155,7 +155,7 @@ export function variationError(code: string): string {
     case 'value_mismatch':
       return 'The amount changed. Check it and sign again.';
     case 'value_not_allowed':
-      return 'Only the owner or contracts manager can set the amount.';
+      return 'Only the owner or site manager can set the amount.';
     case 'variation_locked':
       return 'This variation is locked. An edit starts a new version.';
     case 'photo_count':
