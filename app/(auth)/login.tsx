@@ -1,11 +1,13 @@
 import { Button, ChoiceChip, ErrorText, Field, LogoSlot, Screen, Title } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { LOGIN_RECOVERY, presentLoginFailure } from '@/lib/loginError';
+import { presentLoginFailure } from '@/lib/loginError';
 import { logo, space, textStyle, theme } from '@/lib/theme';
 import { Text } from '@/src/theme/text';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
+
+const PASSWORD_HELP = 'Forgot your password? Ask your manager for a reset code.';
 
 export default function LoginScreen() {
   const { signIn, signInWithUsername } = useAuth();
@@ -21,12 +23,10 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState(seeds?.SEED_PASSWORD ?? '');
   const [error, setError] = useState('');
-  const [showRecovery, setShowRecovery] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit() {
     setError('');
-    setShowRecovery(false);
     setLoading(true);
     try {
       if (mode === 'username') await signInWithUsername(username, password);
@@ -34,7 +34,6 @@ export default function LoginScreen() {
     } catch (err) {
       const presented = presentLoginFailure(err instanceof Error ? err.message : '');
       setError(presented.message);
-      setShowRecovery(presented.showRecovery);
     } finally {
       setLoading(false);
     }
@@ -57,26 +56,15 @@ export default function LoginScreen() {
       )}
       <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Your password" />
       <ErrorText>{error}</ErrorText>
-      {showRecovery ? (
-        <View style={{ gap: space.sm }}>
-          <Text style={textStyle.bodyStrong}>{LOGIN_RECOVERY}</Text>
-          <Button label="Use a reset code" variant="secondary" onPress={() => router.push('/reset')} />
-          <Button label="Use your join link" variant="secondary" onPress={() => router.push('/join')} />
-        </View>
-      ) : null}
       <Button
         label="Sign in"
         onPress={onSubmit}
         loading={loading}
         disabled={mode === 'username' ? !username.trim() || !password : !email || !password}
       />
+      <Text style={textStyle.body}>{PASSWORD_HELP}</Text>
+      <Button label="Use a reset code" variant="secondary" onPress={() => router.push('/reset')} />
       <Button label="Join with a code" variant="secondary" onPress={() => router.push('/join')} />
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push('/reset')}
-        style={{ minHeight: 48, justifyContent: 'center' }}>
-        <Text style={textStyle.bodyStrong}>Got a reset code?</Text>
-      </Pressable>
       {showSeedChips ? (
         <View style={{ gap: 10, paddingTop: 8 }}>
           {seeds?.SEED_LOGINS.map((login) => (

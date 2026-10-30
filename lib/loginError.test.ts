@@ -106,7 +106,22 @@ test('fixture email and username failures do not say which one was wrong', async
 
   const screen = fs.readFileSync('app/(auth)/login.tsx', 'utf8');
   const repo = fs.readFileSync('data/supabaseRepo.ts', 'utf8');
-  assert.match(screen, /LOGIN_RECOVERY/);
+  const errorAt = screen.indexOf('<ErrorText>{error}</ErrorText>');
+  const signInAt = screen.indexOf('label="Sign in"');
+  const helpAt = screen.indexOf('{PASSWORD_HELP}');
+  assert.match(screen, /Forgot your password\? Ask your manager for a reset code\./);
+  const resetAt = screen.indexOf('label="Use a reset code"');
+  const joinAt = screen.indexOf('label="Join with a code"');
+  assert.ok(errorAt >= 0 && signInAt > errorAt, 'Sign in comes straight after the error');
+  const betweenErrorAndSignIn = screen.slice(errorAt, signInAt);
+  assert.equal((betweenErrorAndSignIn.match(/<Button/g) || []).length, 1);
+  assert.equal(betweenErrorAndSignIn.includes('label='), false);
+  assert.ok(helpAt > signInAt && resetAt > helpAt && joinAt > resetAt);
+  assert.equal(screen.split('label="Use a reset code"').length - 1, 1);
+  assert.equal(screen.split('label="Join with a code"').length - 1, 1);
+  assert.equal(screen.includes('Use your join link'), false);
+  assert.equal(screen.includes('Got a reset code?'), false);
+  assert.equal(screen.includes('Forgot password / use your join link'), false);
   assert.match(screen, /presentLoginFailure/);
   assert.doesNotMatch(screen, /Check username/);
   assert.match(repo, /account_not_set_up/);
