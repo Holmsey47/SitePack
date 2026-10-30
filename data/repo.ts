@@ -42,6 +42,7 @@ import type {
   SiteDocumentDetail,
   SiteDocumentSummary,
 } from '@/data/siteDocuments';
+import type { UnsignedSignDocument } from '@/data/signNudge';
 
 export type SignInResult = {
   person: Person;
@@ -173,6 +174,8 @@ export type SitePackRepo = {
   recordDrawingOpen(drawingId: string): Promise<void>;
   confirmDrawingSeen(drawingId: string, seenAt?: string | null): Promise<{ seenAt: string }>;
   listSiteDocuments(siteId: string): Promise<SiteDocumentSummary[]>;
+  /** Current unsigned RAMS and inductions this person must sign. One read. */
+  listUnsignedSiteDocuments(): Promise<UnsignedSignDocument[]>;
   getSiteDocument(documentId: string): Promise<SiteDocumentDetail | null>;
   createSiteDocument(input: CreateSiteDocumentInput): Promise<{ id: string }>;
   replaceSiteDocument(input: ReplaceSiteDocumentInput): Promise<void>;

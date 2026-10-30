@@ -39,6 +39,7 @@ export function DrawingFrame({ uri, onError }: { uri: string; onError?: (message
 
   return createElement('iframe', {
     title: 'drawing',
+    sandbox: 'allow-scripts',
     srcDoc: html,
     style: { flex: 1, width: '100%', height: '100%', border: 0, background: theme.bg },
   });

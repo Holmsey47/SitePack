@@ -50,7 +50,7 @@ var viewScale = 1;
 var baseWidth = 0;
 var baseHeight = 0;
 var pinchStart = null;
-pdfjsLib.getDocument({ data: bytes(${pdf}) }).promise.then(async function (doc) {
+pdfjsLib.getDocument({ data: bytes(${pdf}), isEvalSupported: false }).promise.then(async function (doc) {
   const page = await doc.getPage(1);
   const canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
